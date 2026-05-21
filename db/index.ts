@@ -1,6 +1,18 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import * as schema from './schema';
 
-const client = postgres(process.env.DATABASE_URL!);
+const databaseUrl = process.env.DATABASE_URL;
 
-export const db = drizzle(client);
+if(!databaseUrl){
+    throw new Error("DATABASE_URL is not set");
+}
+
+const client = postgres(databaseUrl, {
+    prepare: false, // good for transaction pooler connection
+});
+
+export const db = drizzle(client, {schema});
+export * from "./schema";
+
+// index.ts is the file for connect the app to supabase postgres
