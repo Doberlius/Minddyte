@@ -1,4 +1,4 @@
-import {sql} from "drizzle-orm"
+import { sql, relations } from "drizzle-orm"
 
 import {
   authUsers,
@@ -254,8 +254,5 @@ export const clusterNodes = pgTable(
     index("idx_cluster_nodes_node").on(table.nodeId),
   ],
 );
-
-
-
 
 
