@@ -83,9 +83,11 @@ The core unit of the Brain. Every topic the AI learns becomes a node.
 ```sql
 CREATE INDEX idx_nodes_user_id         ON nodes(user_id);
 CREATE INDEX idx_nodes_last_referenced ON nodes(user_id, last_referenced_at DESC);
-CREATE INDEX idx_nodes_embedding       ON nodes
+
+// // ใส่ใน raw sql ใน supabase ทีหลังเพราะมันจะกวน main flow ก่อนที่จะ inject schema ไปยัง supabase
+CREATE INDEX idx_nodes_embedding       ON nodes  
   USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
--- Alternative for smaller datasets (< 1000 rows):
+-- Alternative for smaller datasets (< 1000 rows):dd
 -- CREATE INDEX idx_nodes_embedding ON nodes USING hnsw (embedding vector_cosine_ops);
 ```
 
@@ -401,22 +403,58 @@ CREATE POLICY "users can delete own messages" ON messages FOR DELETE USING (auth
 **Junction tables — access via parent:**
 ```sql
 CREATE POLICY "session_nodes via session owner"
-  ON session_nodes FOR ALL
-  USING (EXISTS (
-    SELECT 1 FROM sessions WHERE id = session_id AND user_id = auth.uid()
-  ));
+ON session_nodes
+FOR ALL
+USING (
+  EXISTS (
+    SELECT 1 FROM sessions
+    WHERE sessions.id = session_nodes.session_id
+      AND sessions.user_id = auth.uid()
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM sessions
+    WHERE sessions.id = session_nodes.session_id
+      AND sessions.user_id = auth.uid()
+  )
+);
 
 CREATE POLICY "message_nodes via message owner"
-  ON message_nodes FOR ALL
-  USING (EXISTS (
-    SELECT 1 FROM messages WHERE id = message_id AND user_id = auth.uid()
-  ));
+ON message_nodes
+FOR ALL
+USING (
+  EXISTS (
+    SELECT 1 FROM messages
+    WHERE messages.id = message_nodes.message_id
+      AND messages.user_id = auth.uid()
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM messages
+    WHERE messages.id = message_nodes.message_id
+      AND messages.user_id = auth.uid()
+  )
+);
 
 CREATE POLICY "cluster_nodes via cluster owner"
-  ON cluster_nodes FOR ALL
-  USING (EXISTS (
-    SELECT 1 FROM clusters WHERE id = cluster_id AND user_id = auth.uid()
-  ));
+ON cluster_nodes
+FOR ALL
+USING (
+  EXISTS (
+    SELECT 1 FROM clusters
+    WHERE clusters.id = cluster_nodes.cluster_id
+      AND clusters.user_id = auth.uid()
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM clusters
+    WHERE clusters.id = cluster_nodes.cluster_id
+      AND clusters.user_id = auth.uid()
+  )
+);
 ```
 
 ---
