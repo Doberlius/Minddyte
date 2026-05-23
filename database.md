@@ -738,7 +738,73 @@ export const clusterNodes = pgTable('cluster_nodes', {
   pk:      primaryKey({ columns: [t.clusterId, t.nodeId] }),
   nodeIdx: index('idx_cluster_nodes_node').on(t.nodeId),
 }))
+
+
+
+======
+ ── Relations (required for db.query relational API) ─────────────────────
+─────
+
+export const foldersRelations = relations(folders, ({ many }) => ({
+  clusters: many(clusters),
+}))
+
+export const clustersRelations = relations(clusters, ({ one, many }) => ({
+  folder: one(folders, { fields: [clusters.folderId], references: [folders.i
+d] }),
+  sessions: many(sessions),
+  clusterNodes: many(clusterNodes),
+}))
+
+export const sessionsRelations = relations(sessions, ({ one, many }) => ({
+  cluster: one(clusters, { fields: [sessions.clusterId], references: [cluste
+rs.id] }),
+  messages: many(messages),
+  sessionNodes: many(sessionNodes),
+}))
+
+export const messagesRelations = relations(messages, ({ one, many }) => ({
+  session: one(sessions, { fields: [messages.sessionId], references: [sessio
+ns.id] }),
+  messageNodes: many(messageNodes),
+}))
+
+export const nodesRelations = relations(nodes, ({ one, many }) => ({
+  graphPosition: one(graphPositions, { fields: [nodes.id], references: [grap
+hPositions.nodeId] }),
+  sessionNodes: many(sessionNodes),
+  messageNodes: many(messageNodes),
+  clusterNodes: many(clusterNodes),
+}))
+export const graphPositionsRelations = relations(graphPositions, ({ one }) =
+> ({
+  node: one(nodes, { fields: [graphPositions.nodeId], references: [nodes.id]
+ }),
+}))
+
+export const sessionNodesRelations = relations(sessionNodes, ({ one }) => ({
+  session: one(sessions, { fields: [sessionNodes.sessionId], references: [se
+ssions.id] }),
+  node: one(nodes, { fields: [sessionNodes.nodeId], references: [nodes.id] }
+),
+}))
+
+export const messageNodesRelations = relations(messageNodes, ({ one }) => ({
+  message: one(messages, { fields: [messageNodes.messageId], references: [me
+ssages.id] }),
+  node: one(nodes, { fields: [messageNodes.nodeId], references: [nodes.id] }
+),
+}))
+
+export const clusterNodesRelations = relations(clusterNodes, ({ one }) => ({
+  cluster: one(clusters, { fields: [clusterNodes.clusterId], references: [cl
+usters.id] }),
+  node: one(nodes, { fields: [clusterNodes.nodeId], references: [nodes.id] }
+),
+}))
+
 ```
+
 
 ---
 
