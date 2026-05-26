@@ -26,9 +26,13 @@
 
 #personal
 files/
+database.md
+CLAUDE.md
+AGENTS.md
 
 #SPEC
-.minddyte.md
+minddyte.md
+minddyteDemo.jsx
 
 #AGENT
 .AGENTS.md
