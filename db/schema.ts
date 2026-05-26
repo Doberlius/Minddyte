@@ -23,7 +23,7 @@ import {
 
 const vector = customType<{data: number[]; driverData:string}>({ // store ai memory embedding
   dataType(){
-    return "extensions.vector(768)";
+    return "vector(768)";
   },
   toDriver(value: number[]){
     return `[${value.join(",")}]`;
