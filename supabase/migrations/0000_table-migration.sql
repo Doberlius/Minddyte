@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS vector;
+--> statement-breakpoint
 CREATE TABLE "cluster_nodes" (
 	"cluster_id" uuid NOT NULL,
 	"node_id" uuid NOT NULL,
@@ -77,7 +79,7 @@ CREATE TABLE "nodes" (
 	"summary" text,
 	"confidence" "float4" DEFAULT 1 NOT NULL,
 	"connection_count" integer DEFAULT 0 NOT NULL,
-	"embedding" extensions.vector(768),
+	"embedding" vector(768),
 	"last_referenced_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
