@@ -34,8 +34,8 @@ minddyte.md
 minddyteDemo.jsx
 
 #AGENT
-.AGENTS.md
-.CLAUDE.md
+AGENTS.md
+CLAUDE.md
 
 # debug
 npm-debug.log*
