@@ -26,9 +26,12 @@
 
 #personal
 files/
+database.md
+workflow.md
 
 #SPEC
-.minddyte.md
+minddyte.md
+minddyteDemo.jsx
 
 #AGENT
 .AGENTS.md
