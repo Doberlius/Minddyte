@@ -6,7 +6,7 @@ import {
     edges, 
     graphPositions,
     clusters
-} from "../../../db"
+} from "../../db"
 
 import {
     eq,
