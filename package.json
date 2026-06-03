@@ -16,6 +16,7 @@
     "baseline-browser-mapping": "^2.10.31",
     "caniuse-lite": "^1.0.30001793",
     "drizzle-orm": "^0.45.2",
+    "lucide-react": "^1.17.0",
     "next": "^15.5.18",
     "ollama-ai-provider": "^1.2.0",
     "postgres": "^3.4.9",
