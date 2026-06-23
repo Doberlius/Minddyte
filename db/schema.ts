@@ -206,7 +206,7 @@ export const graphPositions = pgTable(
   ],
 );
 
-export const sessionNodes = pgTable(
+export const sessionNodes = pgTable( // Junction table
   "session_nodes",
   {
     sessionId: uuid("session_id") // PK(composite key)
@@ -223,7 +223,7 @@ export const sessionNodes = pgTable(
   ],
 );
 
-export const messageNodes = pgTable(
+export const messageNodes = pgTable( // Junction table
   "message_nodes",
   {
     messageId: uuid("message_id") // PK(composite key)
@@ -239,7 +239,7 @@ export const messageNodes = pgTable(
   ],
 );
 
-export const clusterNodes = pgTable(
+export const clusterNodes = pgTable( // Junction table
   "cluster_nodes",
   {
     clusterId: uuid("cluster_id") // PK(composite key)
