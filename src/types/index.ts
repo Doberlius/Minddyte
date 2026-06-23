@@ -1,6 +1,6 @@
-// frontend
+import { DbSession, DbCluster } from '@/types/db';
 
-export interface Session{
+export interface Session {
     id: number,
     title: string,
     preview: string,
@@ -8,82 +8,64 @@ export interface Session{
     nodes: number
 }
 
-export interface Node{
+export interface Node {
     id: number,
     label: string,
     type: string,
     connection: number,
 }
 
-export interface SlashCommand{
+export interface SlashCommand {
     cmd: string,
     desc: string
 }
 
-export interface ModelEntry{
+export interface ModelEntry {
     id: string,
     label: string,
     size: string,
     downloaded: boolean
 }
 
-export interface SessionListItem{
+export interface SessionListItem {
     id: number,
     title: string,
     preview: string,
     time: string
 }
 
-export interface Dbfolder{
-    id: string,
-    user_id: string,
-    name: string,
-    created_at: string,
-    updated_at: string
-}
-
-export interface DbSession{
-    id: string,
-    user_id: string,
-    title: string,
-    preview: string | null,
-    cluster_id: string | null,
-    created_at: string,
-    updated_at: string
-}
-
-export interface DbMessage {
-    id: string,
-    session_id: string,
-    user_id: string,
-    role: 'user' | 'assistant' // assistant = ai
-    content: string,
-    model_used: string | null,
-    created_at: string
-}
-
-export interface DbNode{
-    id: string,
-    user_id: string,
+export interface GraphNode {
+    id: number,
     label: string,
-    type: string,
-    summary: string | null,
-    confidence: number, //0,1 edge
-    conection_count: number,
-    last_referenced_at: string,
-    created_at: string,
-    updated_at: string
+    sub: string,
+    x: number,
+    y: number,
 }
 
-// Junction table = many-many relationship
-export interface DbSessionNode {
-    session_id: string,
-    node_id: string,
-    added_at: string
+export interface GraphEdge{
+    from: number,
+    to: number,
+    dashed: boolean,
 }
 
-export interface DbMessageNode {
-    message_id: string,
-    node_id: string
+export interface ContextMenuState{
+    x: number,
+    y: number,
+    type: 'canvas' | 'node'
+    node: GraphNode | null
+}
+
+export interface Position {
+    x: number,
+    y: number
+}
+
+export type SessionWithCount = DbSession & {
+    node_count: number
+}
+
+export type ClusterWithMeta = DbCluster & {
+    session_count: number,
+    linked_nodes: string[]
 }
 
