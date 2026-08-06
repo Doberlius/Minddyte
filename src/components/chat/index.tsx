@@ -1,0 +1,1 @@
+export function NeuralChat() { return <div>Chat coming soon</div> }

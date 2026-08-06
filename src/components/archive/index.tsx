@@ -1,0 +1,1 @@
+export function MemoryArchives() { return <div>Archive coming soon</div> }
