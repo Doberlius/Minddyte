@@ -33,7 +33,7 @@ export interface DbNode {
     type: string,
     summary: string | null,
     confidence: number,
-    conection_count: number,
+    connection_count: number,
     last_referenced_at: string,
     created_at: string,
     updated_at: string

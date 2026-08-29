@@ -6,14 +6,14 @@ import '@/styles/global.css'
 
 export default function RootLayout({children}:
 {children: React.ReactNode}) {
-    const [queryCilent] = useState(() => new QueryClient({
+    const [queryClient] = useState(() => new QueryClient({
         defaultOptions: {queries: {staleTime: 30_000, retry: 1}},
     }))
 
     return (
     <html lang="en">
       <body>
-        <QueryClientProvider client={queryCilent}>
+        <QueryClientProvider client={queryClient}>
           {children}
         </QueryClientProvider>
       </body>

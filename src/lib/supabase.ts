@@ -9,7 +9,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnon)
 export function createServerClient(){
     return createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!, //bypass Row lovel security which need in API routes
+        process.env.SUPABASE_SERVICE_ROLE_KEY!, // bypasses Row Level Security — needed in API routes
         {auth: {persistSession: false}}
     )
 }

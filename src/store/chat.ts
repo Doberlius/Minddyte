@@ -1,6 +1,7 @@
 import {create} from 'zustand'
 import {persist} from 'zustand/middleware'
 import type { DbNode } from '@/types/db'
+import {DEFAULT_MODEL_ID, isKnownModel} from '@/constants/models'
 
 interface ChatStore{
     activeSessionId: string | null,
@@ -24,7 +25,7 @@ export const useChatStore = create<ChatStore>()(
             activeSessionId: null,
             activeNodes: [],
             mode: 'explore',
-            activeModel: 'qwen3.5:cloud',
+            activeModel: DEFAULT_MODEL_ID,
             pullingModels: {},
 
             setActiveSession: (id) => set(
@@ -62,6 +63,17 @@ export const useChatStore = create<ChatStore>()(
                 mode: s.mode,
                 activeModel: s.activeModel
             }),
+            // Drop a persisted model id we no longer offer (renamed/removed tag).
+            merge: (persisted, current) => {
+                const p = (persisted ?? {}) as Partial<ChatStore>
+                return {
+                    ...current,
+                    ...p,
+                    activeModel: isKnownModel(p.activeModel)
+                        ? p.activeModel
+                        : DEFAULT_MODEL_ID,
+                }
+            },
         }
     )
 )

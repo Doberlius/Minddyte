@@ -1,10 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { TopNav }          from '@/components/layout/TopNav'
-import { NeuralChat }      from '@/components/chat'
-import { NeuralBrain }     from '@/components/brain'
-import { MemoryArchives }  from '@/components/archive'
+import { TopNav } from '@/components/layout/TopNav'
+import { NeuralChat } from '@/components/chat'
+import { NeuralBrain } from '@/components/brain'
+import { MemoryArchives } from '@/components/archive'
 
 type Tab = 'chat' | 'brain' | 'archive'
 

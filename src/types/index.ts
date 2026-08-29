@@ -1,5 +1,8 @@
 import { DbSession, DbCluster } from '@/types/db';
 
+// Re-export DB types so `@/types` is the single entry point.
+export * from '@/types/db';
+
 export interface Session {
     id: number,
     title: string,
@@ -23,8 +26,11 @@ export interface SlashCommand {
 export interface ModelEntry {
     id: string,
     label: string,
-    size: string,
-    downloaded: boolean
+    location: 'cloud' | 'local',
+    /** Local disk footprint. Only meaningful when `location === 'local'`. */
+    size?: string,
+    /** Whether the local weights are pulled. Only meaningful when `location === 'local'`. */
+    downloaded?: boolean
 }
 
 export interface SessionListItem {
