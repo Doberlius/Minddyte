@@ -57,4 +57,19 @@ describe('rankCandidates', () => {
   it('exports a cap of 3 for automatic reaches', () => {
     expect(AUTO_REACH_CAP).toBe(3)
   })
+
+  it('keeps the headline ahead of a candidate sharing many rare nodes', () => {
+    const many = c({
+      chatId: 'many',
+      sharedNodes: Array.from({ length: 22 }, (_, i) => node('n' + i, 2)),
+    })
+    const head = c({ chatId: 'head', sharedNodes: [node('Kafka', 15, true)] })
+    expect(rankCandidates([many, head])[0].chatId).toBe('head')
+  })
+
+  it('is consistent when two candidates share a chat id', () => {
+    const a = c({ chatId: 'dup' })
+    const b = c({ chatId: 'dup' })
+    expect(rankCandidates([a, b]).map((x) => x.chatId)).toEqual(['dup', 'dup'])
+  })
 })

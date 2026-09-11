@@ -26,33 +26,33 @@ export type Candidate = {
 /** Spec §6.2 — a count, not a token budget. Predictable where a budget is not. */
 export const AUTO_REACH_CAP = 3
 
-/** Bonus when a shared Node is what the candidate Chat is *about*. */
-const HEADLINE_BONUS = 10
-
 /**
  * Rarity: a Node in 15 Chats is weak evidence; one in 2 is strong.
  * Weighting, never a hard cutoff — a cutoff makes a Node silently stop
  * working with no visible cause. Spec §6.3.
  */
 function score(c: Candidate): number {
-  return c.sharedNodes.reduce(
-    (sum, n) => sum + 1 / Math.max(1, n.chatCount) + (n.isHeadlineOfCandidate ? HEADLINE_BONUS : 0),
-    0,
-  )
+  return c.sharedNodes.reduce((sum, n) => sum + 1 / Math.max(1, n.chatCount), 0)
 }
 
 export function rankCandidates(candidates: Candidate[]): Candidate[] {
   return [...candidates].sort((a, b) => {
     // 1. Bridges are louder, not longer — authored beats derived.
     if (a.kind !== b.kind) return a.kind === 'bridge' ? -1 : 1
-    // 2 + 3. Headline bonus and shared-node count × rarity, combined in score().
+    // 2. Headline bonus — a Chat that is ABOUT the shared Node beats one
+    //    merely mentioning it, even where the other shares more Nodes. Spec §6.3.
+    const aHeadline = a.sharedNodes.some((n) => n.isHeadlineOfCandidate)
+    const bHeadline = b.sharedNodes.some((n) => n.isHeadlineOfCandidate)
+    if (aHeadline !== bHeadline) return aHeadline ? -1 : 1
+    // 3. Shared-Node count × rarity.
     const d = score(b) - score(a)
     if (d !== 0) return d
     // 4. More recently referenced.
     if (a.lastReferencedAt !== b.lastReferencedAt) return b.lastReferencedAt - a.lastReferencedAt
     // 5. Older chat wins.
     if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt
-    // 6. Backstop — determinism demands one.
-    return a.chatId < b.chatId ? -1 : 1
+    // 6. Backstop — determinism demands one. Equal ids are the same Chat:
+    //    returning 0 is deterministic because sort has been stable since ES2019.
+    return a.chatId < b.chatId ? -1 : a.chatId > b.chatId ? 1 : 0
   })
 }
