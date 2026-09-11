@@ -47,4 +47,10 @@ describe('the incremental invariant', () => {
     const incremental = msgs.reduce((acc, m) => appendToCompaction(acc, m, 90), '')
     expect(incremental).toBe(buildCompaction(msgs, 90))
   })
+
+  it('holds when a message contains an embedded newline', () => {
+    const msgs = ['AAAAA\nBBBBB.', 'CCCCC.']
+    const incremental = msgs.reduce((acc, m) => appendToCompaction(acc, m, 12), '')
+    expect(incremental).toBe(buildCompaction(msgs, 12))
+  })
 })
