@@ -3,7 +3,14 @@ import { splitSentences } from './text'
 /** Spec §4.1 — 400–600 characters, ~100–150 tokens. */
 export const COMPACTION_CAP = 500
 
-/** Join sentences and drop WHOLE ones from the tail until within cap. */
+/**
+ * Join sentences and drop WHOLE ones from the tail until within cap.
+ *
+ * Joined with newlines (not spaces) so appendToCompaction can recover
+ * sentence boundaries via direct string splitting. Re-parsing a space-joined
+ * string with splitSentences would silently fuse unterminated sentences with
+ * their neighbours, breaking the incremental/rebuild invariant.
+ */
 function trim(sentences: string[], cap: number): string {
   const kept: string[] = []
   let len = 0
@@ -13,7 +20,7 @@ function trim(sentences: string[], cap: number): string {
     kept.push(s)
     len += add
   }
-  return kept.join(' ')
+  return kept.join('\n')
 }
 
 /**
@@ -28,7 +35,7 @@ function trim(sentences: string[], cap: number): string {
 export function appendToCompaction(current: string, message: string, cap = COMPACTION_CAP): string {
   const incoming = splitSentences(message)
   if (incoming.length === 0) return current
-  const existing = splitSentences(current)
+  const existing = current.split('\n').filter(Boolean)
   return trim([...incoming, ...existing], cap)
 }
 
@@ -39,7 +46,10 @@ export function appendToCompaction(current: string, message: string, cap = COMPA
  *
  * `messages` must be ordered OLDEST FIRST; this reverses them so the newest
  * sentences lead, matching appendToCompaction. The equality of these two
- * functions is asserted by the invariant test and must never be broken.
+ * functions (incremental vs rebuild) is asserted by the invariant test and
+ * must never be broken. This equality holds because trim joins with newlines,
+ * allowing appendToCompaction to recover sentences from the compaction string
+ * via direct splitting rather than re-parsing punctuation boundaries.
  */
 export function buildCompaction(messages: string[], cap = COMPACTION_CAP): string {
   const sentences = [...messages].reverse().flatMap((m) => splitSentences(m))

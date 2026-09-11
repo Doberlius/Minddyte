@@ -41,4 +41,10 @@ describe('the incremental invariant', () => {
     const full = buildCompaction(msgs, CAP)
     expect(incremental).toBe(full)
   })
+
+  it('holds when a message has no terminal punctuation', () => {
+    const msgs = ['X'.repeat(40) + '.', 'Y'.repeat(40), 'Z'.repeat(40) + '.']
+    const incremental = msgs.reduce((acc, m) => appendToCompaction(acc, m, 90), '')
+    expect(incremental).toBe(buildCompaction(msgs, 90))
+  })
 })
