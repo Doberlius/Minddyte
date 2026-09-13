@@ -18,7 +18,13 @@ export function NeuralChat() {
   const [mode, setMode] = useState<'focus' | 'explore'>('explore')
 
   useEffect(() => {
-    fetch(`/api/sessions?userId=${DEV_USER}`).then((r) => r.json()).then(setChats).catch(() => {})
+    fetch(`/api/sessions?userId=${DEV_USER}`)
+      // fetch does not reject on 4xx, and the error body parses as valid JSON —
+      // without the r.ok check, setChats would receive an object and the picker
+      // would throw on .filter().
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => setChats(Array.isArray(data) ? data : []))
+      .catch(() => {})
   }, [])
 
   const atQuery = useMemo(() => {
@@ -32,8 +38,6 @@ export function NeuralChat() {
       body: {
         sessionId: DEV_SESSION,
         userId: DEV_USER,
-        mode,
-        taggedChatIds: tagged.map((t) => t.id),
       },
     }),
   })
@@ -41,7 +45,14 @@ export function NeuralChat() {
   const submit = () => {
     const text = input.trim()
     if (!text) return
-    sendMessage({ text })
+    // mode and taggedChatIds must be sent per-call: useChat builds its Chat (and
+    // the transport that owns the constructor `body`) once at mount and never
+    // rebuilds it, so anything baked into the transport body is frozen at its
+    // first-render value. Per-call body is merged over it at send time.
+    sendMessage(
+      { text },
+      { body: { mode, taggedChatIds: tagged.map((t) => t.id) } },
+    )
     setInput('')
   }
 
