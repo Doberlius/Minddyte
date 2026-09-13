@@ -5,9 +5,7 @@ import { canonicalKey, deriveTitle } from "@/lib/text"
 import { appendToCompaction } from "@/lib/compaction"
 
 /** The type of the `tx` argument `db.transaction(async (tx) => ...)` hands us. */
-type Tx = Parameters<typeof db.transaction>[0] extends (tx: infer T, ...rest: any[]) => any
-  ? T
-  : never
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 export async function persistMessage(input: {
   sessionId: string
@@ -90,8 +88,6 @@ export async function ingestUserMessage(input: {
   userId: string
   messageId: string
   content: string
-  /** True only for a Chat's very first user message — drives title + Headline. */
-  isFirstMessage: boolean
 }): Promise<void> {
   const { auto } = extractConcepts(input.content)
 
@@ -106,9 +102,19 @@ export async function ingestUserMessage(input: {
         .onConflictDoNothing()
     }
 
+    // Spec §4.4 — derived ONCE, from server state. route.ts persists the user
+    // message BEFORE streaming, so a count of exactly 1 means this really is the
+    // chat's first user message. Trusting the client's array length here would let
+    // a reload or a truncated history silently re-derive an existing chat's title.
+    const [counted] = await tx
+      .select({ n: sql<number>`count(*)`.mapWith(Number) })
+      .from(messages)
+      .where(and(eq(messages.sessionId, input.sessionId), eq(messages.role, "user")))
+    const isFirstMessage = counted.n === 1
+
     // Title and Headline, derived ONCE on the first message. Spec §4.4.
     // Renaming the Chat later never re-runs this.
-    if (input.isFirstMessage) {
+    if (isFirstMessage) {
       const title = deriveTitle(input.content)
       const headlineLabel = extractConcepts(title).auto[0] ?? auto[0] ?? null
 

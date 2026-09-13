@@ -19,6 +19,9 @@ export async function POST(req: Request) {
   const modelId = resolveModel(model)
 
   const last = messages[messages.length - 1]
+  if (!last || last.role !== "user") {
+    return Response.json({ error: "last message must be a user message" }, { status: 400 })
+  }
   const draft = last?.parts?.filter((p) => p.type === "text").map((p) => p.text).join("") ?? ""
 
   // 1. persist the user message
@@ -47,14 +50,19 @@ export async function POST(req: Request) {
     maxOutputTokens: 2048,
     // 3-6. Graph writes happen AFTER the stream. Spec §4.5.
     onFinish: async ({ text }) => {
-      await persistMessage({
-        sessionId, userId, role: "assistant", content: text, modelUsed: modelId,
-      })
-      await ingestUserMessage({
-        sessionId, userId, messageId, content: draft,
-        // The first user message drives the title and Headline. Spec §4.4.
-        isFirstMessage: messages.filter((m) => m.role === "user").length === 1,
-      })
+      try {
+        await persistMessage({
+          sessionId, userId, role: "assistant", content: text, modelUsed: modelId,
+        })
+        await ingestUserMessage({
+          sessionId, userId, messageId, content: draft,
+        })
+      } catch (err) {
+        // Spec §4.5 — the write path runs after the stream, so a failure here must
+        // never break the answer the user already received. But it must not vanish
+        // either: an unlogged failure means memory is silently lost.
+        console.error("[chat] graph write failed after stream", err)
+      }
     },
   })
 
