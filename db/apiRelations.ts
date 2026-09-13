@@ -1,31 +1,23 @@
 import {relations} from "drizzle-orm"
 import {
-    folders,
-    clusters,
+    collections,
     sessions,
     messages,
     nodes,
     graphPositions,
     sessionNodes,
     messageNodes,
-    clusterNodes,
+    collectionNodes,
 } from "./schema"
 
-export const foldersRelations = relations(folders, ({many}) => ({
-  clusters: many(clusters),
-}));
-
-export const clustersRelations = relations(clusters, ({one, many}) => ({
-  folder: one(folders, 
-    {fields: [clusters.folderId], references: [folders.id]}
-  ),
+export const collectionsRelations = relations(collections, ({many}) => ({
   sessions: many(sessions),
-  clusterNodes: many(clusterNodes),
+  collectionNodes: many(collectionNodes),
 }));
 
 export const sessionsRelations = relations(sessions, ({one, many}) => ({
-  cluster: one(clusters,
-     {fields: [sessions.clusterId], references: [clusters.id]}
+  collection: one(collections,
+     {fields: [sessions.collectionId], references: [collections.id]}
   ),
   messages: many(messages),
   sessionNodes: many(sessionNodes),
@@ -44,7 +36,7 @@ export const nodesRelations = relations(nodes, ({one, many}) => ({
   ),
   sessionNodes: many(sessionNodes),
   messageNodes: many(messageNodes),
-  clusterNodes: many(clusterNodes),
+  collectionNodes: many(collectionNodes),
 }))
 
 export const graphPositionsRelations = relations(graphPositions, ({one}) => ({
@@ -72,12 +64,11 @@ export const messageNodesRelations = relations(messageNodes, ({one}) => ({
   ),
 }));
 
-export const clusterNodesRelations = relations(clusterNodes, ({one}) => ({
-  cluster: one(clusters, 
-    {fields: [clusterNodes.clusterId], references: [clusters.id]}
+export const collectionNodesRelations = relations(collectionNodes, ({one}) => ({
+  collection: one(collections, 
+    {fields: [collectionNodes.collectionId], references: [collections.id]}
   ),
   node: one(nodes, 
-    {fields: [clusterNodes.nodeId], references: [nodes.id]}
+    {fields: [collectionNodes.nodeId], references: [nodes.id]}
   ),
 }))
-

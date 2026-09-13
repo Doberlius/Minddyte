@@ -1,15 +1,75 @@
 {
-  "id": "1f486018-dd8c-45ab-8527-cdff9b05bd94",
+  "id": "942bb1ac-12dc-4f9c-b3a2-a03dd141b9a1",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.cluster_nodes": {
-      "name": "cluster_nodes",
+    "public.cluster_origins": {
+      "name": "cluster_origins",
       "schema": "",
       "columns": {
-        "cluster_id": {
-          "name": "cluster_id",
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cluster_key": {
+          "name": "cluster_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "x": {
+          "name": "x",
+          "type": "float4",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "y": {
+          "name": "y",
+          "type": "float4",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "cluster_origins_user_id_users_id_fk": {
+          "name": "cluster_origins_user_id_users_id_fk",
+          "tableFrom": "cluster_origins",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "cluster_origins_user_id_cluster_key_pk": {
+          "name": "cluster_origins_user_id_cluster_key_pk",
+          "columns": [
+            "user_id",
+            "cluster_key"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.collection_nodes": {
+      "name": "collection_nodes",
+      "schema": "",
+      "columns": {
+        "collection_id": {
+          "name": "collection_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -21,30 +81,14 @@
           "notNull": true
         }
       },
-      "indexes": {
-        "idx_cluster_nodes_node": {
-          "name": "idx_cluster_nodes_node",
-          "columns": [
-            {
-              "expression": "node_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
-        "cluster_nodes_cluster_id_clusters_id_fk": {
-          "name": "cluster_nodes_cluster_id_clusters_id_fk",
-          "tableFrom": "cluster_nodes",
-          "tableTo": "clusters",
+        "collection_nodes_collection_id_collections_id_fk": {
+          "name": "collection_nodes_collection_id_collections_id_fk",
+          "tableFrom": "collection_nodes",
+          "tableTo": "collections",
           "columnsFrom": [
-            "cluster_id"
+            "collection_id"
           ],
           "columnsTo": [
             "id"
@@ -52,9 +96,9 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "cluster_nodes_node_id_nodes_id_fk": {
-          "name": "cluster_nodes_node_id_nodes_id_fk",
-          "tableFrom": "cluster_nodes",
+        "collection_nodes_node_id_nodes_id_fk": {
+          "name": "collection_nodes_node_id_nodes_id_fk",
+          "tableFrom": "collection_nodes",
           "tableTo": "nodes",
           "columnsFrom": [
             "node_id"
@@ -67,10 +111,10 @@
         }
       },
       "compositePrimaryKeys": {
-        "cluster_nodes_cluster_id_node_id_pk": {
-          "name": "cluster_nodes_cluster_id_node_id_pk",
+        "collection_nodes_collection_id_node_id_pk": {
+          "name": "collection_nodes_collection_id_node_id_pk",
           "columns": [
-            "cluster_id",
+            "collection_id",
             "node_id"
           ]
         }
@@ -80,8 +124,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.clusters": {
-      "name": "clusters",
+    "public.collections": {
+      "name": "collections",
       "schema": "",
       "columns": {
         "id": {
@@ -130,12 +174,6 @@
           "notNull": true,
           "default": false
         },
-        "folder_id": {
-          "name": "folder_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "last_active_at": {
           "name": "last_active_at",
           "type": "timestamp with time zone",
@@ -159,8 +197,8 @@
         }
       },
       "indexes": {
-        "idx_clusters_one_featured": {
-          "name": "idx_clusters_one_featured",
+        "idx_collections_one_featured": {
+          "name": "idx_collections_one_featured",
           "columns": [
             {
               "expression": "user_id",
@@ -170,52 +208,16 @@
             }
           ],
           "isUnique": true,
-          "where": "\"clusters\".\"featured\" = true",
+          "where": "\"collections\".\"featured\" = true",
           "concurrently": false,
           "method": "btree",
           "with": {}
         },
-        "idx_clusters_user_id": {
-          "name": "idx_clusters_user_id",
+        "idx_collections_user_id": {
+          "name": "idx_collections_user_id",
           "columns": [
             {
               "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_clusters_last_active": {
-          "name": "idx_clusters_last_active",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "last_active_at",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_clusters_folder_id": {
-          "name": "idx_clusters_folder_id",
-          "columns": [
-            {
-              "expression": "folder_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -228,9 +230,9 @@
         }
       },
       "foreignKeys": {
-        "clusters_user_id_users_id_fk": {
-          "name": "clusters_user_id_users_id_fk",
-          "tableFrom": "clusters",
+        "collections_user_id_users_id_fk": {
+          "name": "collections_user_id_users_id_fk",
+          "tableFrom": "collections",
           "tableTo": "users",
           "schemaTo": "auth",
           "columnsFrom": [
@@ -240,19 +242,6 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "clusters_folder_id_folders_id_fk": {
-          "name": "clusters_folder_id_folders_id_fk",
-          "tableFrom": "clusters",
-          "tableTo": "folders",
-          "columnsFrom": [
-            "folder_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -291,19 +280,12 @@
           "primaryKey": false,
           "notNull": true
         },
-        "type": {
-          "name": "type",
+        "source": {
+          "name": "source",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'suggested'"
-        },
-        "confidence": {
-          "name": "confidence",
-          "type": "float4",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0.5
+          "default": "'overlap'"
         },
         "relationship_label": {
           "name": "relationship_label",
@@ -311,22 +293,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "occurrence_count": {
-          "name": "occurrence_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
@@ -334,62 +302,11 @@
         }
       },
       "indexes": {
-        "idx_edges_user_id": {
-          "name": "idx_edges_user_id",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "idx_edges_from_node": {
           "name": "idx_edges_from_node",
           "columns": [
             {
               "expression": "from_node_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_edges_to_node": {
-          "name": "idx_edges_to_node",
-          "columns": [
-            {
-              "expression": "to_node_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_edges_both_nodes": {
-          "name": "idx_edges_both_nodes",
-          "columns": [
-            {
-              "expression": "from_node_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "to_node_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -461,76 +378,41 @@
           "name": "edges_no_self_loop",
           "value": "\"edges\".\"from_node_id\" <> \"edges\".\"to_node_id\""
         },
-        "edges_type_check": {
-          "name": "edges_type_check",
-          "value": "\"edges\".\"type\" in ('confirmed', 'suggested')"
-        },
-        "edges_confidence": {
-          "name": "edges_confidence",
-          "value": "\"edges\".\"confidence\" >= 0 and \"edges\".\"confidence\" <=1"
+        "edges_source_check": {
+          "name": "edges_source_check",
+          "value": "\"edges\".\"source\" in ('overlap', 'bridge', 'manual')"
         }
       },
       "isRLSEnabled": false
     },
-    "public.folders": {
-      "name": "folders",
+    "public.forgotten": {
+      "name": "forgotten",
       "schema": "",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
         "user_id": {
           "name": "user_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
-        "name": {
-          "name": "name",
-          "type": "text",
+        "session_id": {
+          "name": "session_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
+        "node_label": {
+          "name": "node_label",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
+          "notNull": true
         }
       },
-      "indexes": {
-        "idx_folders_user_id": {
-          "name": "idx_folders_user_id",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
-        "folders_user_id_users_id_fk": {
-          "name": "folders_user_id_users_id_fk",
-          "tableFrom": "folders",
+        "forgotten_user_id_users_id_fk": {
+          "name": "forgotten_user_id_users_id_fk",
+          "tableFrom": "forgotten",
           "tableTo": "users",
           "schemaTo": "auth",
           "columnsFrom": [
@@ -541,19 +423,31 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "forgotten_session_id_sessions_id_fk": {
+          "name": "forgotten_session_id_sessions_id_fk",
+          "tableFrom": "forgotten",
+          "tableTo": "sessions",
+          "columnsFrom": [
+            "session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "folders_unique_name": {
-          "name": "folders_unique_name",
-          "nullsNotDistinct": false,
+      "compositePrimaryKeys": {
+        "forgotten_session_id_node_label_pk": {
+          "name": "forgotten_session_id_node_label_pk",
           "columns": [
-            "user_id",
-            "name"
+            "session_id",
+            "node_label"
           ]
         }
       },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -596,23 +490,7 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "idx_graph_positions_user_id": {
-          "name": "idx_graph_positions_user_id",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "graph_positions_node_id_nodes_id_fk": {
           "name": "graph_positions_node_id_nodes_id_fk",
@@ -774,21 +652,6 @@
         }
       },
       "indexes": {
-        "idx_messages_session_id": {
-          "name": "idx_messages_session_id",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "idx_messages_created": {
           "name": "idx_messages_created",
           "columns": [
@@ -800,21 +663,6 @@
             },
             {
               "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_messages_user_id": {
-          "name": "idx_messages_user_id",
-          "columns": [
-            {
-              "expression": "user_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -889,6 +737,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "canonical_key": {
+          "name": "canonical_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "type": {
           "name": "type",
           "type": "text",
@@ -902,23 +756,16 @@
           "primaryKey": false,
           "notNull": false
         },
-        "confidence": {
-          "name": "confidence",
-          "type": "float4",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "connection_count": {
-          "name": "connection_count",
+        "chat_count": {
+          "name": "chat_count",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "default": 0
         },
-        "embedding": {
-          "name": "embedding",
-          "type": "vector(768)",
+        "archived_at": {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
@@ -959,27 +806,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "idx_nodes_last_referenced": {
-          "name": "idx_nodes_last_referenced",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "last_referenced_at",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -999,14 +825,66 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "nodes_confidence": {
-          "name": "nodes_confidence",
-          "value": "\"nodes\".\"confidence\" >= 0 and \"nodes\".\"confidence\" <= 1"
+      "uniqueConstraints": {
+        "nodes_canonical_unique": {
+          "name": "nodes_canonical_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id",
+            "canonical_key"
+          ]
         }
       },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.rejected_phrases": {
+      "name": "rejected_phrases",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phrase": {
+          "name": "phrase",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "rejected_phrases_user_id_users_id_fk": {
+          "name": "rejected_phrases_user_id_users_id_fk",
+          "tableFrom": "rejected_phrases",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "rejected_phrases_user_id_phrase_pk": {
+          "name": "rejected_phrases_user_id_phrase_pk",
+          "columns": [
+            "user_id",
+            "phrase"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.session_nodes": {
@@ -1122,9 +1000,34 @@
           "primaryKey": false,
           "notNull": false
         },
-        "cluster_id": {
-          "name": "cluster_id",
+        "collection_id": {
+          "name": "collection_id",
           "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "compaction": {
+          "name": "compaction",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "compaction_updated_at": {
+          "name": "compaction_updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "headline_node_id": {
+          "name": "headline_node_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "model_id": {
+          "name": "model_id",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -1179,21 +1082,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "idx_sessions_cluster_id": {
-          "name": "idx_sessions_cluster_id",
-          "columns": [
-            {
-              "expression": "cluster_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -1211,12 +1099,12 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "sessions_cluster_id_clusters_id_fk": {
-          "name": "sessions_cluster_id_clusters_id_fk",
+        "sessions_collection_id_collections_id_fk": {
+          "name": "sessions_collection_id_collections_id_fk",
           "tableFrom": "sessions",
-          "tableTo": "clusters",
+          "tableTo": "collections",
           "columnsFrom": [
-            "cluster_id"
+            "collection_id"
           ],
           "columnsTo": [
             "id"
