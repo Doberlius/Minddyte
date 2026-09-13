@@ -1,84 +1,32 @@
-import {
-    db,
-    sessions,
-    messages,
-    nodes,
-    edges, 
-    graphPositions,
-    clusters
-} from "../../db"
+import { db, sessions, messages, nodes, sessionNodes } from "../../db"
+import { and, desc, eq, sql } from "drizzle-orm"
 
-import {
-    eq,
-    and,
-    asc,
-    or, 
-    sql
-} from "drizzle-orm"
-
-export async function loadSession(sessionId: string, userId: string){
-    return db.query.sessions.findFirst({
-        where: and(
-            eq(sessions.id, sessionId),
-            eq(sessions.userId,userId)
-        ),
-        with: {
-            messages: {
-                orderBy: asc(messages.createdAt)
-            },
-            sessionNodes: {
-                with: {node: {
-                    columns: {id: true, label: true, type:true}
-                }}
-            },
-        }
-
+export async function listChats(userId: string) {
+  return db
+    .select({
+      id: sessions.id,
+      title: sessions.title,
+      updatedAt: sessions.updatedAt,
+      nodeCount: sql<number>`(
+        select count(*) from ${sessionNodes} where ${sessionNodes.sessionId} = ${sessions.id}
+      )`.mapWith(Number),
     })
-};
-
-export async function loadBrainGraph(userId: string){
-    const [allNodes, allEdges, positions] = await Promise.all([
-        db.select().from(nodes)
-            .where(eq(nodes.userId, userId)),
-        db.select().from(edges)
-            .where(eq(edges.userId, userId)),
-        db.select().from(graphPositions)
-            .where(eq(graphPositions.userId, userId))
-    ])
-    return {nodes: allNodes, edges: allEdges, positions}
+    .from(sessions)
+    .where(eq(sessions.userId, userId))
+    .orderBy(desc(sessions.updatedAt))
 }
 
-export async function upsertGraphPosition(nodeId: string, userId: string, x: number, y: number){
-    return db.insert(graphPositions)
-        .values({nodeId, userId, x, y})
-        .onConflictDoUpdate({
-            target: graphPositions.nodeId,
-            set: {x, y, updatedAt: new Date()}
-        })
+export async function loadChat(sessionId: string, userId: string) {
+  return db.query.sessions.findFirst({
+    where: and(eq(sessions.id, sessionId), eq(sessions.userId, userId)),
+    with: { messages: { orderBy: messages.createdAt } },
+  })
 }
 
-export async function solidifyEdge(nodeAId: string, nodeBId: string){
-    return db.update(edges)
-        .set({occurrenceCount: sql `
-            ${edges.occurrenceCount} + 1
-        `, updatedAt: new Date()})
-        .where(or(
-            and(
-                eq(edges.fromNodeId, nodeAId),
-                eq(edges.toNodeId, nodeBId),
-            ),
-            and(
-                eq(edges.fromNodeId, nodeBId),
-                eq(edges.toNodeId, nodeAId),
-            )
-        ))
+export async function touchNodes(nodeIds: string[]) {
+  if (nodeIds.length === 0) return
+  await db
+    .update(nodes)
+    .set({ lastReferencedAt: new Date() })
+    .where(sql`${nodes.id} = any(${nodeIds})`)
 }
-
-export async function deleteCluster(clusterId: string, userId: string){
-    return db.delete(clusters)
-        .where(and(
-            eq(clusters.id, clusterId),
-            eq(clusters.userId, userId),
-        ))
-}
-
