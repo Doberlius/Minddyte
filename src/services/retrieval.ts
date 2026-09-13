@@ -76,8 +76,12 @@ export async function retrieveContext(input: {
       chatCount: r.chatCount,
       isHeadlineOfCandidate: r.isHeadline,
     }
-    if (existing) existing.sharedNodes.push(shared)
-    else
+    if (existing) {
+      existing.sharedNodes.push(shared)
+      // Order-independent: the query has no ORDER BY, so taking the first row's
+      // timestamp would make ranking step 4 depend on Postgres's row order.
+      existing.lastReferencedAt = Math.max(existing.lastReferencedAt, r.lastReferencedAt.getTime())
+    } else
       byChat.set(r.chatId, {
         chatId: r.chatId,
         kind: tagged.has(r.chatId) ? "bridge" : "overlap",
@@ -91,19 +95,41 @@ export async function retrieveContext(input: {
   const autoRanked = rankCandidates([...byChat.values()].filter((c) => c.kind === "overlap"))
     .slice(0, AUTO_REACH_CAP)
 
-  const taggedRows = await db
-    .select({
-      id: sessions.id,
-      title: sessions.title,
-      compaction: sessions.compaction,
-      createdAt: sessions.createdAt,
-      updatedAt: sessions.updatedAt,
-    })
-    .from(sessions)
-    .where(and(eq(sessions.userId, input.userId), sql`${sessions.id} = any(${input.taggedChatIds})`))
+  const taggedRows = input.taggedChatIds.length
+    ? await db
+        .select({
+          id: sessions.id,
+          title: sessions.title,
+          compaction: sessions.compaction,
+          createdAt: sessions.createdAt,
+          updatedAt: sessions.updatedAt,
+        })
+        .from(sessions)
+        .where(and(eq(sessions.userId, input.userId), sql`${sessions.id} = any(${input.taggedChatIds})`))
+    : []
+
+  // Tagged chats go through the same ranking chain as auto reaches, uncapped.
+  // A tagged chat that also shares nodes reuses the sharedNodes already
+  // gathered for it in byChat; otherwise it has none. Spec §6.5.
+  for (const t of taggedRows) meta.set(t.id, { title: t.title, compaction: t.compaction })
+  const taggedCandidates: Candidate[] = taggedRows.map((t) => ({
+    chatId: t.id,
+    kind: "bridge",
+    sharedNodes: byChat.get(t.id)?.sharedNodes ?? [],
+    lastReferencedAt: t.updatedAt.getTime(),
+    createdAt: t.createdAt.getTime(),
+  }))
+  const taggedRanked = rankCandidates(taggedCandidates)
 
   const ordered = [
-    ...taggedRows.map((t) => ({ id: t.id, title: t.title, compaction: t.compaction, why: "tagged" })),
+    ...taggedRanked.map((c) => ({
+      id: c.chatId,
+      title: meta.get(c.chatId)!.title,
+      compaction: meta.get(c.chatId)!.compaction,
+      why: c.sharedNodes.length
+        ? `tagged · shares ${c.sharedNodes.map((n) => n.label).join(", ")}`
+        : "tagged",
+    })),
     ...autoRanked.map((c) => ({
       id: c.chatId,
       title: meta.get(c.chatId)!.title,
