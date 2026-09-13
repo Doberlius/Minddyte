@@ -123,10 +123,16 @@ export async function ingestUserMessage(input: {
     }
 
     // Incremental compaction. Spec §4.1 — never re-reads history.
+    // FOR UPDATE locks this session row for the rest of the transaction:
+    // without it, two overlapping ingestUserMessage calls on the same chat
+    // (e.g. the user sends a second message mid-stream) could both read the
+    // same compaction value, and whichever UPDATE commits second would
+    // silently overwrite the other's appended sentences.
     const [s] = await tx
       .select({ compaction: sessions.compaction })
       .from(sessions)
       .where(and(eq(sessions.id, input.sessionId), eq(sessions.userId, input.userId)))
+      .for('update')
 
     if (s) {
       await tx
