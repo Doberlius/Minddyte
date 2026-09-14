@@ -88,6 +88,17 @@ export async function ingestUserMessage(input: {
   userId: string
   messageId: string
   content: string
+  /**
+   * The assistant's reply to this message, for the Compaction only.
+   *
+   * Spec §4.1 takes BOTH roles into the Compaction — a memory built from
+   * questions alone records what was asked, never what was concluded.
+   * Extraction is a separate concern and stays user-only (spec §4.2): an
+   * assistant reply runs to hundreds of words and would swamp the index
+   * with concepts the user never raised. So this text reaches
+   * appendToCompaction and nothing else — never extractConcepts.
+   */
+  assistantContent?: string
 }): Promise<void> {
   const { auto } = extractConcepts(input.content)
 
@@ -141,10 +152,19 @@ export async function ingestUserMessage(input: {
       .for('update')
 
     if (s) {
+      // Both roles, the user's first. appendToCompaction PREPENDS, so the
+      // assistant's reply goes in first and the user's message second —
+      // leaving the user's sentences at the front, where they survive
+      // trimming longest. Spec §4.1. buildCompaction's doc comment carries
+      // the matching rebuild order; the invariant test asserts they agree.
+      const withAssistant = input.assistantContent
+        ? appendToCompaction(s.compaction, input.assistantContent)
+        : s.compaction
+
       await tx
         .update(sessions)
         .set({
-          compaction: appendToCompaction(s.compaction, input.content),
+          compaction: appendToCompaction(withAssistant, input.content),
           compactionUpdatedAt: new Date(),
           updatedAt: new Date(),
         })

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appendToCompaction, buildCompaction, RECORD_SEPARATOR } from '@/lib/compaction'
+import { appendToCompaction, buildCompaction, RECORD_SEPARATOR, type Turn } from '@/lib/compaction'
 
 const CAP = 120
 
@@ -30,28 +30,62 @@ describe('appendToCompaction', () => {
 })
 
 describe('the incremental invariant', () => {
+  // The write path per turn: the assistant's reply is appended first and the
+  // user's message second, because appendToCompaction prepends — leaving the
+  // user's sentences leading. Spec §4.1.
+  const ingestTurn = (acc: string, t: Turn, cap: number) =>
+    appendToCompaction(t.assistant ? appendToCompaction(acc, t.assistant, cap) : acc, t.user, cap)
+
   it('N incremental appends equal one full rebuild', () => {
-    const msgs = [
-      'First message about Kafka.',
-      'Second message about backpressure.',
-      'Third message about consumer groups.',
-      'Fourth message about timeouts.',
+    const turns: Turn[] = [
+      { user: 'First message about Kafka.' },
+      { user: 'Second message about backpressure.' },
+      { user: 'Third message about consumer groups.' },
+      { user: 'Fourth message about timeouts.' },
     ]
-    const incremental = msgs.reduce((acc, m) => appendToCompaction(acc, m, CAP), '')
-    const full = buildCompaction(msgs, CAP)
+    const incremental = turns.reduce((acc, t) => ingestTurn(acc, t, CAP), '')
+    const full = buildCompaction(turns, CAP)
     expect(incremental).toBe(full)
   })
 
   it('holds when a message has no terminal punctuation', () => {
-    const msgs = ['X'.repeat(40) + '.', 'Y'.repeat(40), 'Z'.repeat(40) + '.']
-    const incremental = msgs.reduce((acc, m) => appendToCompaction(acc, m, 90), '')
-    expect(incremental).toBe(buildCompaction(msgs, 90))
+    const turns: Turn[] = [
+      { user: 'X'.repeat(40) + '.' },
+      { user: 'Y'.repeat(40) },
+      { user: 'Z'.repeat(40) + '.' },
+    ]
+    const incremental = turns.reduce((acc, t) => ingestTurn(acc, t, 90), '')
+    expect(incremental).toBe(buildCompaction(turns, 90))
   })
 
   it('holds when a message contains an embedded newline', () => {
-    const msgs = ['AAAAA\nBBBBB.', 'CCCCC.']
-    const incremental = msgs.reduce((acc, m) => appendToCompaction(acc, m, 12), '')
-    expect(incremental).toBe(buildCompaction(msgs, 12))
+    const turns: Turn[] = [{ user: 'AAAAA\nBBBBB.' }, { user: 'CCCCC.' }]
+    const incremental = turns.reduce((acc, t) => ingestTurn(acc, t, 12), '')
+    expect(incremental).toBe(buildCompaction(turns, 12))
+  })
+
+  it('holds when turns carry both roles', () => {
+    const turns: Turn[] = [
+      { user: 'First about Kafka.', assistant: 'Kafka is a distributed log.' },
+      { user: 'Second about backpressure.', assistant: 'Backpressure throttles producers.' },
+    ]
+    const incremental = turns.reduce((acc, t) => ingestTurn(acc, t, 500), '')
+    expect(incremental).toBe(buildCompaction(turns, 500))
+  })
+
+  it('puts the user ahead of the assistant within one turn', () => {
+    // Spec §4.1 — "Both roles, the user's messages weighted first." Leading
+    // means surviving the tail trim longest.
+    const out = ingestTurn('', { user: 'User asked this.', assistant: 'Model answered that.' }, 500)
+    expect(out.split(RECORD_SEPARATOR)).toEqual(['User asked this.', 'Model answered that.'])
+  })
+
+  it('keeps the assistant reply out of extraction but inside the compaction', () => {
+    // A turn whose reply introduces a concept the user never raised: the
+    // sentence is retrievable memory, but ingestUserMessage never passes it
+    // to extractConcepts (asserted at the service layer, not here).
+    const out = ingestTurn('', { user: 'Why is it slow?', assistant: 'Consumer lag was the cause.' }, 500)
+    expect(out).toContain('Consumer lag was the cause.')
   })
 
   it('preserves a pasted code block byte-for-byte', () => {

@@ -1,5 +1,5 @@
 import { db, sessions, nodes, sessionNodes } from "../../db"
-import { and, eq, inArray, ne, sql } from "drizzle-orm"
+import { and, eq, inArray, ne, or, sql } from "drizzle-orm"
 import { rankCandidates, AUTO_REACH_CAP, type Candidate } from "@/lib/rank"
 import { extractConcepts } from "@/lib/extract"
 import { canonicalKey } from "@/lib/text"
@@ -23,8 +23,25 @@ type Row = {
  * Match Nodes, find their Chats, and fetch those Chats' compactions together.
  * Written as three tidy functions this triples the only cost that matters.
  */
-async function candidateRows(userId: string, sessionId: string, keys: string[]): Promise<Row[]> {
-  if (keys.length === 0) return []
+async function candidateRows(userId: string, sessionId: string, draftKeys: string[]): Promise<Row[]> {
+  // Spec §6.1 — explore reaches Chats "sharing a Node with the current Chat",
+  // so the current Chat's own Nodes are the primary match set. Kept as a
+  // SUBQUERY rather than a prior round trip: §6.6's rule is that matching and
+  // fetching happen in one query, and a separate lookup would make it two.
+  const currentChatKeys = db
+    .select({ k: nodes.canonicalKey })
+    .from(sessionNodes)
+    .innerJoin(nodes, eq(nodes.id, sessionNodes.nodeId))
+    .where(eq(sessionNodes.sessionId, sessionId))
+
+  // The draft's concepts are NOT yet Nodes — graph writes happen after the
+  // response streams (§4.5) — so they are unioned in separately. They carry
+  // the user's current intent, which the Chat's accumulated Nodes do not.
+  const matches =
+    draftKeys.length > 0
+      ? or(inArray(nodes.canonicalKey, currentChatKeys), inArray(nodes.canonicalKey, draftKeys))
+      : inArray(nodes.canonicalKey, currentChatKeys)
+
   return db
     .select({
       chatId: sessions.id,
@@ -42,12 +59,13 @@ async function candidateRows(userId: string, sessionId: string, keys: string[]):
     .where(
       and(
         eq(nodes.userId, userId),
+        eq(sessions.userId, userId),
         ne(sessions.id, sessionId),
         sql`${nodes.archivedAt} is null`,
         // sql`= any(${keys})` with a JS array compiles to a row constructor
         // `= any(($1, $2))`, which Postgres rejects — inArray compiles to
         // `in ($1, $2)` instead. Do not "optimise" this back to sql`= any(...)`.
-        inArray(nodes.canonicalKey, keys),
+        matches,
       ),
     )
 }
@@ -61,13 +79,18 @@ export async function retrieveContext(input: {
 }) {
   const tagged = new Set(input.taggedChatIds)
 
-  // In focus, automatic reach is ignored entirely. Spec §6.1.
-  const keys =
+  // In focus, automatic reach is ignored entirely — only what the user
+  // tagged. Spec §6.1. The skip is the CALL, not an empty key list: the
+  // match set now includes the current Chat's own Nodes, so passing no draft
+  // keys would still reach in explore, which is exactly what focus forbids.
+  const rows =
     input.mode === "explore"
-      ? extractConcepts(input.draftText).auto.map(canonicalKey).filter(Boolean)
+      ? await candidateRows(
+          input.userId,
+          input.sessionId,
+          extractConcepts(input.draftText).auto.map(canonicalKey).filter(Boolean),
+        )
       : []
-
-  const rows = await candidateRows(input.userId, input.sessionId, keys)
 
   const byChat = new Map<string, Candidate>()
   const meta = new Map<string, { title: string; compaction: string }>()

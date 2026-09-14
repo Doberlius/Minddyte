@@ -1,4 +1,4 @@
-import { DbSession, DbCluster } from '@/types/db';
+import { DbSession, DbCollection } from '@/types/db';
 
 // Re-export DB types so `@/types` is the single entry point.
 export * from '@/types/db';
@@ -70,7 +70,7 @@ export type SessionWithCount = DbSession & {
     node_count: number
 }
 
-export type ClusterWithMeta = DbCluster & {
+export type CollectionWithMeta = DbCollection & {
     session_count: number,
     linked_nodes: string[]
 }

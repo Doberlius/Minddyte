@@ -6,6 +6,8 @@ export default defineConfig({
   out: './supabase/migrations',  
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL!,
+    // DIRECT_URL = session pooler (5432). drizzle-kit introspection hangs
+    // on the transaction pooler (6543) that DATABASE_URL uses at runtime.
+    url: process.env.DIRECT_URL ?? process.env.DATABASE_URL!,
   },
 }); 

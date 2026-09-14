@@ -51,18 +51,45 @@ export function appendToCompaction(current: string, message: string, cap = COMPA
 }
 
 /**
+ * One exchange: what the user said, and what the assistant replied.
+ *
+ * `assistant` is optional because a turn exists from the moment the user
+ * sends — the reply has not streamed yet, and a chat whose last reply failed
+ * still has a valid final turn.
+ */
+export type Turn = {
+  user: string
+  assistant?: string
+}
+
+/**
  * Full rebuild from scratch. Only called when Forgetting invalidates the
  * cached compaction (spec §5.1) — that is the one event that changes what
  * older messages contribute.
  *
- * `messages` must be ordered OLDEST FIRST; this reverses them so the newest
- * sentences lead, matching appendToCompaction. The equality of these two
- * functions (incremental vs rebuild) is asserted by the invariant test and
- * must never be broken. This equality holds because trim joins with
- * RECORD_SEPARATOR, a character that cannot occur inside a sentence, so
- * appendToCompaction can always recover sentences by splitting on it.
+ * `turns` must be ordered OLDEST FIRST; this reverses them so the newest
+ * turn leads, matching the incremental path. Spec §4.1 takes BOTH roles,
+ * "the user's messages weighted first" — so within a turn the user's
+ * sentences come before the assistant's, and therefore survive trimming
+ * longer.
+ *
+ * The incremental path reproduces this by appending the assistant's reply
+ * first and the user's message second, since appendToCompaction PREPENDS:
+ *
+ *     appendToCompaction(appendToCompaction(current, assistant), user)
+ *
+ * The equality of these two functions (incremental vs rebuild) is asserted
+ * by the invariant test and must never be broken. It holds because trim
+ * joins with RECORD_SEPARATOR, a character that cannot occur inside a
+ * sentence, so appendToCompaction can always recover sentences by splitting
+ * on it.
  */
-export function buildCompaction(messages: string[], cap = COMPACTION_CAP): string {
-  const sentences = [...messages].reverse().flatMap((m) => splitSentences(m))
+export function buildCompaction(turns: Turn[], cap = COMPACTION_CAP): string {
+  const sentences = [...turns]
+    .reverse()
+    .flatMap((t) => [
+      ...splitSentences(t.user),
+      ...(t.assistant ? splitSentences(t.assistant) : []),
+    ])
   return trim(sentences, cap)
 }

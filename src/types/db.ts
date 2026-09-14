@@ -1,9 +1,22 @@
-export interface DbFolder {
+/**
+ * Row shapes for the deterministic-graph schema, as JSON (timestamps arrive
+ * as ISO strings over the wire, not Date objects).
+ *
+ * `db/schema.ts` is the source of truth — these mirror it for client code that
+ * never imports Drizzle. If the two disagree, the schema is right.
+ */
+
+export interface DbCollection {
     id: string,
     user_id: string,
-    name: string,
+    title: string,
+    category: string,
+    description: string | null,
+    tags: string[],
+    featured: boolean,
+    last_active_at: string,
     created_at: string,
-    updated_at: string
+    updated_at: string,
 }
 
 export interface DbSession {
@@ -11,7 +24,14 @@ export interface DbSession {
     user_id: string,
     title: string,
     preview: string | null,
-    cluster_id: string | null,
+    collection_id: string | null,
+    /** Spec §3.1 — the Chat's memory. Verbatim sentences, record-separated. */
+    compaction: string,
+    compaction_updated_at: string | null,
+    /** Spec §4.4 — set once at creation, never re-derived on rename. */
+    headline_node_id: string | null,
+    /** Spec §9 — null means inherit the global default. */
+    model_id: string | null,
     created_at: string,
     updated_at: string
 }
@@ -30,10 +50,13 @@ export interface DbNode {
     id: string,
     user_id: string,
     label: string,
+    /** Spec §4.3 — the Node's identity. `unique (user_id, canonical_key)`. */
+    canonical_key: string,
     type: string,
     summary: string | null,
-    confidence: number,
-    connection_count: number,
+    /** Spec §3.1 — how many Chats hold this Node. Denormalized for §6.3. */
+    chat_count: number,
+    archived_at: string | null,
     last_referenced_at: string,
     created_at: string,
     updated_at: string
@@ -44,31 +67,10 @@ export interface DbEdge {
     user_id: string,
     from_node_id: string,
     to_node_id: string,
-    type: 'confirmed' | 'suggested',
-    confidence: number,
+    /** Spec §3.1 — replaces the old confirmed/suggested `type`. */
+    source: 'overlap' | 'bridge' | 'manual',
     relationship_label: string | null,
-    occurrence_count: number,
     created_at: string,
-    updated_at: string,
-}
-
-export interface DbCluster {
-    id: string,
-    user_id: string,
-    title: string,
-    category: string,
-    description: string | null,
-    tags: string[],
-    featured: boolean,
-    folder_id: string | null,
-    last_active_at: string,
-    created_at: string,
-    updated_at: string,
-}
-
-export interface DbClusterNode {
-    cluster_id: string,
-    node_id: string,
 }
 
 export interface DbGraphPosition {
@@ -77,6 +79,32 @@ export interface DbGraphPosition {
     x: number,
     y: number,
     updated_at: string,
+}
+
+/** Spec §7.2 — a Cluster is placed once and never recomputed. */
+export interface DbClusterOrigin {
+    user_id: string,
+    cluster_key: string,
+    x: number,
+    y: number,
+}
+
+/** Spec §3.2 — scoped to ONE Chat. Not the same as DbRejectedPhrase. */
+export interface DbForgotten {
+    user_id: string,
+    session_id: string,
+    node_label: string,
+}
+
+/** Spec §3.2 — scoped to the ACCOUNT. Not the same as DbForgotten. */
+export interface DbRejectedPhrase {
+    user_id: string,
+    phrase: string,
+}
+
+export interface DbCollectionNode {
+    collection_id: string,
+    node_id: string,
 }
 
 export interface DbSessionNode {

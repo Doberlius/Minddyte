@@ -62,6 +62,9 @@ export async function POST(req: Request) {
         })
         await ingestUserMessage({
           sessionId, userId, messageId, content: draft,
+          // Compaction takes both roles (spec §4.1); extraction stays
+          // user-only (spec §4.2). ingestUserMessage enforces that split.
+          assistantContent: text,
         })
       } catch (err) {
         // Spec §4.5 — the write path runs after the stream, so a failure here must
