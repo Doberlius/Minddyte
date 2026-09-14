@@ -14,7 +14,15 @@ const PATTERN = '#Adjective? #Noun+ #Gerund?'
 
 export function extractConcepts(text: string): { auto: string[]; suggested: string[] } {
   const doc = nlp(text)
-  const raw: string[] = doc.match(PATTERN).out('array')
+  // compromise tags pronouns as nouns, so `#Noun+` swallows "I", "me" and
+  // "We". They are never concepts, and the shape gate cannot catch them:
+  // "I" and "We" carry an uppercase letter, so classifyShape reads them as
+  // "shaped" and auto-creates a Node. Measured on real messages — "Remind me
+  // what I concluded about event streaming" yielded Nodes for both "me" and
+  // "I". Dropping pronoun tokens leaves every real concept untouched and
+  // reduces "chat I" to "chat", which then falls to `bare` and is only
+  // suggested. Spec §4.2.
+  const raw: string[] = doc.match(PATTERN).not('#Pronoun').out('array')
 
   const auto: string[] = []
   const suggested: string[] = []

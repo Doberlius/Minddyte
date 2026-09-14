@@ -35,3 +35,21 @@ describe('extractConcepts', () => {
     expect(r.auto.filter((x) => x.toLowerCase() === 'event streaming')).toHaveLength(1)
   })
 })
+
+describe('pronouns are never concepts', () => {
+  it('drops standalone pronouns instead of admitting them as nodes', () => {
+    // "I" and "We" carry an uppercase letter, so without this the shape gate
+    // reads them as `shaped` and auto-creates a Node for a pronoun.
+    const r = extractConcepts('Remind me what I concluded about event streaming.')
+    expect(r.auto).toContain('event streaming')
+    for (const p of [...r.auto, ...r.suggested]) {
+      expect(['i', 'me', 'we', 'you', 'it', 'they']).not.toContain(p.toLowerCase())
+    }
+  })
+
+  it('strips a trailing pronoun from a phrase rather than keeping it', () => {
+    const r = extractConcepts('what topic was the chat I tagged about?')
+    expect([...r.auto, ...r.suggested]).not.toContain('chat I')
+    expect(r.auto).not.toContain('chat')
+  })
+})
