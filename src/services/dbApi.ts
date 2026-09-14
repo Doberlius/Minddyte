@@ -1,5 +1,5 @@
 import { db, sessions, messages, nodes, sessionNodes } from "../../db"
-import { and, desc, eq, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, sql } from "drizzle-orm"
 
 export async function listChats(userId: string) {
   return db
@@ -28,5 +28,5 @@ export async function touchNodes(nodeIds: string[]) {
   await db
     .update(nodes)
     .set({ lastReferencedAt: new Date() })
-    .where(sql`${nodes.id} = any(${nodeIds})`)
+    .where(inArray(nodes.id, nodeIds))
 }

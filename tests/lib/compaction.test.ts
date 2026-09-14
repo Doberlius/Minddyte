@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appendToCompaction, buildCompaction } from '@/lib/compaction'
+import { appendToCompaction, buildCompaction, RECORD_SEPARATOR } from '@/lib/compaction'
 
 const CAP = 120
 
@@ -19,7 +19,7 @@ describe('appendToCompaction', () => {
     const out = appendToCompaction('', long, CAP)
     expect(out.length).toBeLessThanOrEqual(CAP)
     // every retained sentence must be whole
-    for (const s of out.split(/(?<=\.)\s+/).filter(Boolean)) {
+    for (const s of out.split(RECORD_SEPARATOR).filter(Boolean)) {
       expect(s.endsWith('.')).toBe(true)
     }
   })
@@ -52,5 +52,10 @@ describe('the incremental invariant', () => {
     const msgs = ['AAAAA\nBBBBB.', 'CCCCC.']
     const incremental = msgs.reduce((acc, m) => appendToCompaction(acc, m, 12), '')
     expect(incremental).toBe(buildCompaction(msgs, 12))
+  })
+
+  it('preserves a pasted code block byte-for-byte', () => {
+    const code = 'def f(x):\n    if x:\n        return 1\n    return 0'
+    expect(appendToCompaction('', code, 500)).toBe(code)
   })
 })

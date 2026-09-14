@@ -3,6 +3,7 @@ import { ollama } from "@/lib/ollama"
 import { resolveModel } from "@/constants/models"
 import { retrieveContext } from "@/services/retrieval"
 import { persistMessage, ingestUserMessage } from "@/services/graph"
+import { RECORD_SEPARATOR } from "@/lib/compaction"
 
 export async function POST(req: Request) {
   const {
@@ -30,12 +31,17 @@ export async function POST(req: Request) {
   })
 
   // 2. retrieve against the PREVIOUS graph state, then call the model
-  const { chats } = await retrieveContext({
-    userId, sessionId, mode, taggedChatIds, draftText: draft,
-  })
+  let chats: Awaited<ReturnType<typeof retrieveContext>>["chats"] = []
+  try {
+    ;({ chats } = await retrieveContext({ userId, sessionId, mode, taggedChatIds, draftText: draft }))
+  } catch (err) {
+    // Spec §6.5 — never block the message. Memory is the feature; the answer is
+    // the product. Degrade to no memory rather than failing the request.
+    console.error("[chat] retrieval failed, continuing without memory", err)
+  }
 
   const memory = chats
-    .map((c) => `## ${c.title}  (${c.why})\n${c.compaction}`)
+    .map((c) => `## ${c.title}  (${c.why})\n${c.compaction.split(RECORD_SEPARATOR).join("\n")}`)
     .join("\n\n")
 
   const systemPrompt =

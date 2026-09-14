@@ -24,7 +24,7 @@ export function AtPicker({ chats, query, onPick }: {
       border: '1px solid var(--border)', borderRadius: 10, maxHeight: 260, overflowY: 'auto', zIndex: 30 }}>
       <div style={{ padding: '8px 13px', borderBottom: '1px solid var(--border)', fontSize: 10,
         textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--ink3)' }}>
-        Bring in a chat — creates a bridge, permanent
+        Bring in a chat — loads its memory into this message
       </div>
       {list.map((c) => (
         <div key={c.id} onClick={() => onPick(c)}

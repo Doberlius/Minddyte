@@ -1,5 +1,5 @@
 import { db, sessions, nodes, sessionNodes } from "../../db"
-import { and, eq, ne, sql } from "drizzle-orm"
+import { and, eq, inArray, ne, sql } from "drizzle-orm"
 import { rankCandidates, AUTO_REACH_CAP, type Candidate } from "@/lib/rank"
 import { extractConcepts } from "@/lib/extract"
 import { canonicalKey } from "@/lib/text"
@@ -44,7 +44,10 @@ async function candidateRows(userId: string, sessionId: string, keys: string[]):
         eq(nodes.userId, userId),
         ne(sessions.id, sessionId),
         sql`${nodes.archivedAt} is null`,
-        sql`${nodes.canonicalKey} = any(${keys})`,
+        // sql`= any(${keys})` with a JS array compiles to a row constructor
+        // `= any(($1, $2))`, which Postgres rejects — inArray compiles to
+        // `in ($1, $2)` instead. Do not "optimise" this back to sql`= any(...)`.
+        inArray(nodes.canonicalKey, keys),
       ),
     )
 }
@@ -105,7 +108,13 @@ export async function retrieveContext(input: {
           updatedAt: sessions.updatedAt,
         })
         .from(sessions)
-        .where(and(eq(sessions.userId, input.userId), sql`${sessions.id} = any(${input.taggedChatIds})`))
+        .where(
+          and(
+            eq(sessions.userId, input.userId),
+            ne(sessions.id, input.sessionId),
+            inArray(sessions.id, input.taggedChatIds),
+          ),
+        )
     : []
 
   // Tagged chats go through the same ranking chain as auto reaches, uncapped.

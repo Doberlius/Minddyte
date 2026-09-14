@@ -4,27 +4,34 @@ import { splitSentences } from './text'
 export const COMPACTION_CAP = 500
 
 /**
+ * ASCII record separator. Sentences are joined with this rather than a space
+ * or newline because appendToCompaction has to recover sentence boundaries
+ * from the stored string, and any separator that can occur INSIDE a sentence
+ * (a space, a newline in pasted text) makes that impossible. It cannot appear
+ * in typed text, so boundaries stay unambiguous without altering content.
+ */
+export const RECORD_SEPARATOR = String.fromCharCode(0x1e) // ASCII record separator (RS)
+
+/**
  * Join sentences and drop WHOLE ones from the tail until within cap.
  *
- * Normalizes internal whitespace (collapses runs to single spaces) so the
- * newline separator remains a structural record boundary — no sentence can
- * contain one. This is essential: appendToCompaction recovers sentences by
- * splitting on '\n', and a sentence with embedded newlines would fragment.
- * Without normalization, the invariant breaks for multi-line pasted messages
- * that lack a terminator before their newline.
+ * Sentences are kept verbatim — never rewritten or whitespace-normalized.
+ * Joins with RECORD_SEPARATOR so the boundary stays unambiguous: unlike a
+ * space or a newline, that character cannot occur inside a sentence, so
+ * appendToCompaction can always split it back apart correctly, even for a
+ * pasted code block that contains newlines and indentation.
  */
 function trim(sentences: string[], cap: number): string {
   const kept: string[] = []
   let len = 0
   for (const s of sentences) {
-    const normalized = s.replace(/\s+/g, ' ').trim()
-    if (!normalized) continue
-    const add = kept.length ? normalized.length + 1 : normalized.length
+    if (!s) continue
+    const add = kept.length ? s.length + 1 : s.length
     if (len + add > cap) break
-    kept.push(normalized)
+    kept.push(s)
     len += add
   }
-  return kept.join('\n')
+  return kept.join(RECORD_SEPARATOR)
 }
 
 /**
@@ -39,7 +46,7 @@ function trim(sentences: string[], cap: number): string {
 export function appendToCompaction(current: string, message: string, cap = COMPACTION_CAP): string {
   const incoming = splitSentences(message)
   if (incoming.length === 0) return current
-  const existing = current.split('\n').filter(Boolean)
+  const existing = current.split(RECORD_SEPARATOR).filter(Boolean)
   return trim([...incoming, ...existing], cap)
 }
 
@@ -51,9 +58,9 @@ export function appendToCompaction(current: string, message: string, cap = COMPA
  * `messages` must be ordered OLDEST FIRST; this reverses them so the newest
  * sentences lead, matching appendToCompaction. The equality of these two
  * functions (incremental vs rebuild) is asserted by the invariant test and
- * must never be broken. This equality holds because trim normalizes internal
- * whitespace and joins with newlines, ensuring the separator is unambiguous
- * and appendToCompaction can recover sentences via direct splitting.
+ * must never be broken. This equality holds because trim joins with
+ * RECORD_SEPARATOR, a character that cannot occur inside a sentence, so
+ * appendToCompaction can always recover sentences by splitting on it.
  */
 export function buildCompaction(messages: string[], cap = COMPACTION_CAP): string {
   const sentences = [...messages].reverse().flatMap((m) => splitSentences(m))

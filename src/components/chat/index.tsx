@@ -23,7 +23,7 @@ export function NeuralChat() {
       // without the r.ok check, setChats would receive an object and the picker
       // would throw on .filter().
       .then((r) => (r.ok ? r.json() : []))
-      .then((data) => setChats(Array.isArray(data) ? data : []))
+      .then((data) => setChats(Array.isArray(data) ? data.filter((c) => c.id !== DEV_SESSION) : []))
       .catch(() => {})
   }, [])
 
@@ -44,7 +44,7 @@ export function NeuralChat() {
 
   const submit = () => {
     const text = input.trim()
-    if (!text) return
+    if (!text || status !== 'ready') return
     // mode and taggedChatIds must be sent per-call: useChat builds its Chat (and
     // the transport that owns the constructor `body`) once at mount and never
     // rebuilds it, so anything baked into the transport body is frozen at its
@@ -112,8 +112,9 @@ export function NeuralChat() {
           <span style={{ fontSize: 10.5, color: 'var(--ink3)' }}>
             Nothing is saved to your graph unless you use @ or a command.
           </span>
-          <button onClick={submit} style={{ marginLeft: 'auto', background: 'var(--violet)', color: '#fff',
-            border: 'none', borderRadius: 8, padding: '7px 17px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+          <button onClick={submit} disabled={status !== 'ready'} style={{ marginLeft: 'auto', background: 'var(--violet)', color: '#fff',
+            border: 'none', borderRadius: 8, padding: '7px 17px', fontSize: 12.5, fontWeight: 600,
+            opacity: status === 'ready' ? 1 : 0.5, cursor: status === 'ready' ? 'pointer' : 'not-allowed' }}>
             Send
           </button>
         </div>
