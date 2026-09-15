@@ -1,7 +1,7 @@
 import { db, sessions, messages, nodes, sessionNodes } from "../../db"
-import { and, desc, eq, inArray, sql } from "drizzle-orm"
+import { desc, eq, inArray, sql } from "drizzle-orm"
 
-export async function listChats(userId: string) {
+export async function listChats() {
   return db
     .select({
       id: sessions.id,
@@ -12,13 +12,12 @@ export async function listChats(userId: string) {
       )`.mapWith(Number),
     })
     .from(sessions)
-    .where(eq(sessions.userId, userId))
     .orderBy(desc(sessions.updatedAt))
 }
 
-export async function loadChat(sessionId: string, userId: string) {
+export async function loadChat(sessionId: string) {
   return db.query.sessions.findFirst({
-    where: and(eq(sessions.id, sessionId), eq(sessions.userId, userId)),
+    where: eq(sessions.id, sessionId),
     with: { messages: { orderBy: messages.createdAt } },
   })
 }

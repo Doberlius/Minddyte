@@ -9,7 +9,6 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 export async function persistMessage(input: {
   sessionId: string
-  userId: string
   role: "user" | "assistant"
   content: string
   modelUsed?: string
@@ -18,7 +17,6 @@ export async function persistMessage(input: {
     .insert(messages)
     .values({
       sessionId: input.sessionId,
-      userId: input.userId,
       role: input.role,
       content: input.content,
       modelUsed: input.modelUsed ?? null,
@@ -44,7 +42,6 @@ export async function persistMessage(input: {
  */
 async function upsertNodeAndLink(
   tx: Tx,
-  userId: string,
   sessionId: string,
   label: string
 ): Promise<string | null> {
@@ -54,9 +51,9 @@ async function upsertNodeAndLink(
   // The unique constraint IS the dedup. Spec §4.3.
   const [node] = await tx
     .insert(nodes)
-    .values({ userId, label, canonicalKey: key })
+    .values({ label, canonicalKey: key })
     .onConflictDoUpdate({
-      target: [nodes.userId, nodes.canonicalKey],
+      target: [nodes.canonicalKey],
       set: { lastReferencedAt: new Date() },
     })
     .returning({ id: nodes.id })
@@ -85,7 +82,6 @@ async function upsertNodeAndLink(
  */
 export async function ingestUserMessage(input: {
   sessionId: string
-  userId: string
   messageId: string
   content: string
   /**
@@ -104,7 +100,7 @@ export async function ingestUserMessage(input: {
 
   await db.transaction(async (tx) => {
     for (const label of auto) {
-      const nodeId = await upsertNodeAndLink(tx, input.userId, input.sessionId, label)
+      const nodeId = await upsertNodeAndLink(tx, input.sessionId, label)
       if (!nodeId) continue
 
       await tx
@@ -130,7 +126,7 @@ export async function ingestUserMessage(input: {
       const headlineLabel = extractConcepts(title).auto[0] ?? auto[0] ?? null
 
       const headlineNodeId = headlineLabel
-        ? await upsertNodeAndLink(tx, input.userId, input.sessionId, headlineLabel)
+        ? await upsertNodeAndLink(tx, input.sessionId, headlineLabel)
         : null
 
       await tx
@@ -148,7 +144,7 @@ export async function ingestUserMessage(input: {
     const [s] = await tx
       .select({ compaction: sessions.compaction })
       .from(sessions)
-      .where(and(eq(sessions.id, input.sessionId), eq(sessions.userId, input.userId)))
+      .where(eq(sessions.id, input.sessionId))
       .for('update')
 
     if (s) {

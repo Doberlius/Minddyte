@@ -23,7 +23,7 @@ type Row = {
  * Match Nodes, find their Chats, and fetch those Chats' compactions together.
  * Written as three tidy functions this triples the only cost that matters.
  */
-async function candidateRows(userId: string, sessionId: string, draftKeys: string[]): Promise<Row[]> {
+async function candidateRows(sessionId: string, draftKeys: string[]): Promise<Row[]> {
   // Spec §6.1 — explore reaches Chats "sharing a Node with the current Chat",
   // so the current Chat's own Nodes are the primary match set. Kept as a
   // SUBQUERY rather than a prior round trip: §6.6's rule is that matching and
@@ -58,8 +58,6 @@ async function candidateRows(userId: string, sessionId: string, draftKeys: strin
     .innerJoin(sessions, eq(sessions.id, sessionNodes.sessionId))
     .where(
       and(
-        eq(nodes.userId, userId),
-        eq(sessions.userId, userId),
         ne(sessions.id, sessionId),
         sql`${nodes.archivedAt} is null`,
         // sql`= any(${keys})` with a JS array compiles to a row constructor
@@ -71,7 +69,6 @@ async function candidateRows(userId: string, sessionId: string, draftKeys: strin
 }
 
 export async function retrieveContext(input: {
-  userId: string
   sessionId: string
   mode: "focus" | "explore"
   taggedChatIds: string[]
@@ -86,7 +83,6 @@ export async function retrieveContext(input: {
   const rows =
     input.mode === "explore"
       ? await candidateRows(
-          input.userId,
           input.sessionId,
           extractConcepts(input.draftText).auto.map(canonicalKey).filter(Boolean),
         )
@@ -133,7 +129,6 @@ export async function retrieveContext(input: {
         .from(sessions)
         .where(
           and(
-            eq(sessions.userId, input.userId),
             ne(sessions.id, input.sessionId),
             inArray(sessions.id, input.taggedChatIds),
           ),

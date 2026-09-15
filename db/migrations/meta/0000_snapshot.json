@@ -1,5 +1,5 @@
 {
-  "id": "942bb1ac-12dc-4f9c-b3a2-a03dd141b9a1",
+  "id": "d8a244dd-25df-4256-9c53-843ce5329537",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -8,12 +8,6 @@
       "name": "cluster_origins",
       "schema": "",
       "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
         "cluster_key": {
           "name": "cluster_key",
           "type": "text",
@@ -34,27 +28,11 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {
-        "cluster_origins_user_id_users_id_fk": {
-          "name": "cluster_origins_user_id_users_id_fk",
-          "tableFrom": "cluster_origins",
-          "tableTo": "users",
-          "schemaTo": "auth",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {
-        "cluster_origins_user_id_cluster_key_pk": {
-          "name": "cluster_origins_user_id_cluster_key_pk",
+        "cluster_origins_cluster_key_pk": {
+          "name": "cluster_origins_cluster_key_pk",
           "columns": [
-            "user_id",
             "cluster_key"
           ]
         }
@@ -135,12 +113,6 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
         "title": {
           "name": "title",
           "type": "text",
@@ -201,7 +173,7 @@
           "name": "idx_collections_one_featured",
           "columns": [
             {
-              "expression": "user_id",
+              "expression": "featured",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -212,39 +184,9 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "idx_collections_user_id": {
-          "name": "idx_collections_user_id",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
-      "foreignKeys": {
-        "collections_user_id_users_id_fk": {
-          "name": "collections_user_id_users_id_fk",
-          "tableFrom": "collections",
-          "tableTo": "users",
-          "schemaTo": "auth",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -261,12 +203,6 @@
           "primaryKey": true,
           "notNull": true,
           "default": "gen_random_uuid()"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
         },
         "from_node_id": {
           "name": "from_node_id",
@@ -319,20 +255,6 @@
         }
       },
       "foreignKeys": {
-        "edges_user_id_users_id_fk": {
-          "name": "edges_user_id_users_id_fk",
-          "tableFrom": "edges",
-          "tableTo": "users",
-          "schemaTo": "auth",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "edges_from_node_id_nodes_id_fk": {
           "name": "edges_from_node_id_nodes_id_fk",
           "tableFrom": "edges",
@@ -366,7 +288,6 @@
           "name": "edges_unique",
           "nullsNotDistinct": false,
           "columns": [
-            "user_id",
             "from_node_id",
             "to_node_id"
           ]
@@ -389,12 +310,6 @@
       "name": "forgotten",
       "schema": "",
       "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
         "session_id": {
           "name": "session_id",
           "type": "uuid",
@@ -410,20 +325,6 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "forgotten_user_id_users_id_fk": {
-          "name": "forgotten_user_id_users_id_fk",
-          "tableFrom": "forgotten",
-          "tableTo": "users",
-          "schemaTo": "auth",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "forgotten_session_id_sessions_id_fk": {
           "name": "forgotten_session_id_sessions_id_fk",
           "tableFrom": "forgotten",
@@ -462,12 +363,6 @@
           "primaryKey": true,
           "notNull": true
         },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
         "x": {
           "name": "x",
           "type": "float4",
@@ -498,20 +393,6 @@
           "tableTo": "nodes",
           "columnsFrom": [
             "node_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "graph_positions_user_id_users_id_fk": {
-          "name": "graph_positions_user_id_users_id_fk",
-          "tableFrom": "graph_positions",
-          "tableTo": "users",
-          "schemaTo": "auth",
-          "columnsFrom": [
-            "user_id"
           ],
           "columnsTo": [
             "id"
@@ -619,12 +500,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
         "role": {
           "name": "role",
           "type": "text",
@@ -687,20 +562,6 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
-        },
-        "messages_user_id_users_id_fk": {
-          "name": "messages_user_id_users_id_fk",
-          "tableFrom": "messages",
-          "tableTo": "users",
-          "schemaTo": "auth",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -724,12 +585,6 @@
           "primaryKey": true,
           "notNull": true,
           "default": "gen_random_uuid()"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
         },
         "label": {
           "name": "label",
@@ -791,46 +646,14 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "idx_nodes_user_id": {
-          "name": "idx_nodes_user_id",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "nodes_user_id_users_id_fk": {
-          "name": "nodes_user_id_users_id_fk",
-          "tableFrom": "nodes",
-          "tableTo": "users",
-          "schemaTo": "auth",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "indexes": {},
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "nodes_canonical_unique": {
           "name": "nodes_canonical_unique",
           "nullsNotDistinct": false,
           "columns": [
-            "user_id",
             "canonical_key"
           ]
         }
@@ -843,12 +666,6 @@
       "name": "rejected_phrases",
       "schema": "",
       "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
         "phrase": {
           "name": "phrase",
           "type": "text",
@@ -857,27 +674,11 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {
-        "rejected_phrases_user_id_users_id_fk": {
-          "name": "rejected_phrases_user_id_users_id_fk",
-          "tableFrom": "rejected_phrases",
-          "tableTo": "users",
-          "schemaTo": "auth",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {
-        "rejected_phrases_user_id_phrase_pk": {
-          "name": "rejected_phrases_user_id_phrase_pk",
+        "rejected_phrases_phrase_pk": {
+          "name": "rejected_phrases_phrase_pk",
           "columns": [
-            "user_id",
             "phrase"
           ]
         }
@@ -981,12 +782,6 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
         "title": {
           "name": "title",
           "type": "text",
@@ -1047,30 +842,9 @@
         }
       },
       "indexes": {
-        "idx_sessions_user_id": {
-          "name": "idx_sessions_user_id",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "idx_sessions_updated": {
           "name": "idx_sessions_updated",
           "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
             {
               "expression": "updated_at",
               "isExpression": false,
@@ -1085,20 +859,6 @@
         }
       },
       "foreignKeys": {
-        "sessions_user_id_users_id_fk": {
-          "name": "sessions_user_id_users_id_fk",
-          "tableFrom": "sessions",
-          "tableTo": "users",
-          "schemaTo": "auth",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "sessions_collection_id_collections_id_fk": {
           "name": "sessions_collection_id_collections_id_fk",
           "tableFrom": "sessions",

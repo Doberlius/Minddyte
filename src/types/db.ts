@@ -8,7 +8,6 @@
 
 export interface DbCollection {
     id: string,
-    user_id: string,
     title: string,
     category: string,
     description: string | null,
@@ -21,7 +20,6 @@ export interface DbCollection {
 
 export interface DbSession {
     id: string,
-    user_id: string,
     title: string,
     preview: string | null,
     collection_id: string | null,
@@ -39,7 +37,6 @@ export interface DbSession {
 export interface DbMessage {
     id: string,
     session_id: string,
-    user_id: string,
     role: 'user' | 'assistant'
     content: string,
     model_used: string | null,
@@ -48,9 +45,8 @@ export interface DbMessage {
 
 export interface DbNode {
     id: string,
-    user_id: string,
     label: string,
-    /** Spec §4.3 — the Node's identity. `unique (user_id, canonical_key)`. */
+    /** Spec §4.3 — the Node's identity. `unique (canonical_key)`. */
     canonical_key: string,
     type: string,
     summary: string | null,
@@ -64,7 +60,6 @@ export interface DbNode {
 
 export interface DbEdge {
     id: string,
-    user_id: string,
     from_node_id: string,
     to_node_id: string,
     /** Spec §3.1 — replaces the old confirmed/suggested `type`. */
@@ -75,7 +70,6 @@ export interface DbEdge {
 
 export interface DbGraphPosition {
     node_id: string,
-    user_id: string,
     x: number,
     y: number,
     updated_at: string,
@@ -83,7 +77,6 @@ export interface DbGraphPosition {
 
 /** Spec §7.2 — a Cluster is placed once and never recomputed. */
 export interface DbClusterOrigin {
-    user_id: string,
     cluster_key: string,
     x: number,
     y: number,
@@ -91,14 +84,13 @@ export interface DbClusterOrigin {
 
 /** Spec §3.2 — scoped to ONE Chat. Not the same as DbRejectedPhrase. */
 export interface DbForgotten {
-    user_id: string,
     session_id: string,
     node_label: string,
 }
 
-/** Spec §3.2 — scoped to the ACCOUNT. Not the same as DbForgotten. */
+/** Spec §3.2 — account-wide, versus DbForgotten which is per-Chat. With
+ *  one local user "account-wide" simply means global. */
 export interface DbRejectedPhrase {
-    user_id: string,
     phrase: string,
 }
 

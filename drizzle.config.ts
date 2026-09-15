@@ -3,7 +3,7 @@ import { defineConfig } from "drizzle-kit";
 
 export default defineConfig({
   schema: './db/schema.ts',
-  out: './supabase/migrations',  
+  out: './db/migrations',  
   dialect: 'postgresql',
   dbCredentials: {
     // DIRECT_URL = session pooler (5432). drizzle-kit introspection hangs

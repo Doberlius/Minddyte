@@ -8,7 +8,6 @@ import { AtPicker } from './AtPicker'
 type Chat = { id: string; title: string; nodeCount: number }
 
 // M1 uses a fixed dev user and session until auth lands (spec §12, out of scope).
-const DEV_USER = process.env.NEXT_PUBLIC_DEV_USER_ID ?? ''
 const DEV_SESSION = process.env.NEXT_PUBLIC_DEV_SESSION_ID ?? ''
 
 export function NeuralChat() {
@@ -18,7 +17,7 @@ export function NeuralChat() {
   const [mode, setMode] = useState<'focus' | 'explore'>('explore')
 
   useEffect(() => {
-    fetch(`/api/sessions?userId=${DEV_USER}`)
+    fetch('/api/sessions')
       // fetch does not reject on 4xx, and the error body parses as valid JSON —
       // without the r.ok check, setChats would receive an object and the picker
       // would throw on .filter().
@@ -37,7 +36,6 @@ export function NeuralChat() {
       api: '/api/chat',
       body: {
         sessionId: DEV_SESSION,
-        userId: DEV_USER,
       },
     }),
   })

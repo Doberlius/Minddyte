@@ -7,11 +7,10 @@ import { RECORD_SEPARATOR } from "@/lib/compaction"
 
 export async function POST(req: Request) {
   const {
-    messages, sessionId, userId, taggedChatIds = [], mode = "explore", model,
+    messages, sessionId, taggedChatIds = [], mode = "explore", model,
   }: {
     messages: UIMessage[]
     sessionId: string
-    userId: string
     taggedChatIds?: string[]
     mode?: "focus" | "explore"
     model?: string
@@ -27,13 +26,13 @@ export async function POST(req: Request) {
 
   // 1. persist the user message
   const messageId = await persistMessage({
-    sessionId, userId, role: "user", content: draft,
+    sessionId, role: "user", content: draft,
   })
 
   // 2. retrieve against the PREVIOUS graph state, then call the model
   let chats: Awaited<ReturnType<typeof retrieveContext>>["chats"] = []
   try {
-    ;({ chats } = await retrieveContext({ userId, sessionId, mode, taggedChatIds, draftText: draft }))
+    ;({ chats } = await retrieveContext({ sessionId, mode, taggedChatIds, draftText: draft }))
   } catch (err) {
     // Spec §6.5 — never block the message. Memory is the feature; the answer is
     // the product. Degrade to no memory rather than failing the request.
@@ -58,10 +57,10 @@ export async function POST(req: Request) {
     onFinish: async ({ text }) => {
       try {
         await persistMessage({
-          sessionId, userId, role: "assistant", content: text, modelUsed: modelId,
+          sessionId, role: "assistant", content: text, modelUsed: modelId,
         })
         await ingestUserMessage({
-          sessionId, userId, messageId, content: draft,
+          sessionId, messageId, content: draft,
           // Compaction takes both roles (spec §4.1); extraction stays
           // user-only (spec §4.2). ingestUserMessage enforces that split.
           assistantContent: text,
