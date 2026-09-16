@@ -1,20 +1,20 @@
 import {create} from 'zustand'
 import {persist} from 'zustand/middleware'
 import type { DbNode } from '@/types/db'
-import {DEFAULT_MODEL_ID, isKnownModel} from '@/constants/models'
 
 interface ChatStore{
     activeSessionId: string | null,
     activeNodes: DbNode[]
     mode: 'focus' | 'explore'
-    activeModel: string
+    /** null until the user picks one; the server resolves it against the daemon. */
+    activeModel: string | null
     pullingModels: Record<string, number>
     setActiveSession: (id: string | null) => void
     addNode: (node: DbNode) => void
     removeNode: (id: string) => void
     setMode: (mode: 'focus' | 'explore') => void
     clearNodes: () => void
-    setActiveModel: (modelId: string) => void
+    setActiveModel: (modelId: string | null) => void
     setPullProgress: (modelId: string, progress: number) => void
     clearPulling: (modelId: string) => void
 }
@@ -25,7 +25,7 @@ export const useChatStore = create<ChatStore>()(
             activeSessionId: null,
             activeNodes: [],
             mode: 'explore',
-            activeModel: DEFAULT_MODEL_ID,
+            activeModel: null,
             pullingModels: {},
 
             setActiveSession: (id) => set(
@@ -63,17 +63,13 @@ export const useChatStore = create<ChatStore>()(
                 mode: s.mode,
                 activeModel: s.activeModel
             }),
-            // Drop a persisted model id we no longer offer (renamed/removed tag).
-            merge: (persisted, current) => {
-                const p = (persisted ?? {}) as Partial<ChatStore>
-                return {
-                    ...current,
-                    ...p,
-                    activeModel: isKnownModel(p.activeModel)
-                        ? p.activeModel
-                        : DEFAULT_MODEL_ID,
-                }
-            },
+            // A persisted tag is no longer checked here: whether a model still
+            // exists is a question for the daemon, not a constant. The server
+            // re-validates on every request and falls back if it has gone.
+            merge: (persisted, current) => ({
+                ...current,
+                ...((persisted ?? {}) as Partial<ChatStore>),
+            }),
         }
     )
 )

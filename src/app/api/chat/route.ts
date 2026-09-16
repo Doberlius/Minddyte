@@ -1,6 +1,5 @@
 import { streamText, convertToModelMessages, type UIMessage } from "ai"
-import { ollama } from "@/lib/ollama"
-import { resolveModel } from "@/constants/models"
+import { ollama, resolveModel } from "@/lib/ollama"
 import { retrieveContext } from "@/services/retrieval"
 import { persistMessage, ingestUserMessage } from "@/services/graph"
 import { RECORD_SEPARATOR } from "@/lib/compaction"
@@ -16,7 +15,19 @@ export async function POST(req: Request) {
     model?: string
   } = await req.json()
 
-  const modelId = resolveModel(model)
+  // Validated against what the daemon actually reports, not a hardcoded list.
+  const modelId = await resolveModel(model)
+  if (!modelId) {
+    // Standing rule: say what is wrong and how to fix it, never fail blankly.
+    return Response.json(
+      {
+        error:
+          "No model available. Start Ollama, then pull one with `ollama pull gemma3` " +
+          "— or run `ollama signin` to use cloud models.",
+      },
+      { status: 503 },
+    )
+  }
 
   const last = messages[messages.length - 1]
   if (!last || last.role !== "user") {
