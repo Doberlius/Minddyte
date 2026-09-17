@@ -138,16 +138,18 @@ export async function ingestUserMessage(input: {
     }
 
     // Incremental compaction. Spec §4.1 — never re-reads history.
-    // FOR UPDATE locks this session row for the rest of the transaction:
-    // without it, two overlapping ingestUserMessage calls on the same chat
-    // (e.g. the user sends a second message mid-stream) could both read the
-    // same compaction value, and whichever UPDATE commits second would
-    // silently overwrite the other's appended sentences.
+    //
+    // This read used to carry `.for('update')`, which locked the session row so
+    // two overlapping ingests could not both read the same compaction and have
+    // the second write silently overwrite the first. PGlite is single-connection
+    // by architecture, so two transactions physically cannot overlap and the
+    // clause did nothing. Recorded cost: the lost-update race returns the moment
+    // anything reintroduces concurrent writers to one session — a hosted variant
+    // would have to put this back, with a reason attached.
     const [s] = await tx
       .select({ compaction: sessions.compaction })
       .from(sessions)
       .where(eq(sessions.id, input.sessionId))
-      .for('update')
 
     if (s) {
       // Both roles, the user's first. appendToCompaction PREPENDS, so the
