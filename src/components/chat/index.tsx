@@ -7,14 +7,24 @@ import { AtPicker } from './AtPicker'
 
 type Chat = { id: string; title: string; nodeCount: number }
 
-// M1 uses a fixed dev user and session until auth lands (spec §12, out of scope).
-const DEV_SESSION = process.env.NEXT_PUBLIC_DEV_SESSION_ID ?? ''
+// Disk, not RAM: ~5-10 MB per origin and this holds one uuid. React state is
+// what lives in memory, and is exactly why a reload currently loses your chat.
+// The natural upgrade is the URL (/?chat=<uuid>), once the sidebar effort
+// brings routing — it survives reload AND makes a chat linkable.
+const SESSION_KEY = 'minddyte.sessionId'
 
 export function NeuralChat() {
   const [input, setInput] = useState('')
   const [chats, setChats] = useState<Chat[]>([])
   const [tagged, setTagged] = useState<Chat[]>([])
   const [mode, setMode] = useState<'focus' | 'explore'>('explore')
+  const [sessionId, setSessionId] = useState<string | null>(null)
+
+  // localStorage is not available during server rendering, so it is read in an
+  // effect rather than in the initial state.
+  useEffect(() => {
+    setSessionId(localStorage.getItem(SESSION_KEY))
+  }, [])
 
   useEffect(() => {
     fetch('/api/sessions')
@@ -22,7 +32,7 @@ export function NeuralChat() {
       // without the r.ok check, setChats would receive an object and the picker
       // would throw on .filter().
       .then((r) => (r.ok ? r.json() : []))
-      .then((data) => setChats(Array.isArray(data) ? data.filter((c) => c.id !== DEV_SESSION) : []))
+      .then((data) => setChats(Array.isArray(data) ? data : []))
       .catch(() => {})
   }, [])
 
@@ -32,24 +42,36 @@ export function NeuralChat() {
   }, [input])
 
   const { messages, sendMessage, status } = useChat({
-    transport: new DefaultChatTransport({
-      api: '/api/chat',
-      body: {
-        sessionId: DEV_SESSION,
-      },
-    }),
+    transport: new DefaultChatTransport({ api: '/api/chat' }),
   })
 
-  const submit = () => {
+  // Ticket 08: click New chat and nothing is written. Type and still nothing.
+  // SEND, and the row appears. Walking away leaves no `New Session` debris,
+  // which the eager version would have needed a guard to prevent.
+  const submit = async () => {
     const text = input.trim()
     if (!text || status !== 'ready') return
-    // mode and taggedChatIds must be sent per-call: useChat builds its Chat (and
-    // the transport that owns the constructor `body`) once at mount and never
-    // rebuilds it, so anything baked into the transport body is frozen at its
-    // first-render value. Per-call body is merged over it at send time.
+
+    let sid = sessionId
+    if (!sid) {
+      const res = await fetch('/api/sessions', { method: 'POST' })
+      if (!res.ok) {
+        // Standing rule: never fail blankly. Losing the message the user typed
+        // without saying why is the worst outcome here, so the input is kept.
+        console.error('[chat] could not create a chat', res.status)
+        return
+      }
+      sid = (await res.json()).id as string
+      localStorage.setItem(SESSION_KEY, sid)
+      setSessionId(sid)
+    }
+
+    // mode, taggedChatIds and sessionId must all be sent PER CALL: the
+    // transport's constructor body is frozen at mount, and sessionId is null
+    // then. Per-call body is merged over it at send time.
     sendMessage(
       { text },
-      { body: { mode, taggedChatIds: tagged.map((t) => t.id) } },
+      { body: { sessionId: sid, mode, taggedChatIds: tagged.map((t) => t.id) } },
     )
     setInput('')
   }
@@ -73,7 +95,7 @@ export function NeuralChat() {
 
       <div style={{ borderTop: '1px solid var(--border)', background: 'var(--white)', padding: '11px 20px 15px', position: 'relative' }}>
         {atQuery !== null && (
-          <AtPicker chats={chats} query={atQuery} onPick={(c) => {
+          <AtPicker chats={chats.filter((c) => c.id !== sessionId)} query={atQuery} onPick={(c) => {
             if (!tagged.find((t) => t.id === c.id)) setTagged([...tagged, c])
             setInput(input.replace(/@\S*$/, ''))
           }} />
