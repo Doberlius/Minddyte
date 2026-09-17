@@ -55,4 +55,23 @@ describe('export and restore', () => {
 
     await restored.close()
   })
+
+  it('repairs the connection even when the dump itself fails', async () => {
+    // An honest failure, not a contrived one: pg_dump's own `-t` table filter
+    // finds no match, so REAL pg_dump exits with a real error — but only
+    // after it has already opened its read-only transaction. That is exactly
+    // the failure mode the coordinator flagged: dumpToSql's repair must run
+    // in a `finally`, because without one, this specific error path leaves
+    // the connection permanently read-only.
+    await newChat('still here after a failed dump')
+    const pg = await getClient()
+
+    await expect(dumpToSql(pg, ['-t', 'no_such_table_xyz'])).rejects.toThrow()
+
+    // If the repair only ran on success, this would fail with "cannot
+    // execute TRUNCATE TABLE / INSERT in a read-only transaction" — the same
+    // error this whole wrapper exists to prevent.
+    await newChat('and a write still works')
+    expect(await countRows('sessions')).toBe(2)
+  })
 })
