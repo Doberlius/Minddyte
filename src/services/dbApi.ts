@@ -32,3 +32,18 @@ export async function touchNodes(nodeIds: string[]) {
     .set({ lastReferencedAt: new Date() })
     .where(inArray(nodes.id, nodeIds))
 }
+
+/**
+ * Called only when the user actually SENDS in a new chat (ticket 08,
+ * decision 2). Creating eagerly on "New chat" would leave a `New Session` row
+ * behind every time someone opened one and walked away, and would then need a
+ * guard to clean them up.
+ *
+ * No arguments: `user_id` is gone (ticket 03) and `title` defaults to
+ * 'New Session', overwritten once by deriveTitle on the first message.
+ */
+export async function createChat(): Promise<{ id: string }> {
+  const db = await getDb()
+  const [row] = await db.insert(sessions).values({}).returning({ id: sessions.id })
+  return { id: row.id }
+}
