@@ -1,4 +1,4 @@
-import { db, sessions, nodes, sessionNodes } from "../../db"
+import { getDb, sessions, nodes, sessionNodes } from "../../db"
 import { and, eq, inArray, ne, or, sql } from "drizzle-orm"
 import { rankCandidates, AUTO_REACH_CAP, type Candidate } from "@/lib/rank"
 import { extractConcepts } from "@/lib/extract"
@@ -24,6 +24,8 @@ type Row = {
  * Written as three tidy functions this triples the only cost that matters.
  */
 async function candidateRows(sessionId: string, draftKeys: string[]): Promise<Row[]> {
+  const db = await getDb()
+
   // Spec §6.1 — explore reaches Chats "sharing a Node with the current Chat",
   // so the current Chat's own Nodes are the primary match set. Kept as a
   // SUBQUERY rather than a prior round trip: §6.6's rule is that matching and
@@ -74,6 +76,7 @@ export async function retrieveContext(input: {
   taggedChatIds: string[]
   draftText: string
 }) {
+  const db = await getDb()
   const tagged = new Set(input.taggedChatIds)
 
   // In focus, automatic reach is ignored entirely — only what the user

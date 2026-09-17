@@ -1,7 +1,8 @@
-import { db, sessions, messages, nodes, sessionNodes } from "../../db"
+import { getDb, sessions, messages, nodes, sessionNodes } from "../../db"
 import { desc, eq, inArray, sql } from "drizzle-orm"
 
 export async function listChats() {
+  const db = await getDb()
   return db
     .select({
       id: sessions.id,
@@ -16,6 +17,7 @@ export async function listChats() {
 }
 
 export async function loadChat(sessionId: string) {
+  const db = await getDb()
   return db.query.sessions.findFirst({
     where: eq(sessions.id, sessionId),
     with: { messages: { orderBy: messages.createdAt } },
@@ -24,6 +26,7 @@ export async function loadChat(sessionId: string) {
 
 export async function touchNodes(nodeIds: string[]) {
   if (nodeIds.length === 0) return
+  const db = await getDb()
   await db
     .update(nodes)
     .set({ lastReferencedAt: new Date() })

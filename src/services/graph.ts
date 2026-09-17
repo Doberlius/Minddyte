@@ -1,11 +1,11 @@
-import { db, messages, nodes, sessions, sessionNodes, messageNodes } from "../../db"
+import { getDb, type Db, messages, nodes, sessions, sessionNodes, messageNodes } from "../../db"
 import { eq, and, sql } from "drizzle-orm"
 import { extractConcepts } from "@/lib/extract"
 import { canonicalKey, deriveTitle } from "@/lib/text"
 import { appendToCompaction } from "@/lib/compaction"
 
 /** The type of the `tx` argument `db.transaction(async (tx) => ...)` hands us. */
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0]
 
 export async function persistMessage(input: {
   sessionId: string
@@ -13,6 +13,7 @@ export async function persistMessage(input: {
   content: string
   modelUsed?: string
 }): Promise<string> {
+  const db = await getDb()
   const [row] = await db
     .insert(messages)
     .values({
@@ -98,6 +99,7 @@ export async function ingestUserMessage(input: {
 }): Promise<void> {
   const { auto } = extractConcepts(input.content)
 
+  const db = await getDb()
   await db.transaction(async (tx) => {
     for (const label of auto) {
       const nodeId = await upsertNodeAndLink(tx, input.sessionId, label)
