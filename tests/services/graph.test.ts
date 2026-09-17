@@ -1,0 +1,143 @@
+import { beforeEach, describe, expect, it } from 'vitest'
+import { eq } from 'drizzle-orm'
+import { getDb, nodes, sessions } from '../../db'
+import { countRows, newChat, truncateAll } from '../helpers/pglite'
+import { persistMessage, ingestUserMessage } from '@/services/graph'
+import { RECORD_SEPARATOR } from '@/lib/compaction'
+
+// Both sentences share this concept. Step 1 confirmed extractConcepts returns
+// the label "Kafka partitions" in `auto` for BOTH fixture sentences below.
+// The tests query nodes.canonicalKey, not the raw label, and canonicalKey()
+// (src/lib/text.ts) lowercases and strips everything but [a-z0-9] — so the
+// value stored is 'kafkapartitions', confirmed by running canonicalKey('Kafka
+// partitions') directly rather than assumed.
+const SHARED_LABEL = 'kafkapartitions'
+
+const FIRST = 'Kafka partitions handle event ordering in distributed systems.'
+const SECOND = 'How do Kafka partitions affect throughput?'
+
+/** One full turn: persist the user message, then run the graph write path. */
+async function turn(chatId: string, userText: string, assistantText: string) {
+  const messageId = await persistMessage({ sessionId: chatId, role: 'user', content: userText })
+  await persistMessage({
+    sessionId: chatId, role: 'assistant', content: assistantText, modelUsed: 'test',
+  })
+  await ingestUserMessage({
+    sessionId: chatId, messageId, content: userText, assistantContent: assistantText,
+  })
+}
+
+beforeEach(truncateAll)
+
+describe('the graph write path against a real database', () => {
+  it('every query in the path executes at all', async () => {
+    // Coverage item 1. The `= any(${array})` bug passed typecheck, lint, build
+    // and eleven reviews because nothing ever ran these statements.
+    const chatId = await newChat()
+    await turn(chatId, FIRST, 'Partitions preserve order within a key.')
+
+    expect(await countRows('messages')).toBe(2)
+    expect(await countRows('nodes')).toBeGreaterThan(0)
+    expect(await countRows('session_nodes')).toBeGreaterThan(0)
+    expect(await countRows('message_nodes')).toBeGreaterThan(0)
+  })
+
+  it('upsert infers the narrowed canonical_key constraint instead of duplicating', async () => {
+    // Coverage item 2. Ticket 03 narrowed nodes_canonical_unique to
+    // (canonical_key) alone, so onConflictDoUpdate's target had to narrow with
+    // it. Ticket 04 proved this once by hand; this makes it permanent.
+    const chatA = await newChat()
+    const chatB = await newChat()
+    await turn(chatA, FIRST, 'Order is per partition.')
+    const afterFirst = await countRows('nodes')
+
+    await turn(chatB, FIRST, 'Same answer.')
+
+    expect(await countRows('nodes')).toBe(afterFirst)
+  })
+
+  it('chat_count counts CHATS, not messages', async () => {
+    // Coverage item 3. chat_count feeds rarity weighting in ranking. If it moved
+    // on every message, a chatty conversation would look like a rare concept.
+    const chatId = await newChat()
+    await turn(chatId, FIRST, 'First reply.')
+    await turn(chatId, SECOND, 'Second reply.')
+
+    const db = await getDb()
+    const [node] = await db.select().from(nodes).where(eq(nodes.canonicalKey, SHARED_LABEL))
+    expect(node).toBeDefined()
+    expect(node.chatCount).toBe(1)
+  })
+
+  it('chat_count reaches 2 when a second CHAT mentions the same concept', async () => {
+    const chatA = await newChat()
+    const chatB = await newChat()
+    await turn(chatA, FIRST, 'First reply.')
+    await turn(chatB, SECOND, 'Second reply.')
+
+    const db = await getDb()
+    const [node] = await db.select().from(nodes).where(eq(nodes.canonicalKey, SHARED_LABEL))
+    expect(node.chatCount).toBe(2)
+  })
+
+  it('derives title and headline exactly once, from server state', async () => {
+    // Coverage item 4. Spec §4.4. The failure is silent AND permanent: a
+    // re-derived title overwrites one the user may have chosen.
+    const chatId = await newChat()
+    await turn(chatId, FIRST, 'First reply.')
+
+    const db = await getDb()
+    const [afterFirst] = await db.select().from(sessions).where(eq(sessions.id, chatId))
+    expect(afterFirst.title).not.toBe('New Session')
+    expect(afterFirst.headlineNodeId).not.toBeNull()
+
+    await turn(chatId, SECOND, 'Second reply.')
+
+    const [afterSecond] = await db.select().from(sessions).where(eq(sessions.id, chatId))
+    expect(afterSecond.title).toBe(afterFirst.title)
+    expect(afterSecond.headlineNodeId).toBe(afterFirst.headlineNodeId)
+  })
+
+  it('a headline that is also an auto concept does not double-count', async () => {
+    // The specific case ticket 06 called out: one label arriving twice in a
+    // single transaction, once as an extracted concept and once as the derived
+    // Headline. upsertNodeAndLink bumps chat_count only when the LINK is new,
+    // so the second arrival must change nothing.
+    const chatId = await newChat()
+    await turn(chatId, FIRST, 'Reply.')
+
+    const db = await getDb()
+    const rows = await db.select().from(nodes)
+    for (const n of rows) {
+      expect(n.chatCount).toBe(1)
+    }
+  })
+
+  it('stores the compaction verbatim, separator surviving a real column', async () => {
+    // Coverage item 6. Both roles go in (spec §4.1) with the user's sentences
+    // in front, where they survive trimming longest.
+    const chatId = await newChat()
+    await turn(chatId, FIRST, 'Partitions preserve order within a key.')
+
+    const db = await getDb()
+    const [chat] = await db.select().from(sessions).where(eq(sessions.id, chatId))
+
+    expect(chat.compaction).toContain(RECORD_SEPARATOR)
+    const records = chat.compaction.split(RECORD_SEPARATOR)
+    expect(records.length).toBeGreaterThanOrEqual(2)
+    expect(chat.compaction).toContain('Kafka partitions')
+    expect(chat.compaction).toContain('Partitions preserve order')
+    expect(chat.compactionUpdatedAt).not.toBeNull()
+  })
+
+  it('a label with no alphanumeric characters never becomes a Node', async () => {
+    const chatId = await newChat()
+    await turn(chatId, '...', '...')
+    // Whatever else happens, nothing with an empty canonical key may be stored.
+    const db = await getDb()
+    const rows = await db.select().from(nodes)
+    for (const n of rows) {
+      expect(n.canonicalKey.length).toBeGreaterThan(0)
+    }
+  })
+})
