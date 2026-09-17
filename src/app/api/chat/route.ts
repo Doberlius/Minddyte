@@ -2,7 +2,7 @@ import { streamText, convertToModelMessages, type UIMessage } from "ai"
 import { ollama, resolveModel } from "@/lib/ollama"
 import { retrieveContext } from "@/services/retrieval"
 import { persistMessage, ingestUserMessage } from "@/services/graph"
-import { RECORD_SEPARATOR } from "@/lib/compaction"
+import { buildSystemPrompt } from "@/lib/prompt"
 
 export async function POST(req: Request) {
   const {
@@ -50,14 +50,7 @@ export async function POST(req: Request) {
     console.error("[chat] retrieval failed, continuing without memory", err)
   }
 
-  const memory = chats
-    .map((c) => `## ${c.title}  (${c.why})\n${c.compaction.split(RECORD_SEPARATOR).join("\n")}`)
-    .join("\n\n")
-
-  const systemPrompt =
-    mode === "focus"
-      ? `You are Minddyte. Answer using this conversation and ONLY the memory below.\n\n${memory || "No memory loaded."}`
-      : `You are Minddyte, a context-aware assistant. Use the memory below where it helps; you may also draw on general knowledge.\n\n${memory || "No memory loaded — answering from this conversation alone."}`
+  const systemPrompt = buildSystemPrompt(mode, chats)
 
   const result = streamText({
     model: ollama(modelId),
