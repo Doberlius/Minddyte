@@ -1,34 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { PGlite } from '@electric-sql/pglite'
 import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm'
-import { pgDump } from '@electric-sql/pglite-tools/pg_dump'
+import { dumpToSql } from '../../db/export'
 import { getClient } from '../../db'
 import { countRows, newChat, truncateAll } from '../helpers/pglite'
 
 beforeEach(truncateAll)
-
-// pgDump runs its own BEGIN/SET on the SAME shared connection getClient()
-// returns (PGlite is single-connection). Real pg_dump relies on the OS
-// closing its socket to undo that; an in-process call never gets that signal,
-// so it leaves the connection stuck in a read-only transaction with its
-// search_path cleared. Every test in this file reuses that one connection, so
-// without this cleanup the test after this one would fail truncateAll with
-// "cannot execute TRUNCATE TABLE in a read-only transaction" — not because
-// truncateAll is broken, but because pgDump silently broke the connection it
-// ran on. Discovered by running this test suite: it had never been run before.
-afterEach(async () => {
-  const pg = await getClient()
-  await pg.query('ROLLBACK')
-  await pg.exec('SET search_path TO public')
-})
 
 describe('export and restore', () => {
   it('produces portable SQL, not a version-tied binary blob', async () => {
     await newChat('a chat worth keeping')
     const pg = await getClient()
 
-    const dump = await pgDump({ pg })
-    const sqlText = await dump.text()
+    const sqlText = await dumpToSql(pg)
 
     // Portable means readable SQL. A binary dumpDataDir() copy would not
     // contain these, and could not be restored into a different PGlite version.
@@ -45,7 +29,7 @@ describe('export and restore', () => {
     expect(await countRows('sessions')).toBe(2)
 
     const pg = await getClient()
-    const sqlText = await (await pgDump({ pg })).text()
+    const sqlText = await dumpToSql(pg)
 
     const restored = await PGlite.create({ extensions: { pg_trgm } })
     await restored.exec(sqlText)

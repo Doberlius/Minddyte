@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { pgDump } from '@electric-sql/pglite-tools/pg_dump'
+import { dumpToSql } from '../db/export'
 import { getClient } from '../db'
 
 // Exports live beside the data directory but are NOT inside it, so that
@@ -14,8 +14,7 @@ const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 const outPath = path.join(outDir, `minddyte-${stamp}.sql`)
 
 const pg = await getClient()
-const dump = await pgDump({ pg })
-writeFileSync(outPath, await dump.text(), 'utf8')
+writeFileSync(outPath, await dumpToSql(pg), 'utf8')
 
 console.log(`Exported to ${outPath}`)
 console.log('Restore into a fresh database with:')
