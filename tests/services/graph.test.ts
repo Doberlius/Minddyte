@@ -131,8 +131,19 @@ describe('the graph write path against a real database', () => {
   })
 
   it('a label with no alphanumeric characters never becomes a Node', async () => {
+    // '...' alone does NOT reach the guard this test means to check: its
+    // extractConcepts().auto is empty, so the only node the write path
+    // creates comes from the title-fallback headline ("New Session"), whose
+    // canonical key is never empty — the assertion would pass even with the
+    // guard deleted. '!!! ??? ...' does reach it: classifyShape() sees the
+    // whitespace and calls it 'multi', and a 'multi' label is auto-created
+    // rather than merely suggested (spec's admission gate), so this
+    // punctuation-only phrase is fed straight into upsertNodeAndLink. Its
+    // canonicalKey() strips every character, leaving ''. That is the one
+    // input that actually forces upsertNodeAndLink's `if (!key) return null`
+    // guard to run and skip the insert.
     const chatId = await newChat()
-    await turn(chatId, '...', '...')
+    await turn(chatId, '!!! ??? ...', '...')
     // Whatever else happens, nothing with an empty canonical key may be stored.
     const db = await getDb()
     const rows = await db.select().from(nodes)
