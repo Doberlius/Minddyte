@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "db:reset": "bun run scripts/db-reset.ts",
     "db:export": "bun run scripts/db-export.ts",
+    "db:vacuum": "bun run scripts/db-vacuum.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
