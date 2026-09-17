@@ -1,4 +1,5 @@
-import { getClient } from '../db'
+import { getClient, resolveDataDir } from '../db'
+import { DataDirLockedError, lockPathFor, releaseLock } from '../db/lock'
 
 // Why this script exists at all: Postgres never overwrites a row on UPDATE —
 // it writes a NEW version and marks the old one "dead". On a normal server, a
@@ -49,10 +50,29 @@ function show(label: string, rows: Stat[]) {
   console.log(`total: ${(total / 1024 / 1024).toFixed(1)} MB`)
 }
 
-const pg = await getClient()
+// A live lock here means `next dev` (or another script) is already running
+// against this data directory — an ordinary, expected condition, not a
+// crash. It deserves the message written for it, not a raw stack trace.
+// Mirrors scripts/db-reset.ts.
+let pg
+try {
+  pg = await getClient()
+} catch (err) {
+  if (err instanceof DataDirLockedError) {
+    console.error(err.message)
+    process.exit(1)
+  }
+  throw err
+}
 
 const before = (await pg.query<Stat>(STATS)).rows
 show('BEFORE', before)
+// live/dead above come from pg_stat_user_tables, which Postgres only
+// refreshes when VACUUM or ANALYZE actually runs — not on every write. A
+// table that has been written to but never vacuumed or analyzed reads 0 dead
+// tuples here no matter how many it truly holds. Read a 0 above as "not
+// measured yet", not as "empty".
+console.log('(live/dead above are only refreshed by VACUUM/ANALYZE — a table that has never had either can read 0 regardless of what it actually holds)')
 
 // VACUUM cannot run inside a transaction block, so this goes through exec
 // directly rather than through drizzle.
@@ -64,12 +84,21 @@ show('AFTER', after)
 const deadBefore = before.reduce((s, r) => s + Number(r.dead), 0)
 console.log(`\nDead tuples before vacuum: ${deadBefore}`)
 if (deadBefore === 0) {
-  // The expected result. Ticket 01 measured 0 after 500 non-HOT updates,
-  // because single-connection means every dead row is immediately reclaimable.
-  console.log('Nothing had accumulated — this is the expected result on a single-connection database.')
+  // Ticket 01 measured 0 after 500 non-HOT updates, because single-connection
+  // means every dead row is immediately reclaimable — but that measurement
+  // can't be told apart, from this number alone, from a table nobody has
+  // vacuumed or analyzed yet (see the caveat above). Say only what is known.
+  console.log('Nothing was reported — the expected result on a single-connection database.')
 } else {
   console.log('Dead tuples were present. If this keeps happening, escalate:')
   console.log('  VACUUM FULL   — returns space to the OS; its exclusive lock is free here')
   console.log('  REINDEX       — if index size rather than table size is growing')
 }
+
+// Explicit here, not just left to db/index.ts's own exit handler, so a
+// reader of THIS script sees the whole lifecycle — acquire (inside
+// getClient), use, release — in one file. memory:// never acquires a lock
+// (tests use it), so there is nothing to release in that case.
+const dataDir = resolveDataDir()
+if (!dataDir.startsWith('memory://')) releaseLock(lockPathFor(dataDir))
 process.exit(0)

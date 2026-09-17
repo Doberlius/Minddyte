@@ -41,8 +41,43 @@ export function NeuralChat() {
     return m ? m[1] : null
   }, [input])
 
-  const { messages, sendMessage, status } = useChat({
+  const { messages, sendMessage, status, setMessages, clearError } = useChat({
     transport: new DefaultChatTransport({ api: '/api/chat' }),
+    // ai-sdk's transport wraps any non-2xx response in a plain Error whose
+    // `message` IS the raw response body text (see HttpChatTransport: `throw
+    // new Error(await response.text())`) — so the ONLY way to tell "your
+    // sessionId is gone, start over" apart from "the model call failed" is to
+    // parse that text back out and look for the marker /api/chat put there.
+    onError: (err) => {
+      let body: { error?: string } | null = null
+      try {
+        body = JSON.parse(err.message)
+      } catch {
+        return // some other failure shape — not ours to handle here
+      }
+      if (body?.error !== 'session_not_found') return
+
+      // The chat this browser remembers is gone (db:reset, a deleted chat, a
+      // restored export all look the same from here). Forget it so the very
+      // next send lazily creates a fresh one (ticket 08's rule: only create
+      // on send) instead of retrying the same dead id forever.
+      localStorage.removeItem(SESSION_KEY)
+      setSessionId(null)
+      clearError() // otherwise status stays 'error' and Send stays disabled forever
+
+      // useChat already pushed the failed message into `messages` optimistically,
+      // before the request was even sent — it belongs to a session that no
+      // longer exists, so it comes back out of the transcript. But the text
+      // itself is not thrown away: the standing rule is never to silently
+      // discard what someone typed, so it goes back in the box instead, ready
+      // to send again into the chat that's about to be created.
+      setMessages((prev) => {
+        const failed = prev[prev.length - 1]
+        const text = failed?.parts.filter((p) => p.type === 'text').map((p) => p.text).join('') ?? ''
+        if (text) setInput(text)
+        return prev.slice(0, -1)
+      })
+    },
   })
 
   // Ticket 08: click New chat and nothing is written. Type and still nothing.

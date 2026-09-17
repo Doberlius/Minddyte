@@ -16,9 +16,16 @@ import { pgDump } from '@electric-sql/pglite-tools/pg_dump'
  * once and exits. It stops being invisible the moment export is wired up as
  * a button inside the running app: `getDb()`/`getClient()` cache ONE
  * connection per process, so a single export click would silently break
- * every write in the app until restart. Fixing it here, once, means every
- * future caller gets the repair for free instead of rediscovering this the
- * same way it was discovered here — by running it against a real database.
+ * every write in the app until restart.
+ *
+ * This repair is enough for exactly one shape of caller: one that awaits
+ * dumpToSql and only then lets anything else touch the database — true of
+ * every caller that exists today. It is NOT enough on its own for a caller
+ * running CONCURRENTLY with other database work: pgDump takes no mutex, so a
+ * query racing this one would execute inside pg_dump's read-only transaction,
+ * and a COMMIT from that query would end pg_dump's snapshot mid-dump. An
+ * in-app export button would have to serialise itself against other writes;
+ * that machinery is not built here, because no such caller exists yet.
  *
  * The repair runs in a `finally`, not just after a successful dump, because
  * `pgDump` is most likely to throw when the database is already unhealthy —

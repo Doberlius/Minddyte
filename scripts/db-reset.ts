@@ -35,3 +35,7 @@ releaseLock(lockPath)
 
 console.log(`Deleted ${dataDir}`)
 console.log('The schema will be recreated the next time the app starts.')
+// Free: the browser still has the OLD chat id in localStorage, and this is
+// the moment that stops working. Saying so here means the 404 someone sees
+// next is expected, not alarming.
+console.log('Your browser still remembers the old chat id. The next message you send will get a fresh chat automatically — nothing else to do.')

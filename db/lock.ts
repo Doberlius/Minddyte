@@ -12,7 +12,11 @@ export class DataDirLockedError extends Error {
   constructor(readonly pid: number, readonly lockPath: string) {
     super(
       `Minddyte's database is already open in process ${pid}.\n` +
-        'Close that process first. If you are certain it is gone, delete the lock file:\n' +
+        'Close that process first — but only if it really is Minddyte. The OS\n' +
+        `reuses pids, so process ${pid} may by now belong to something else entirely;\n` +
+        'killing it would not be closing Minddyte, it would be closing someone else\'s\n' +
+        'work. If you do not recognise it, the lock is just stale: delete the file\n' +
+        'below instead, no process needs to die for that:\n' +
         `  ${lockPath}\n` +
         'Nothing has been changed or deleted.',
     )

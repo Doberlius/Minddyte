@@ -24,6 +24,27 @@ export async function loadChat(sessionId: string) {
   })
 }
 
+/**
+ * A cheap existence check, not `loadChat` reused — the caller (POST
+ * /api/chat) runs this on every message, and `loadChat` would drag in every
+ * message row for a session that is almost always fine, just to answer yes/no.
+ *
+ * Why this needs to exist at all: `messages.session_id` is `notNull().references
+ * (sessions.id)`, so inserting a message for an id the table doesn't have
+ * raises a foreign-key violation. A browser can hold a sessionId for a chat
+ * that is gone for several reasons — `db:reset`, a deleted chat, a restored
+ * export — so the check has to happen before the insert, not just once at
+ * `db:reset` time.
+ */
+export async function sessionExists(sessionId: string): Promise<boolean> {
+  const db = await getDb()
+  const row = await db.query.sessions.findFirst({
+    where: eq(sessions.id, sessionId),
+    columns: { id: true },
+  })
+  return row !== undefined
+}
+
 export async function touchNodes(nodeIds: string[]) {
   if (nodeIds.length === 0) return
   const db = await getDb()

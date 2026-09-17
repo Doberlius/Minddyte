@@ -2,6 +2,7 @@ import { streamText, convertToModelMessages, type UIMessage } from "ai"
 import { ollama, resolveModel } from "@/lib/ollama"
 import { retrieveContext } from "@/services/retrieval"
 import { persistMessage, ingestUserMessage } from "@/services/graph"
+import { sessionExists } from "@/services/dbApi"
 import { buildSystemPrompt } from "@/lib/prompt"
 
 export async function POST(req: Request) {
@@ -34,6 +35,25 @@ export async function POST(req: Request) {
     return Response.json({ error: "last message must be a user message" }, { status: 400 })
   }
   const draft = last?.parts?.filter((p) => p.type === "text").map((p) => p.text).join("") ?? ""
+
+  // A browser can hold a sessionId for a chat the database no longer has —
+  // db:reset, a deleted chat, a restored export all look identical from here.
+  // Checked BEFORE persistMessage runs: messages.session_id is a NOT NULL FK
+  // into sessions, so without this check the insert below throws a foreign-key
+  // violation that nothing catches — every future message for this browser
+  // would 500 forever, with no way back short of manually clearing site data.
+  // "session_not_found" is a machine-readable marker (not just the status
+  // code) so the client can tell this apart from every OTHER way a chat
+  // request can fail, and react specifically: forget the id, start a new chat.
+  if (!(await sessionExists(sessionId))) {
+    return Response.json(
+      {
+        error: "session_not_found",
+        message: "This chat no longer exists. Starting a new one will fix it.",
+      },
+      { status: 404 },
+    )
+  }
 
   // 1. persist the user message
   const messageId = await persistMessage({

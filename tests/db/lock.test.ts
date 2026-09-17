@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -44,6 +44,24 @@ describe('data directory lock', () => {
 
     const lockPath = acquireLock(dataDir)
     expect(readFileSync(lockPath, 'utf8')).toBe(String(process.pid))
+  })
+
+  // Now that FIX 1 releases the lock on every clean exit, this warning means
+  // something specific: a PREVIOUS run did not exit cleanly. That is only
+  // true if it still actually fires — a warning nobody asserts on is exactly
+  // the kind of regression that silently turns back into noise on every
+  // restart. A break that would fail this: deleting the console.warn call,
+  // or swallowing it in a try/catch, leaves acquireLock's return value
+  // unchanged, so every OTHER test above still passes; only this one would fail.
+  it('warns when it clears a stale lock, so a real crash is still visible', () => {
+    mkdirSync(path.dirname(dataDir), { recursive: true })
+    writeFileSync(lockPathFor(dataDir), '4194303', 'utf8')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    acquireLock(dataDir)
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('4194303'))
+    warn.mockRestore()
   })
 
   it('re-acquiring in the same process is allowed', () => {

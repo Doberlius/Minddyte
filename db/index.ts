@@ -2,7 +2,7 @@ import { PGlite } from '@electric-sql/pglite'
 import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm'
 import { drizzle } from 'drizzle-orm/pglite'
 import { ensureSchema } from './bootstrap'
-import { acquireLock } from './lock'
+import { acquireLock, lockPathFor, releaseLock } from './lock'
 import * as schema from './schema'
 import * as relations from './apiRelations'
 
@@ -43,13 +43,32 @@ async function open() {
         'The most likely cause is that this directory was written by a different\n' +
         'PGlite version, which is an alpha-stage hazard this project accepts.\n' +
         'NOTHING HAS BEEN DELETED. Your options:\n' +
-        '  1. bun run db:export   — try to save what is there first\n' +
+        '  1. Copy the folder below somewhere safe, right now, with your normal\n' +
+        '     file manager or `cp -r` — it is inert files on disk, no database\n' +
+        '     needs to open for that to work:\n' +
+        `       ${dataDir}\n` +
+        '     (bun run db:export cannot do this for you: it opens this exact\n' +
+        '     database the exact same way that just failed, so it fails the same\n' +
+        '     way, right back to this message.)\n' +
         '  2. bun run db:reset    — DESTROYS the graph and starts over\n' +
         `Original error: ${(err as Error).message}`,
     )
   }
 
   await ensureSchema(pg)
+
+  // Release the lock on any CLEAN exit — Ctrl+C on `next dev`, or a script
+  // like db-export/db-vacuum finishing and calling process.exit(0) — so the
+  // next start sees a genuinely free directory instead of printing the
+  // stale-lock warning on every single restart. Registered only after both
+  // PGlite.create and ensureSchema succeeded: if either failed, this process
+  // never legitimately held a healthy connection, and leaving the lock behind
+  // for the NEXT start to flag as stale is the correct, honest outcome then.
+  //
+  // Must stay synchronous — 'exit' listeners cannot await anything — which is
+  // exactly what releaseLock's rmSync already is.
+  if (!inMemory) process.on('exit', () => releaseLock(lockPathFor(dataDir)))
+
   return { pg, db: drizzle(pg, { schema: { ...schema, ...relations } }) }
 }
 
