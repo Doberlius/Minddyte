@@ -95,3 +95,27 @@ html, body {
 
 .g-node { cursor: grab; user-select: none; }
 .g-node:active { cursor: grabbing; }
+
+/* Demo page layout.
+   The side panel is a column beside the canvas on a laptop, but below a
+   certain width that leaves the canvas too narrow to read — measured at ~500px
+   viewport, the graph was squeezed to about 165px and the demo was unusable.
+   A recruiter opening the link on a phone has to get something that works, so
+   below 900px the two stack and the canvas keeps a fixed, readable height. */
+.demo-body { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+.demo-canvas { flex: 1; position: relative; min-width: 0; }
+.demo-aside {
+  width: 340px; flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  background: var(--white); padding: 16px; overflow-y: auto;
+}
+
+@media (max-width: 900px) {
+  .demo-body { flex-direction: column; overflow-y: auto; }
+  .demo-canvas { flex: none; height: 58vh; min-height: 320px; }
+  .demo-aside {
+    width: auto; border-left: none;
+    border-top: 1px solid var(--border);
+    overflow-y: visible;
+  }
+}
