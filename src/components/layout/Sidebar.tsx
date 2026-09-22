@@ -208,7 +208,7 @@ export function Sidebar({
        * time, or someone will assume their chats are backed up somewhere.
        */}
       <p className="side-note">
-        Your chats live in this browser only — no account, nothing synced.
+        Only this browser can reach them — no account, nothing synced.
         Clearing your cookies starts you over.
       </p>
 
