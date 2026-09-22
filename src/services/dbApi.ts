@@ -120,6 +120,15 @@ export async function loadChat(workspaceId: string, sessionId: string) {
   const db = await getDb()
   return db.query.sessions.findFirst({
     where: and(eq(sessions.id, sessionId), eq(sessions.workspaceId, workspaceId)),
+    // `workspaceId` never appears in a URL or a response body — that is the
+    // whole point of keeping it in an HttpOnly cookie instead. GET
+    // /api/sessions/[id] returns whatever this selects, verbatim, so an
+    // unqualified findFirst here would hand a visitor's own authorization
+    // secret to their own client JS (and anything that logs response
+    // bodies) the moment they opened a chat. Named explicitly rather than
+    // omitted-by-exception, so a column this doesn't ask for stays out by
+    // default rather than by memory.
+    columns: { id: true, title: true, compaction: true, headlineNodeId: true },
     with: { messages: { orderBy: messages.createdAt } },
   })
 }
@@ -143,15 +152,6 @@ export async function sessionExists(workspaceId: string, sessionId: string): Pro
     columns: { id: true },
   })
   return row !== undefined
-}
-
-export async function touchNodes(workspaceId: string, nodeIds: string[]) {
-  if (nodeIds.length === 0) return
-  const db = await getDb()
-  await db
-    .update(nodes)
-    .set({ lastReferencedAt: new Date() })
-    .where(and(inArray(nodes.id, nodeIds), eq(nodes.workspaceId, workspaceId)))
 }
 
 /**
