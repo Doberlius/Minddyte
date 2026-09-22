@@ -122,10 +122,11 @@ export async function resolveModel(requested?: string | null): Promise<string | 
 /**
  * A client for one resolved choice.
  *
- * The module-level `ollama` export above is bound to `API_BASE` at import
- * time, which cannot carry a hosted base URL or an Authorization header —
- * so the route builds its client per request from the choice instead.
- * Creating the client is local object construction, not a connection.
+ * Built fresh per request because a hosted choice carries a base URL and an
+ * Authorization header that differ from one request to the next — a single
+ * client fixed at import time could not serve both the local and hosted
+ * paths. This costs nothing to do per request: constructing the client is
+ * local object construction, not a connection.
  */
 export function clientFor(choice: ProviderChoice) {
   if (choice.kind === 'none') throw new Error(choice.reason)
