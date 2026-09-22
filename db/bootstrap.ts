@@ -13,7 +13,25 @@ const MIGRATIONS_DIR = path.join(process.cwd(), 'db', 'migrations')
 const BREAKPOINT = '--> statement-breakpoint'
 
 export function migrationStatements(): string[] {
-  const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort()
+  let entries: string[]
+  try {
+    entries = readdirSync(MIGRATIONS_DIR)
+  } catch (err) {
+    // A missing directory and an empty one are different mistakes and need
+    // different fixes, so they must not share a message. This one is what a
+    // deployment hits: the migrations are data, not code, so a bundler never
+    // sees them and an image that ships only the build output leaves the app
+    // unable to create its own schema — as a bare ENOENT deep in a 500.
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+    throw new Error(
+      `No migrations directory at ${MIGRATIONS_DIR}, so the schema cannot be created.\n` +
+        'Running from the project root? This path is resolved from the working\n' +
+        'directory. Packaging the app? db/migrations has to be copied alongside\n' +
+        'the build output — it is read at runtime, not bundled.',
+    )
+  }
+
+  const files = entries.filter((f) => f.endsWith('.sql')).sort()
   if (files.length === 0) {
     throw new Error(
       `No .sql migration found in ${MIGRATIONS_DIR}. ` +

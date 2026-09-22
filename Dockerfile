@@ -49,11 +49,20 @@ ENV NODE_ENV=production
 # volume, which is what lets one container see that another still holds it.
 ENV MINDDYTE_DATA_DIR=/data/minddyte
 
+# No `public/` copy: this project has none. Every asset is either imported
+# through the bundler or drawn inline as SVG, so there is nothing to serve
+# from disk — and COPYing a directory that does not exist fails the build.
 COPY --from=deps  /app/node_modules   ./node_modules
 COPY --from=build /app/.next          ./.next
-COPY --from=build /app/public         ./public
 COPY --from=build /app/package.json   ./package.json
 COPY --from=build /app/next.config.js ./next.config.js
+
+# db/bootstrap.ts reads these .sql files off disk at RUNTIME, from
+# process.cwd(), the first time it meets an empty data directory — which on a
+# fresh volume is the very first request. They are data, not code, so the
+# bundler never sees them and shipping .next alone leaves the app unable to
+# create its own schema. Found by running the image, not by reading it.
+COPY --from=build /app/db/migrations  ./db/migrations
 
 # Railway assigns the port. Binding 3000 by hand makes the service
 # unreachable however healthy it is, and 0.0.0.0 is needed because localhost
