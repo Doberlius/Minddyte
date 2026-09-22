@@ -82,6 +82,24 @@ describe('one workspace cannot see another', () => {
     expect(labels).not.toContain('kafka')
   })
 
+  it("counts only this workspace's messages, even for chats it cannot see", async () => {
+    // perChat reads `messages`, which has no workspace column of its own. An
+    // unfiltered read there does not leak through today's return value, but
+    // nothing enforces that — so the count is what this asserts on, because
+    // it is the only observable perChat produces.
+    const a = await createChat(A)
+    const b = await createChat(B)
+    await say(A, a.id, 'PostgreSQL in production.')
+    await say(B, b.id, 'Kafka handles event ordering.')
+    await say(B, b.id, 'Kafka again, and again.')
+
+    const graph = await loadGraph(A)
+
+    expect(graph.chats).toHaveLength(1)
+    expect(graph.chats[0].id).toBe(a.id)
+    expect(graph.chats[0].messageCount).toBe(1)
+  })
+
   it("will not open another workspace's chat", async () => {
     const a = await createChat(A)
     await say(A, a.id, 'PostgreSQL in production.')

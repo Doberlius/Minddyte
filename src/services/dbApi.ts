@@ -49,6 +49,18 @@ export async function loadGraph(workspaceId: string): Promise<ViewGraph> {
         ),
     })
     .from(messages)
+    // `messages` inherits its workspace through `sessions` and has no column
+    // of its own, so the scope has to be fetched from where it does live. A
+    // subquery here (rather than a join) keeps the shape of this query
+    // unchanged, and putting it in the WHERE — rather than post-filtering in
+    // JS — is what keeps another workspace's rows out of the result set
+    // entirely, rather than merely out of the return value.
+    .where(
+      inArray(
+        messages.sessionId,
+        db.select({ id: sessions.id }).from(sessions).where(eq(sessions.workspaceId, workspaceId)),
+      ),
+    )
     .groupBy(messages.sessionId)
 
   const stats = new Map(perChat.map((row) => [row.sessionId, row]))
