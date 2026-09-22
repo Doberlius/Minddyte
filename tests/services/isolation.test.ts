@@ -5,7 +5,7 @@ import {
 } from '@/services/dbApi'
 import { ingestUserMessage, persistMessage } from '@/services/graph'
 import { retrieveContext } from '@/services/retrieval'
-import { getDb, nodes } from '../../db'
+import { getDb, nodes, collections, rejectedPhrases, clusterOrigins } from '../../db'
 import { eq } from 'drizzle-orm'
 import { newWorkspaceId } from '@/lib/workspace'
 
@@ -119,6 +119,22 @@ describe('one workspace cannot see another', () => {
     expect(await sessionExists(B, a.id)).toBe(false)
   })
 
+  it("never hands back workspaceId as part of a chat", async () => {
+    // GET /api/sessions/[id] does `Response.json(chat)` — whatever loadChat
+    // returns goes straight into a response body a browser's own JS can
+    // read. workspaceId is the one thing that must never be in that set: it
+    // is the entire authorization secret the HttpOnly cookie exists to keep
+    // away from client JS in the first place. This fails the moment someone
+    // drops the `columns` clause and goes back to an unqualified findFirst.
+    const a = await createChat(A)
+    await say(A, a.id, 'PostgreSQL in production.')
+
+    const chat = await loadChat(A, a.id)
+
+    expect(chat).toBeDefined()
+    expect(Object.keys(chat!)).not.toContain('workspaceId')
+  })
+
   it("will not delete another workspace's chat", async () => {
     const a = await createChat(A)
 
@@ -136,9 +152,18 @@ describe('one workspace cannot see another', () => {
   })
 
   it("deleting in one workspace leaves the other workspace's counts alone", async () => {
-    // deleteChat repairs nodes.chat_count. That repair recomputes from
-    // surviving links, so a repair that forgot its workspace would rewrite
-    // a stranger's counter.
+    // Guards a real property: deleting A's chat leaves B's postgresql node
+    // at its own count. It does NOT prove the repair statements' own
+    // `eq(nodes.workspaceId, workspaceId)` filter — delete that filter from
+    // both of deleteChat's repair statements and this test stays green,
+    // because `touched` is read via session_nodes for a session the DELETE
+    // above already proved belongs to this workspace, so under today's
+    // correct writes it can never hold a foreign node id for the filter to
+    // catch. The filter earns its place anyway (see dbApi.ts's own comment
+    // on deleteChat): it is what stops the repair from reaching a
+    // stranger's row AT ALL, in the one case — a bug elsewhere — where
+    // `touched` ever did hold one, rather than relying on that never
+    // happening.
     const a = await createChat(A)
     const b = await createChat(B)
     await say(A, a.id, 'PostgreSQL in production.')
@@ -196,5 +221,93 @@ describe('retrieval', () => {
     })
 
     expect(chats).toHaveLength(0)
+  })
+})
+
+describe('ownership guards on the write path', () => {
+  it('persistMessage refuses a sessionId that belongs to a different workspace', async () => {
+    // `messages` carries no workspace_id of its own — this ownership check
+    // in persistMessage is the ONLY thing stopping a foreign sessionId from
+    // writing into another workspace's chat. Deleting
+    // `eq(sessions.workspaceId, input.workspaceId)` from that check leaves
+    // the rest of the suite green, because nothing else exercises a
+    // mismatched (workspaceId, sessionId) pair.
+    const a = await createChat(A)
+
+    await expect(
+      persistMessage({ workspaceId: B, sessionId: a.id, role: 'user', content: 'Taken over' }),
+    ).rejects.toThrow()
+
+    // "Not yours" and "not there" must be indistinguishable from outside —
+    // checked here as "nothing got written", not by inspecting the message.
+    const chat = await loadChat(A, a.id)
+    expect(chat!.messages).toHaveLength(0)
+  })
+
+  it('ingestUserMessage refuses a sessionId that belongs to a different workspace', async () => {
+    // `upsertNodeAndLink` trusts the sessionId it is handed; nothing inside
+    // ingestUserMessage's own transaction proved it belongs to workspaceId
+    // before this guard existed. A mismatched pair here used to reach the
+    // title/headline update, the compaction read and the compaction write —
+    // three separately scoped `where` clauses, each individually deletable
+    // with the rest of the suite staying green, because nothing else put a
+    // mismatched pair through this function. This guard, and this test,
+    // close that off at the one place a caller could ever reach it from.
+    const a = await createChat(A)
+    const messageId = await persistMessage({
+      workspaceId: A, sessionId: a.id, role: 'user', content: 'We run PostgreSQL in production.',
+    })
+
+    await expect(
+      ingestUserMessage({
+        workspaceId: B, sessionId: a.id, messageId, content: 'We run PostgreSQL in production.',
+      }),
+    ).rejects.toThrow()
+
+    // Title/headline still default, compaction still empty — B's call never
+    // touched A's chat.
+    const chat = await loadChat(A, a.id)
+    expect(chat!.title).toBe('New Session')
+    expect(chat!.headlineNodeId).toBeNull()
+    expect(chat!.compaction).toBe('')
+  })
+})
+
+describe('scoped tables nothing reads or writes yet', () => {
+  // collections, rejected_phrases and cluster_origins each gained
+  // workspace_id and had a global constraint scoped to it, ahead of
+  // anything in the app actually using them. Without a test here, a future
+  // regression back to the global constraint form (e.g. `unique(phrase)`
+  // instead of `unique(workspace_id, phrase)`) would be silent — nothing
+  // else in the suite inserts into these tables at all.
+
+  it('lets two workspaces each feature a collection', async () => {
+    const db = await getDb()
+    await db.insert(collections).values({ workspaceId: A, title: 'Ops runbook', featured: true })
+    await db.insert(collections).values({ workspaceId: B, title: 'Ops runbook', featured: true })
+
+    const rows = await db.select().from(collections).where(eq(collections.featured, true))
+    expect(rows).toHaveLength(2)
+    expect(new Set(rows.map((r) => r.workspaceId))).toEqual(new Set([A, B]))
+  })
+
+  it('lets two workspaces each reject the same phrase', async () => {
+    const db = await getDb()
+    await db.insert(rejectedPhrases).values({ workspaceId: A, phrase: 'the thing' })
+    await db.insert(rejectedPhrases).values({ workspaceId: B, phrase: 'the thing' })
+
+    const rows = await db.select().from(rejectedPhrases).where(eq(rejectedPhrases.phrase, 'the thing'))
+    expect(rows).toHaveLength(2)
+    expect(new Set(rows.map((r) => r.workspaceId))).toEqual(new Set([A, B]))
+  })
+
+  it('lets two workspaces each place the same cluster key', async () => {
+    const db = await getDb()
+    await db.insert(clusterOrigins).values({ workspaceId: A, clusterKey: 'cluster-1', x: 10, y: 20 })
+    await db.insert(clusterOrigins).values({ workspaceId: B, clusterKey: 'cluster-1', x: 30, y: 40 })
+
+    const rows = await db.select().from(clusterOrigins).where(eq(clusterOrigins.clusterKey, 'cluster-1'))
+    expect(rows).toHaveLength(2)
+    expect(new Set(rows.map((r) => r.workspaceId))).toEqual(new Set([A, B]))
   })
 })

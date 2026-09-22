@@ -125,6 +125,26 @@ export async function ingestUserMessage(input: {
 
   const db = await getDb()
   await db.transaction(async (tx) => {
+    // `upsertNodeAndLink` inserts into `session_nodes` with `input.sessionId`
+    // and never proves it belongs to `input.workspaceId` itself — it trusts
+    // its caller. Today the chat route proves that upstream (it only ever
+    // calls in with a session it already loaded for this workspace), so
+    // nothing exploits this yet, but that makes it latent rather than safe:
+    // the moment any other caller reaches this function with an unproven
+    // pair, every node/session filter downstream stops being redundant and
+    // starts being the only thing standing between a foreign sessionId and
+    // this workspace's chat. Same check persistMessage already does, same
+    // non-distinguishing message — "not yours" and "not there" must stay
+    // indistinguishable from outside.
+    const [owned] = await tx
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(and(eq(sessions.id, input.sessionId), eq(sessions.workspaceId, input.workspaceId)))
+
+    if (!owned) {
+      throw new Error(`No chat ${input.sessionId} in this workspace.`)
+    }
+
     for (const label of auto) {
       const nodeId = await upsertNodeAndLink(tx, input.workspaceId, input.sessionId, label)
       if (!nodeId) continue

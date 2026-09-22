@@ -66,13 +66,17 @@ async function candidateRows(
       and(
         ne(sessions.id, sessionId),
         sql`${nodes.archivedAt} is null`,
-        // The query starts from `nodes` and joins to `sessions` — a row can
-        // enter through either side, so both need their own filter. Filtering
-        // only `nodes` would still let a stranger's Session join in through
-        // `sessionNodes` as long as SOME node of theirs matched; filtering
-        // only `sessions` would still let a stranger's Node match through the
-        // outer `matches` clause. Spec §1: the filter goes at the root of
-        // each query, not on a joined table.
+        // The query starts from `nodes` and joins to `sessions` through
+        // `session_nodes`. `ingestUserMessage` now proves ownership of
+        // `sessionId` before it ever writes a `session_nodes` link (see
+        // graph.ts), so that link table only ever pairs a session and a node
+        // from the SAME workspace — under that invariant, either filter
+        // alone already keeps a stranger's row out, and removing just one of
+        // the two leaves the suite green. Both stay anyway, at the root of
+        // each query rather than on a joined table (Spec §1): defense in
+        // depth against that invariant ever breaking upstream, since this
+        // query has no way to tell "it held" from "it didn't, but the other
+        // filter caught it".
         eq(sessions.workspaceId, workspaceId),
         eq(nodes.workspaceId, workspaceId),
         // sql`= any(${keys})` with a JS array compiles to a row constructor
