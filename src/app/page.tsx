@@ -1,7 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { HelpCircle } from 'lucide-react'
 import { Sidebar, type ChatSummary, type Tab } from '@/components/layout/Sidebar'
+import { AppTour } from '@/components/layout/AppTour'
 import { NeuralChat } from '@/components/chat'
 import { NeuralBrain } from '@/components/brain'
 import { MemoryArchives } from '@/components/archive'
@@ -17,6 +19,11 @@ import { MemoryArchives } from '@/components/archive'
 // Disk, not RAM: ~5-10 MB per origin and this holds one uuid. React state is
 // what lives in memory, and is exactly why a reload used to lose your chat.
 const SESSION_KEY = 'minddyte.sessionId'
+/**
+ * Marks that the guide has been read. Its own key, separate from the demo's:
+ * the two decks say different things and reading one is not reading the other.
+ */
+const TOUR_SEEN = 'minddyte.tourSeen'
 
 export default function Page() {
   const [tab, setTab] = useState<Tab>('chat')
@@ -25,11 +32,31 @@ export default function Page() {
   // localStorage is not available during server rendering, so the remembered
   // chat is read in an effect rather than in the initial state.
   const [restored, setRestored] = useState(false)
+  /**
+   * `null` until the browser has been asked, so the overlay never flashes on a
+   * return visit and never renders during server rendering, where localStorage
+   * does not exist.
+   */
+  const [tourOpen, setTourOpen] = useState<boolean | null>(null)
 
   useEffect(() => {
     setActiveId(localStorage.getItem(SESSION_KEY))
     setRestored(true)
+    try {
+      setTourOpen(localStorage.getItem(TOUR_SEEN) === null)
+    } catch {
+      // Private browsing and blocked storage both throw. A guide is not worth
+      // a blank page, so show it and simply do not remember.
+      setTourOpen(true)
+    }
   }, [])
+
+  function closeTour() {
+    setTourOpen(false)
+    try {
+      localStorage.setItem(TOUR_SEEN, '1')
+    } catch {}
+  }
 
   const refreshChats = useCallback(async () => {
     try {
@@ -116,6 +143,8 @@ export default function Page() {
     // The class, not inline styles: at narrow widths the column becomes a strip
     // along the top, and a media query cannot reach a style attribute.
     <div className="app-shell">
+      {tourOpen && <AppTour onClose={closeTour} />}
+
       <Sidebar
         activeTab={tab}
         onTabChange={setTab}
@@ -127,6 +156,17 @@ export default function Page() {
         }}
         onDeleteChat={deleteChat}
         onRenameChat={renameChat}
+        footer={
+          <button
+            onClick={() => setTourOpen(true)}
+            className="btn-ghost"
+            aria-label="How this works"
+            title="How this works"
+            style={{ padding: 6, color: 'var(--ink2)' }}
+          >
+            <HelpCircle size={14} />
+          </button>
+        }
         onNewChat={() => {
           // Nothing is written here. The row appears when you SEND: opening a
           // new chat and walking away leaves no `New Session` debris behind,
