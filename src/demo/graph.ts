@@ -1,6 +1,8 @@
 import { extractConcepts } from '@/lib/extract'
-import { canonicalKey, deriveTitle } from '@/lib/text'
-import { appendToCompaction } from '@/lib/compaction'
+import { canonicalKey, deriveTitle, splitSentences } from '@/lib/text'
+import { appendToCompaction, buildCompaction, type Turn } from '@/lib/compaction'
+// Shared with the app, which computes the same links over database rows.
+export { overlaps, type Overlap } from '@/lib/graph-overlaps'
 
 /**
  * The demo's graph, held in memory.
@@ -12,8 +14,10 @@ import { appendToCompaction } from '@/lib/compaction'
  * mocked up.
  *
  * What it does NOT reproduce: persistence, rarity-weighted retrieval
- * (`lib/rank.ts` ranks across a corpus this has no equivalent of), Forgetting,
- * archival, and Bridges. Those live in the app and stay there. Everything this
+ * (`lib/rank.ts` ranks across a corpus this has no equivalent of), archival,
+ * and Bridges. Those live in the app and stay there. Forgetting IS here —
+ * it is the one place a visitor can prove the memory is theirs to take back,
+ * and a claim like that is worth nothing described. Everything this
  * DOES claim to do is asserted against the real extractor in
  * `tests/demo/graph.test.ts`.
  *
@@ -21,7 +25,19 @@ import { appendToCompaction } from '@/lib/compaction'
  * in-place mutation here would leave the canvas showing the previous frame.
  */
 
-export type DemoMessage = { role: 'user' | 'assistant'; content: string }
+export type DemoMessage = {
+  role: 'user' | 'assistant'
+  content: string
+  /**
+   * Whether this message counts toward the chat's memory.
+   *
+   * Only ever false for the demo's own reports about the extractor. It has to
+   * be recorded on the message rather than inferred, because Forgetting
+   * rebuilds the Compaction from the transcript and cannot otherwise tell
+   * which replies were meant to be remembered.
+   */
+  remembered?: boolean
+}
 
 export type DemoChat = {
   id: string
@@ -31,6 +47,15 @@ export type DemoChat = {
   compaction: string
   /** The Node taken from the title; names this chat wherever it appears. */
   headlineKey: string | null
+  /**
+   * Labels the user has deleted from this chat.
+   *
+   * Kept as LABELS, not keys, because they are matched against the text of
+   * sentences — and kept forever, because "permanently ineligible" is the
+   * whole promise. A forgotten concept that returns the next time you mention
+   * it is not a delete, it is a pause.
+   */
+  forgotten: string[]
 }
 
 export type DemoNode = {
@@ -47,9 +72,6 @@ export type DemoGraph = {
   nodes: DemoNode[]
 }
 
-/** Two chats and every Node they have in common. Nobody drew these — they follow from content. */
-export type Overlap = { a: string; b: string; keys: string[] }
-
 export function emptyGraph(): DemoGraph {
   return { chats: [], nodes: [] }
 }
@@ -60,6 +82,26 @@ export function nodeByKey(graph: DemoGraph, key: string): DemoNode | undefined {
 
 export function chatById(graph: DemoGraph, id: string): DemoChat | undefined {
   return graph.chats.find((c) => c.id === id)
+}
+
+/**
+ * The concepts some chat OTHER than this one already holds.
+ *
+ * This is what "connected" has to mean, and a set of every key in the graph is
+ * not it. Saying "SDG" twice in one conversation put the key in that set the
+ * first time, so the second mention was reported as linking to other
+ * conversations — while the canvas, which calls a concept shared only when
+ * more than one chat holds it, drew it as a lone pill. The transcript claimed
+ * a link the picture did not show, in a demo whose entire argument is that the
+ * links are real.
+ *
+ * Excluding the current chat makes the two agree by construction: a concept is
+ * connected here exactly when `chatIds.length > 1` will be true there.
+ */
+export function keysHeldOutside(graph: DemoGraph, chatId: string): Set<string> {
+  return new Set(
+    graph.nodes.filter((n) => n.chatIds.some((id) => id !== chatId)).map((n) => n.key),
+  )
 }
 
 /**
@@ -103,15 +145,36 @@ function upsertNodeAndLink(nodes: DemoNode[], chatId: string, label: string): st
  */
 export function sendMessage(
   graph: DemoGraph,
-  input: { chatId: string; userText: string; assistantText?: string },
+  input: {
+    chatId: string
+    userText: string
+    assistantText?: string
+    /**
+     * Whether the reply belongs in this chat's memory.
+     *
+     * True for the seeded conversations, whose replies are authored content.
+     * FALSE for the demo's live turns, where the "reply" is a report about the
+     * extractor rather than anything anyone said — and reports are what broke
+     * the Archive: type three junk words and the memory filled with three
+     * copies of "No concept was firm enough to index there. I saw daa, but a
+     * single lowercase word is only ever suggested…", crowding the visitor's
+     * own sentences out of a 500-character cap. The panel that exists to show
+     * your words back to you was showing the demo talking to itself.
+     */
+    rememberAssistant?: boolean
+  },
 ): DemoGraph {
-  const { chatId, userText, assistantText } = input
+  const { chatId, userText, assistantText, rememberAssistant = true } = input
 
   const nodes = graph.nodes.map((n) => ({ ...n }))
   const prior = chatById(graph, chatId)
   const isFirstMessage = !prior || !prior.messages.some((m) => m.role === 'user')
+  const forgotten = prior?.forgotten ?? []
 
-  const { auto } = extractConcepts(userText)
+  // A concept deleted from this chat does not come back by being said again.
+  const auto = extractConcepts(userText).auto.filter(
+    (label) => !forgotten.some((f) => canonicalKey(f) === canonicalKey(label)),
+  )
   for (const label of auto) upsertNodeAndLink(nodes, chatId, label)
 
   // Title and Headline are derived ONCE, from the first user message. Renaming
@@ -128,18 +191,21 @@ export function sendMessage(
   // appendToCompaction PREPENDS, so the assistant's reply goes in first and the
   // user's message second. That leaves the user's sentences at the front, where
   // they survive trimming longest.
-  const withAssistant = assistantText
-    ? appendToCompaction(prior?.compaction ?? '', assistantText)
-    : (prior?.compaction ?? '')
-  const compaction = appendToCompaction(withAssistant, userText)
+  const withAssistant =
+    assistantText && rememberAssistant
+      ? appendToCompaction(prior?.compaction ?? '', withoutForgotten(assistantText, forgotten))
+      : (prior?.compaction ?? '')
+  const compaction = appendToCompaction(withAssistant, withoutForgotten(userText, forgotten))
 
   const messages: DemoMessage[] = [
     ...(prior?.messages ?? []),
     { role: 'user' as const, content: userText },
-    ...(assistantText ? [{ role: 'assistant' as const, content: assistantText }] : []),
+    ...(assistantText
+      ? [{ role: 'assistant' as const, content: assistantText, remembered: rememberAssistant }]
+      : []),
   ]
 
-  const updated: DemoChat = { id: chatId, title, messages, compaction, headlineKey }
+  const updated: DemoChat = { id: chatId, title, messages, compaction, headlineKey, forgotten }
   const chats = prior
     ? graph.chats.map((c) => (c.id === chatId ? updated : c))
     : [...graph.chats, updated]
@@ -148,27 +214,91 @@ export function sendMessage(
 }
 
 /**
- * The connections that simply follow from content: two chats holding the same
- * Node. One entry per pair, carrying every key they share, so the canvas draws
- * a single edge whose weight is `keys.length` rather than a bundle of parallel
- * lines nobody can read.
+ * Does this sentence say the thing that was forgotten?
+ *
+ * Matched on the label's own words rather than on re-running the extractor:
+ * a concept found in a whole message is not always found again in one
+ * sentence of it read alone, and a Forgetting that silently keeps the
+ * sentence is the failure mode that matters. Word boundaries stop "Go" from
+ * taking "Google" with it.
  */
-export function overlaps(graph: DemoGraph): Overlap[] {
-  const pairs = new Map<string, Overlap>()
+function mentions(sentence: string, label: string): boolean {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`\\b${escaped}\\b`, 'i').test(sentence)
+}
 
-  for (const node of graph.nodes) {
-    if (node.chatIds.length < 2) continue
-    for (let i = 0; i < node.chatIds.length; i++) {
-      for (let j = i + 1; j < node.chatIds.length; j++) {
-        const a = node.chatIds[i]
-        const b = node.chatIds[j]
-        const id = `${a}|${b}`
-        const found = pairs.get(id)
-        if (found) found.keys.push(node.key)
-        else pairs.set(id, { a, b, keys: [node.key] })
-      }
+/** The same text with every forgotten sentence dropped — whole, never trimmed. */
+function withoutForgotten(text: string, forgotten: string[]): string {
+  if (forgotten.length === 0) return text
+  return splitSentences(text)
+    .filter((sentence) => !forgotten.some((label) => mentions(sentence, label)))
+    .join(' ')
+}
+
+/**
+ * Rebuild a chat's memory from its own transcript.
+ *
+ * Forgetting is the one event that changes what ALREADY-SENT messages
+ * contribute, so the incremental path cannot express it — the Compaction has
+ * to be recomputed from scratch. `buildCompaction` is the app's own rebuild,
+ * used here for the same reason it exists there.
+ */
+function rebuildCompaction(chat: DemoChat): string {
+  const turns: Turn[] = []
+  for (const message of chat.messages) {
+    if (message.role === 'user') {
+      turns.push({ user: withoutForgotten(message.content, chat.forgotten) })
+    } else if (message.remembered !== false && turns.length > 0) {
+      turns[turns.length - 1].assistant = withoutForgotten(message.content, chat.forgotten)
     }
   }
+  return buildCompaction(turns)
+}
 
-  return [...pairs.values()]
+/**
+ * Delete a concept from one conversation.
+ *
+ * Glossary: "Deleting a Node from a Chat, which makes that Node's sentences
+ * permanently ineligible for the Chat's Compaction. The message stays readable
+ * in the conversation; the assistant can never see it again."
+ *
+ * Both halves matter. Unlinking the Node alone would take it off the canvas
+ * while its sentences stayed in the memory the assistant receives — the user
+ * would have been shown a deletion that did not happen. So the link goes, the
+ * sentences go, and `forgotten` keeps them gone.
+ *
+ * The Node itself survives as long as some OTHER conversation still holds it.
+ * Forgetting is scoped to a chat; it is not a purge of the word.
+ */
+export function forget(graph: DemoGraph, input: { chatId: string; label: string }): DemoGraph {
+  const chat = chatById(graph, input.chatId)
+  const key = canonicalKey(input.label)
+  if (!chat || !key) return graph
+
+  const node = graph.nodes.find((n) => n.key === key)
+  if (!node || !node.chatIds.includes(chat.id)) return graph
+
+  const nodes = graph.nodes
+    .map((n) =>
+      n.key === key ? { ...n, chatIds: n.chatIds.filter((id) => id !== chat.id) } : { ...n },
+    )
+    // A concept no conversation mentions any more is not a concept.
+    .filter((n) => n.chatIds.length > 0)
+
+  const updated: DemoChat = {
+    ...chat,
+    forgotten: chat.forgotten.includes(input.label)
+      ? chat.forgotten
+      : [...chat.forgotten, input.label],
+    // A chat named after the concept it just lost keeps its title — that was
+    // derived once and is the user's own words — but stops claiming a Headline
+    // the graph no longer has.
+    headlineKey: chat.headlineKey === key ? null : chat.headlineKey,
+  }
+  updated.compaction = rebuildCompaction(updated)
+
+  return {
+    chats: graph.chats.map((c) => (c.id === chat.id ? updated : c)),
+    nodes,
+  }
 }

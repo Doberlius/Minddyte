@@ -1,6 +1,4 @@
-import { listModels } from "@/lib/ollama"
-
-const OLLAMA = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434/api"
+import { listModels, API_BASE } from "@/lib/ollama"
 
 /**
  * What this machine can actually run. Shaped as ModelEntry so the picker does
@@ -13,7 +11,7 @@ export async function GET() {
 
 export async function DELETE(req: Request) {
   const { model } = await req.json()
-  const res = await fetch(`${OLLAMA}/delete`, {
+  const res = await fetch(`${API_BASE}/delete`, {
     method: "DELETE",
     body: JSON.stringify({ name: model }),
   })

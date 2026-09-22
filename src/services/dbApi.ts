@@ -1,5 +1,91 @@
 import { getDb, sessions, messages, nodes, sessionNodes } from "../../db"
-import { desc, eq, inArray, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
+import type { GraphNode, ViewGraph } from "@/types/graph"
+
+/**
+ * The whole graph, shaped for the Brain and the Archive.
+ *
+ * Two queries rather than one join: a join across sessions × session_nodes
+ * would repeat every chat's compaction once per concept it holds, and the
+ * compaction runs to 500 characters. The concepts are grouped in memory
+ * instead, which is a few hundred rows at the sizes this product has.
+ *
+ * Archived concepts are left out. Forgetting exists so the graph stops showing
+ * what you no longer use, and a canvas that draws them anyway would undo it.
+ */
+export async function loadGraph(): Promise<ViewGraph> {
+  const db = await getDb()
+
+  const chatRows = await db
+    .select({
+      id: sessions.id,
+      title: sessions.title,
+      compaction: sessions.compaction,
+    })
+    .from(sessions)
+    .orderBy(desc(sessions.updatedAt))
+
+  /**
+   * Counted by grouping rather than by a correlated subquery per chat.
+   *
+   * The subquery version returned 0 for every conversation while the messages
+   * were plainly there — `loadChat` read eighteen of them from the same rows.
+   * Rather than keep a construct that silently reported the wrong number, this
+   * asks the question directly and is one query for the whole table.
+   *
+   * `array_agg(... order by ...)` gives the first message's length in the same
+   * pass: the title is derived from that message and capped at 60 characters,
+   * so a longer original is one that was cut, and the view needs to know in
+   * order to print the ellipsis.
+   */
+  const perChat = await db
+    .select({
+      sessionId: messages.sessionId,
+      messageCount: sql<number>`count(*)`.mapWith(Number),
+      firstMessageLength:
+        sql<number>`coalesce(length((array_agg(${messages.content} order by ${messages.createdAt} asc))[1]), 0)`.mapWith(
+          Number,
+        ),
+    })
+    .from(messages)
+    .groupBy(messages.sessionId)
+
+  const stats = new Map(perChat.map((row) => [row.sessionId, row]))
+
+  const links = await db
+    .select({
+      key: nodes.canonicalKey,
+      label: nodes.label,
+      sessionId: sessionNodes.sessionId,
+    })
+    .from(sessionNodes)
+    .innerJoin(nodes, eq(nodes.id, sessionNodes.nodeId))
+    .where(isNull(nodes.archivedAt))
+
+  const byKey = new Map<string, GraphNode>()
+  for (const link of links) {
+    const found = byKey.get(link.key)
+    if (!found) {
+      byKey.set(link.key, { key: link.key, label: link.label, chatIds: [link.sessionId] })
+    } else if (!found.chatIds.includes(link.sessionId)) {
+      found.chatIds.push(link.sessionId)
+    }
+  }
+
+  return {
+    chats: chatRows.map((c) => {
+      const stat = stats.get(c.id)
+      return {
+        id: c.id,
+        title: c.title,
+        compaction: c.compaction,
+        messageCount: stat?.messageCount ?? 0,
+        titleTruncated: (stat?.firstMessageLength ?? 0) > c.title.length,
+      }
+    }),
+    nodes: [...byKey.values()],
+  }
+}
 
 export async function listChats() {
   const db = await getDb()
@@ -67,4 +153,92 @@ export async function createChat(): Promise<{ id: string }> {
   const db = await getDb()
   const [row] = await db.insert(sessions).values({}).returning({ id: sessions.id })
   return { id: row.id }
+}
+
+/**
+ * Delete a chat, and repair what the foreign keys cannot.
+ *
+ * `messages`, `session_nodes` and the rest fall to `ON DELETE cascade`. The
+ * part that needs code is `nodes.chat_count`: the write path only ever
+ * increments it (`services/graph.ts`), so a cascade removes the link and
+ * leaves the counter reading one chat too many — forever, and invisibly,
+ * since nothing recomputes it. The canvas prints that number on every shared
+ * concept, so a wrong one is not cosmetic.
+ *
+ * So the counter is rewritten from the links that actually remain, and a
+ * concept no chat holds any more is removed outright: it can never be reached,
+ * and a Node with a chat_count of 0 is not a concept, it is debris.
+ *
+ * Returns whether a chat was there to delete, so a caller can tell "done" from
+ * "that had already gone".
+ */
+export async function deleteChat(sessionId: string): Promise<boolean> {
+  const db = await getDb()
+
+  // Which concepts this chat touched, read BEFORE the cascade takes the links
+  // away — afterwards there is nothing left to point at them.
+  const held = await db
+    .select({ nodeId: sessionNodes.nodeId })
+    .from(sessionNodes)
+    .where(eq(sessionNodes.sessionId, sessionId))
+
+  const deleted = await db
+    .delete(sessions)
+    .where(eq(sessions.id, sessionId))
+    .returning({ id: sessions.id })
+
+  if (deleted.length === 0) return false
+  if (held.length === 0) return true
+
+  const touched = held.map((h) => h.nodeId)
+
+  // Recomputed from the links that survive rather than decremented, so a
+  // counter that had already drifted is corrected instead of drifting further.
+  await db
+    .update(nodes)
+    .set({
+      chatCount: sql<number>`(
+        select count(*) from ${sessionNodes} where ${sessionNodes.nodeId} = ${nodes.id}
+      )`,
+    })
+    .where(inArray(nodes.id, touched))
+
+  // A concept nothing holds any more is unreachable from every view. Left in
+  // place it would sit in the mention picker as a name that opens nothing.
+  await db.delete(nodes).where(and(inArray(nodes.id, touched), eq(nodes.chatCount, 0)))
+
+  return true
+}
+
+/** A title long enough for any real name and short enough for the row. */
+export const TITLE_CAP = 120
+
+/**
+ * Rename a chat.
+ *
+ * The title is normally derived ONCE, from the first user message, and never
+ * recomputed (`services/graph.ts`, spec §4.4). That derivation caps at 60
+ * characters and can land mid-clause, so this is the user's override of it —
+ * and because the derivation is gated on the first message, a rename survives
+ * everything said afterwards without any extra guard.
+ *
+ * It changes a label and nothing else. The Headline is a Node taken from the
+ * ORIGINAL first message, and renaming is not a new concept.
+ *
+ * Returns false for a chat that is not there, and for a name that is only
+ * whitespace — a blank rename is a slip, not an instruction to leave the row
+ * unlabelled.
+ */
+export async function renameChat(sessionId: string, title: string): Promise<boolean> {
+  const clean = title.trim().slice(0, TITLE_CAP)
+  if (!clean) return false
+
+  const db = await getDb()
+  const updated = await db
+    .update(sessions)
+    .set({ title: clean, updatedAt: new Date() })
+    .where(eq(sessions.id, sessionId))
+    .returning({ id: sessions.id })
+
+  return updated.length > 0
 }

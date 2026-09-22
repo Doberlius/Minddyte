@@ -9,7 +9,7 @@ authored deterministically, so no model ever writes to it.**
 [![React](https://img.shields.io/badge/React-19.2-61DAFB?logo=react&logoColor=black)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![PGlite](https://img.shields.io/badge/PGlite-embedded%20Postgres-336791?logo=postgresql&logoColor=white)](https://pglite.dev)
-[![Tests](https://img.shields.io/badge/tests-116%20passing-10B981)](#testing)
+[![Tests](https://img.shields.io/badge/tests-112%20passing-10B981)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-6B7280)](LICENSE)
 
 </div>
@@ -173,7 +173,7 @@ takes a copy.
 ## Testing
 
 ```bash
-bun run test        # 116 tests, 14 files — unit and integration together
+bun run test        # 112 tests, 14 files — unit and integration together
 bun run typecheck
 bun run build
 ```
@@ -183,14 +183,40 @@ file, so they exercise actual SQL rather than a mocked query builder.
 
 ---
 
+## Measuring retrieval
+
+```bash
+bun run eval:retrieval
+```
+
+Runs the real `retrieveContext` against the labelled cases in `eval/cases.ts`
+and reports precision, recall and MRR.
+
+It **refuses to print a score** from a corpus too small to carry one, and says
+what is still missing instead. Four conversations with no shared concept will
+happily produce "100% precision", and a number like that is worse than no
+number — it looks like evidence. What has been measured so far is extraction
+precision by shape (87 / 100 / 29%) and traversal reach (two steps reach
+99–100% of the corpus); retrieval quality has not, and the script will not
+pretend otherwise.
+
+It does not compare this graph shape against a concept-to-concept one. That
+needs a second retriever, and the rule chosen for its edges — co-occurrence,
+embeddings, a model — would dominate the result rather than the shape.
+
 ## Honest status
 
 Built and tested: the graph engine, the retrieval path, the local-first data
-layer, the chat interface, and the live demo.
+layer, the chat interface, the Neural Brain and Memory Archives panels — one
+implementation each, worn by both the app and the demo — and the live demo
+itself.
 
-Not built yet: the **Neural Brain** panel inside the main application (the demo
-canvas is the first version of it) and **Memory Archives**. Both tabs exist in
-the shell and are empty.
+**Forgetting runs in the demo only.** Deleting a concept from a conversation
+unlinks it, rebuilds that conversation's memory without the sentences that
+named it, and keeps it out for good. The `forgotten` table has been in the
+schema since the first migration, but nothing in `src/services/` reads or
+writes it yet, so the app cannot do this — the view model carries the field as
+optional for exactly that reason.
 
 Also open: extraction still swallows a leading verb into some concepts
 (`Rust checks memory safety` should be two concepts, not one), which is why the

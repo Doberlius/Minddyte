@@ -12,6 +12,7 @@
     "db:reset": "bun run scripts/db-reset.ts",
     "db:export": "bun run scripts/db-export.ts",
     "db:vacuum": "bun run scripts/db-vacuum.ts",
+    "eval:retrieval": "bun run scripts/eval-retrieval.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

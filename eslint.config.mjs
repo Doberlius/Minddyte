@@ -20,6 +20,9 @@ const eslintConfig = [
       "build/**",
       "next-env.d.ts",
       "files/**",
+      // Tooling that ships with an installed skill, not this project's code.
+      // Left in, it contributed 94 of the repo's 98 lint warnings.
+      ".claude/**",
     ],
   },
 ];

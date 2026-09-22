@@ -1,9 +1,9 @@
-const OLLAMA = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434/api'
+import { API_BASE } from '@/lib/ollama'
 
 export async function POST(req: Request){
     const {model} = await req.json()
 
-    const ollamaRes = await fetch(`${OLLAMA}/pull`, {
+    const ollamaRes = await fetch(`${API_BASE}/pull`, {
         method: 'POST',
         body: JSON.stringify({name: model, stream: true}),
     })

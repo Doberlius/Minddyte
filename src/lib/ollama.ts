@@ -2,7 +2,35 @@ import { createOllama } from 'ollama-ai-provider-v2'
 import { labelFor, isCloudModel, PREFERRED_MODEL_ID } from '@/constants/models'
 import type { ModelEntry } from '@/types'
 
-const BASE = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434/api'
+/**
+ * Ollama serves its HTTP API under `/api`, but `OLLAMA_BASE_URL` reads like the
+ * server's address and `.env.example` documents it as exactly that —
+ * `http://localhost:11434`. The fallback default below used to carry `/api`
+ * while the documented value did not, so the app worked with no `.env` at all
+ * and broke the moment someone created one from the example.
+ *
+ * It broke quietly, too. `${BASE}/tags` became `http://localhost:11434/tags`,
+ * which Ollama answers 404; `listModels` turns any non-OK response into an
+ * empty list, an empty list resolves to no model, and the chat route reports
+ * "No model available. Start Ollama…" — blaming a daemon that was running
+ * the whole time for a URL the app had assembled itself.
+ *
+ * Both spellings are accepted now, so neither file can be wrong.
+ */
+export function apiBase(raw: string): string {
+  const trimmed = raw.replace(/\/+$/, '')
+  return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`
+}
+
+/**
+ * Exported so the routes that talk to the daemon directly — /api/models for
+ * delete, /api/pull — share this one resolution instead of each keeping its
+ * own copy of the expression. All three copies had the same bug, and fixing
+ * one of them would have left the other two to be found later, separately.
+ */
+export const API_BASE = apiBase(process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434')
+
+const BASE = API_BASE
 
 /**
  * The provider client. Note it carries **no credential** — Minddyte talks to
