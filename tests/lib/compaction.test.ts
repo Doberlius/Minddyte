@@ -24,6 +24,23 @@ describe('appendToCompaction', () => {
     }
   })
 
+  // `trim` used `break`, so the first sentence that did not fit stopped the loop
+  // entirely. Measured: one 611-character message wiped a chat's whole accumulated
+  // memory, because the older sentences were queued BEHIND the oversized new one.
+  it('a message too long to store never destroys what was already remembered', () => {
+    const acc = appendToCompaction('', 'We chose Argon2 for password hashing.', CAP)
+    const tooLong = 'A'.repeat(CAP + 50) + '.'
+    expect(appendToCompaction(acc, tooLong, CAP)).toContain('Argon2')
+  })
+
+  // Measured on a real reply: 30 sentences, only 2 over cap, yet just 3 kept.
+  it('one oversized sentence does not discard the shorter ones after it', () => {
+    const msg = 'A'.repeat(CAP + 50) + '. Short one. Short two.'
+    const out = appendToCompaction('', msg, CAP)
+    expect(out).toContain('Short one.')
+    expect(out).toContain('Short two.')
+  })
+
   it('returns the existing compaction unchanged when the message has no sentences', () => {
     expect(appendToCompaction('Existing.', '   ', CAP)).toBe('Existing.')
   })
