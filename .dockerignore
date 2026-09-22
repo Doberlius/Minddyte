@@ -1,0 +1,26 @@
+# The database itself. It lives on a Railway volume, never in the image — an
+# image carrying .data would ship one machine's conversations to production
+# and then be overwritten by the volume mount anyway.
+.data/
+
+# Resolved inside the image by the deps stage. Copying the host's tree in
+# would ship Windows-resolved packages to a Linux container.
+node_modules/
+.next/
+
+# Secrets. .env is gitignored too, but a Docker build reads the working
+# directory, not git, so it has to be excluded here as well or a key ends up
+# baked into a layer.
+.env
+.env.*
+!.env.example
+
+.git/
+.scratch/
+.superpowers/
+docs/
+
+# tests/ is deliberately NOT excluded. The build stage type-checks the
+# project as tsconfig defines it, and removing files from that set makes the
+# image's build differ from the one that passes locally — which is the
+# difference that only ever shows up in a failed deploy.
