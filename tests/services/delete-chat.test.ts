@@ -41,9 +41,9 @@ describe('deleteChat', () => {
     const { id } = await createChat(WORKSPACE_ID)
     await say(id, 'We run PostgreSQL in production.')
 
-    await deleteChat(id)
+    await deleteChat(WORKSPACE_ID, id)
 
-    expect(await listChats()).toHaveLength(0)
+    expect(await listChats(WORKSPACE_ID)).toHaveLength(0)
   })
 
   it('takes its messages with it', async () => {
@@ -51,7 +51,7 @@ describe('deleteChat', () => {
     await say(id, 'We run PostgreSQL in production.')
     expect(await countRows('messages')).toBe(1)
 
-    await deleteChat(id)
+    await deleteChat(WORKSPACE_ID, id)
 
     expect(await countRows('messages')).toBe(0)
   })
@@ -61,7 +61,7 @@ describe('deleteChat', () => {
     await say(id, 'We run PostgreSQL in production.')
     expect(await countRows('session_nodes')).toBeGreaterThan(0)
 
-    await deleteChat(id)
+    await deleteChat(WORKSPACE_ID, id)
 
     expect(await countRows('session_nodes')).toBe(0)
   })
@@ -71,7 +71,7 @@ describe('deleteChat', () => {
     await say(id, 'We run PostgreSQL in production.')
     expect(await countFor('postgresql')).toBe(1)
 
-    await deleteChat(id)
+    await deleteChat(WORKSPACE_ID, id)
 
     expect(await countFor('postgresql')).toBeNull()
   })
@@ -83,7 +83,7 @@ describe('deleteChat', () => {
     await say(b.id, 'Is PostgreSQL a good fit for a ledger?')
     expect(await countFor('postgresql')).toBe(2)
 
-    await deleteChat(a.id)
+    await deleteChat(WORKSPACE_ID, a.id)
 
     expect(await countFor('postgresql')).toBe(1)
   })
@@ -98,8 +98,8 @@ describe('deleteChat', () => {
     for (const chat of [a, b, c]) await say(chat.id, 'Kubernetes schedules it anyway.')
     expect(await countFor('kubernetes')).toBe(3)
 
-    await deleteChat(a.id)
-    await deleteChat(b.id)
+    await deleteChat(WORKSPACE_ID, a.id)
+    await deleteChat(WORKSPACE_ID, b.id)
 
     expect(await countFor('kubernetes')).toBe(1)
   })
@@ -110,9 +110,9 @@ describe('deleteChat', () => {
     await say(a.id, 'We run PostgreSQL in production.')
     await say(b.id, 'Rust has no garbage collector.')
 
-    await deleteChat(a.id)
+    await deleteChat(WORKSPACE_ID, a.id)
 
-    const left = await listChats()
+    const left = await listChats(WORKSPACE_ID)
     expect(left).toHaveLength(1)
     expect(left[0].id).toBe(b.id)
     expect(await countFor('rust')).toBe(1)
@@ -121,12 +121,12 @@ describe('deleteChat', () => {
   it('reports whether there was anything to delete', async () => {
     const { id } = await createChat(WORKSPACE_ID)
 
-    expect(await deleteChat(id)).toBe(true)
-    expect(await deleteChat(id)).toBe(false)
+    expect(await deleteChat(WORKSPACE_ID, id)).toBe(true)
+    expect(await deleteChat(WORKSPACE_ID, id)).toBe(false)
   })
 
   it('does not throw on an id that was never a chat', async () => {
-    expect(await deleteChat('00000000-0000-0000-0000-000000000000')).toBe(false)
+    expect(await deleteChat(WORKSPACE_ID, '00000000-0000-0000-0000-000000000000')).toBe(false)
     expect(await countRows('sessions')).toBe(0)
   })
 })

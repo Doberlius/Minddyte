@@ -16,7 +16,7 @@ describe('dbApi against a real database', () => {
     await newChat('older')
     await newChat('newer')
 
-    const chats = await listChats()
+    const chats = await listChats(FIXTURE_WORKSPACE_ID)
     expect(chats).toHaveLength(2)
     expect(chats[0]).toHaveProperty('nodeCount', 0)
     expect(chats.map((c) => c.title)).toContain('newer')
@@ -36,7 +36,7 @@ describe('createChat', () => {
 
   it('gives the new chat the placeholder title that deriveTitle overwrites', async () => {
     await createChat(FIXTURE_WORKSPACE_ID)
-    const chats = await listChats()
+    const chats = await listChats(FIXTURE_WORKSPACE_ID)
     // Spec §4.4 derives the real title from the FIRST user message, once.
     expect(chats[0].title).toBe('New Session')
     expect(chats[0].nodeCount).toBe(0)

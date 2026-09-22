@@ -24,14 +24,14 @@ async function say(sessionId: string, content: string) {
 }
 
 async function titleOf(id: string): Promise<string | undefined> {
-  return (await loadChat(id))?.title
+  return (await loadChat(FIXTURE_WORKSPACE_ID, id))?.title
 }
 
 describe('renameChat', () => {
   it('sets the title', async () => {
     const { id } = await createChat(FIXTURE_WORKSPACE_ID)
 
-    await renameChat(id, 'Ledger design notes')
+    await renameChat(FIXTURE_WORKSPACE_ID, id, 'Ledger design notes')
 
     expect(await titleOf(id)).toBe('Ledger design notes')
   })
@@ -39,23 +39,23 @@ describe('renameChat', () => {
   it('reports whether there was a chat to rename', async () => {
     const { id } = await createChat(FIXTURE_WORKSPACE_ID)
 
-    expect(await renameChat(id, 'Kept')).toBe(true)
-    expect(await renameChat('00000000-0000-0000-0000-000000000000', 'Nope')).toBe(false)
+    expect(await renameChat(FIXTURE_WORKSPACE_ID, id, 'Kept')).toBe(true)
+    expect(await renameChat(FIXTURE_WORKSPACE_ID, '00000000-0000-0000-0000-000000000000', 'Nope')).toBe(false)
   })
 
   it('trims the surrounding whitespace someone pasted in', async () => {
     const { id } = await createChat(FIXTURE_WORKSPACE_ID)
 
-    await renameChat(id, '   Ledger design notes\n')
+    await renameChat(FIXTURE_WORKSPACE_ID, id, '   Ledger design notes\n')
 
     expect(await titleOf(id)).toBe('Ledger design notes')
   })
 
   it('refuses a name that is only whitespace', async () => {
     const { id } = await createChat(FIXTURE_WORKSPACE_ID)
-    await renameChat(id, 'Real name')
+    await renameChat(FIXTURE_WORKSPACE_ID, id, 'Real name')
 
-    expect(await renameChat(id, '    ')).toBe(false)
+    expect(await renameChat(FIXTURE_WORKSPACE_ID, id, '    ')).toBe(false)
     // The old name survives: a blank rename is a mistake, not an instruction
     // to leave the row unlabelled.
     expect(await titleOf(id)).toBe('Real name')
@@ -64,7 +64,7 @@ describe('renameChat', () => {
   it('caps a very long name rather than storing it whole', async () => {
     const { id } = await createChat(FIXTURE_WORKSPACE_ID)
 
-    await renameChat(id, 'x'.repeat(400))
+    await renameChat(FIXTURE_WORKSPACE_ID, id, 'x'.repeat(400))
 
     const title = await titleOf(id)
     expect(title!.length).toBeLessThanOrEqual(120)
@@ -75,10 +75,10 @@ describe('renameChat', () => {
     // message's own words and stays what it was.
     const { id } = await createChat(FIXTURE_WORKSPACE_ID)
     await say(id, 'We run PostgreSQL in production.')
-    const before = await loadChat(id)
+    const before = await loadChat(FIXTURE_WORKSPACE_ID, id)
 
-    await renameChat(id, 'Something else entirely')
-    const after = await loadChat(id)
+    await renameChat(FIXTURE_WORKSPACE_ID, id, 'Something else entirely')
+    const after = await loadChat(FIXTURE_WORKSPACE_ID, id)
 
     expect(after!.compaction).toBe(before!.compaction)
     expect(after!.headlineNodeId).toBe(before!.headlineNodeId)
@@ -87,9 +87,9 @@ describe('renameChat', () => {
   it('shows the new name in the list', async () => {
     const { id } = await createChat(FIXTURE_WORKSPACE_ID)
 
-    await renameChat(id, 'Ledger design notes')
+    await renameChat(FIXTURE_WORKSPACE_ID, id, 'Ledger design notes')
 
-    expect((await listChats()).map((c) => c.title)).toContain('Ledger design notes')
+    expect((await listChats(FIXTURE_WORKSPACE_ID)).map((c) => c.title)).toContain('Ledger design notes')
   })
 
   it('does not re-derive the title on the next message', async () => {
@@ -97,7 +97,7 @@ describe('renameChat', () => {
     // that must keep the name through everything said afterwards.
     const { id } = await createChat(FIXTURE_WORKSPACE_ID)
     await say(id, 'We run PostgreSQL in production.')
-    await renameChat(id, 'Ledger design notes')
+    await renameChat(FIXTURE_WORKSPACE_ID, id, 'Ledger design notes')
 
     await say(id, 'Kubernetes schedules it anyway.')
 

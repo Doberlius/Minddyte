@@ -13,7 +13,7 @@ import type { GraphNode, ViewGraph } from "@/types/graph"
  * Archived concepts are left out. Forgetting exists so the graph stops showing
  * what you no longer use, and a canvas that draws them anyway would undo it.
  */
-export async function loadGraph(): Promise<ViewGraph> {
+export async function loadGraph(workspaceId: string): Promise<ViewGraph> {
   const db = await getDb()
 
   const chatRows = await db
@@ -23,6 +23,7 @@ export async function loadGraph(): Promise<ViewGraph> {
       compaction: sessions.compaction,
     })
     .from(sessions)
+    .where(eq(sessions.workspaceId, workspaceId))
     .orderBy(desc(sessions.updatedAt))
 
   /**
@@ -60,7 +61,7 @@ export async function loadGraph(): Promise<ViewGraph> {
     })
     .from(sessionNodes)
     .innerJoin(nodes, eq(nodes.id, sessionNodes.nodeId))
-    .where(isNull(nodes.archivedAt))
+    .where(and(eq(nodes.workspaceId, workspaceId), isNull(nodes.archivedAt)))
 
   const byKey = new Map<string, GraphNode>()
   for (const link of links) {
@@ -87,7 +88,7 @@ export async function loadGraph(): Promise<ViewGraph> {
   }
 }
 
-export async function listChats() {
+export async function listChats(workspaceId: string) {
   const db = await getDb()
   return db
     .select({
@@ -99,13 +100,14 @@ export async function listChats() {
       )`.mapWith(Number),
     })
     .from(sessions)
+    .where(eq(sessions.workspaceId, workspaceId))
     .orderBy(desc(sessions.updatedAt))
 }
 
-export async function loadChat(sessionId: string) {
+export async function loadChat(workspaceId: string, sessionId: string) {
   const db = await getDb()
   return db.query.sessions.findFirst({
-    where: eq(sessions.id, sessionId),
+    where: and(eq(sessions.id, sessionId), eq(sessions.workspaceId, workspaceId)),
     with: { messages: { orderBy: messages.createdAt } },
   })
 }
@@ -122,22 +124,22 @@ export async function loadChat(sessionId: string) {
  * export — so the check has to happen before the insert, not just once at
  * `db:reset` time.
  */
-export async function sessionExists(sessionId: string): Promise<boolean> {
+export async function sessionExists(workspaceId: string, sessionId: string): Promise<boolean> {
   const db = await getDb()
   const row = await db.query.sessions.findFirst({
-    where: eq(sessions.id, sessionId),
+    where: and(eq(sessions.id, sessionId), eq(sessions.workspaceId, workspaceId)),
     columns: { id: true },
   })
   return row !== undefined
 }
 
-export async function touchNodes(nodeIds: string[]) {
+export async function touchNodes(workspaceId: string, nodeIds: string[]) {
   if (nodeIds.length === 0) return
   const db = await getDb()
   await db
     .update(nodes)
     .set({ lastReferencedAt: new Date() })
-    .where(inArray(nodes.id, nodeIds))
+    .where(and(inArray(nodes.id, nodeIds), eq(nodes.workspaceId, workspaceId)))
 }
 
 /**
@@ -174,7 +176,7 @@ export async function createChat(workspaceId: string): Promise<{ id: string }> {
  * Returns whether a chat was there to delete, so a caller can tell "done" from
  * "that had already gone".
  */
-export async function deleteChat(sessionId: string): Promise<boolean> {
+export async function deleteChat(workspaceId: string, sessionId: string): Promise<boolean> {
   const db = await getDb()
 
   // Which concepts this chat touched, read BEFORE the cascade takes the links
@@ -186,7 +188,7 @@ export async function deleteChat(sessionId: string): Promise<boolean> {
 
   const deleted = await db
     .delete(sessions)
-    .where(eq(sessions.id, sessionId))
+    .where(and(eq(sessions.id, sessionId), eq(sessions.workspaceId, workspaceId)))
     .returning({ id: sessions.id })
 
   if (deleted.length === 0) return false
@@ -196,6 +198,17 @@ export async function deleteChat(sessionId: string): Promise<boolean> {
 
   // Recomputed from the links that survive rather than decremented, so a
   // counter that had already drifted is corrected instead of drifting further.
+  //
+  // `touched` node ids were read via session_nodes BEFORE we knew whether the
+  // delete above would even touch this workspace's own session — but the
+  // delete only succeeded (deleted.length > 0) when sessionId belonged to
+  // workspaceId, so every id in `touched` is a node this workspace's own
+  // link table pointed at. The workspace filter here is not for that: it is
+  // what stops the recompute from REWRITING a stranger's node row even in the
+  // (impossible under correct writes) case that `touched` ever held a
+  // foreign node id — this repair is the one place in the file that WRITES
+  // rows it did not look up by sessionId, so it gets its own explicit guard
+  // rather than trusting the read above.
   await db
     .update(nodes)
     .set({
@@ -203,11 +216,15 @@ export async function deleteChat(sessionId: string): Promise<boolean> {
         select count(*) from ${sessionNodes} where ${sessionNodes.nodeId} = ${nodes.id}
       )`,
     })
-    .where(inArray(nodes.id, touched))
+    .where(and(inArray(nodes.id, touched), eq(nodes.workspaceId, workspaceId)))
 
   // A concept nothing holds any more is unreachable from every view. Left in
   // place it would sit in the mention picker as a name that opens nothing.
-  await db.delete(nodes).where(and(inArray(nodes.id, touched), eq(nodes.chatCount, 0)))
+  // Same reasoning as the update above: scoped explicitly rather than trusted
+  // from `touched`, because this DELETEs rows.
+  await db
+    .delete(nodes)
+    .where(and(inArray(nodes.id, touched), eq(nodes.chatCount, 0), eq(nodes.workspaceId, workspaceId)))
 
   return true
 }
@@ -231,7 +248,7 @@ export const TITLE_CAP = 120
  * whitespace — a blank rename is a slip, not an instruction to leave the row
  * unlabelled.
  */
-export async function renameChat(sessionId: string, title: string): Promise<boolean> {
+export async function renameChat(workspaceId: string, sessionId: string, title: string): Promise<boolean> {
   const clean = title.trim().slice(0, TITLE_CAP)
   if (!clean) return false
 
@@ -239,7 +256,7 @@ export async function renameChat(sessionId: string, title: string): Promise<bool
   const updated = await db
     .update(sessions)
     .set({ title: clean, updatedAt: new Date() })
-    .where(eq(sessions.id, sessionId))
+    .where(and(eq(sessions.id, sessionId), eq(sessions.workspaceId, workspaceId)))
     .returning({ id: sessions.id })
 
   return updated.length > 0
