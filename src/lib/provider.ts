@@ -24,9 +24,7 @@ export type ProviderChoice =
   | { kind: 'none'; reason: string }
 
 /** What this deployment is willing to pay for. Not "what exists upstream". */
-export const HOSTED_MODELS: { id: string; label: string }[] = hostedModels(process.env)
-
-function hostedModels(env: NodeJS.ProcessEnv): { id: string; label: string }[] {
+export function hostedModels(env: NodeJS.ProcessEnv): { id: string; label: string }[] {
   const raw = env.HOSTED_MODEL_IDS ?? DEFAULT_HOSTED_MODELS
   return raw
     .split(',')

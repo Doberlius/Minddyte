@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { chooseProvider, HOSTED_MODELS } from '@/lib/provider'
+import { chooseProvider, hostedModels } from '@/lib/provider'
 
 /**
  * Which provider answers is decided by environment alone, so it is a pure
@@ -43,17 +43,21 @@ describe('chooseProvider', () => {
   })
 
   it('honours a requested model that this deployment offers', () => {
-    const choice = chooseProvider({ HOSTED_API_KEY: KEY } as unknown as NodeJS.ProcessEnv, HOSTED_MODELS[1].id)
+    const env = { HOSTED_API_KEY: KEY } as unknown as NodeJS.ProcessEnv
+    const models = hostedModels(env)
+    const choice = chooseProvider(env, models[1].id)
 
-    expect(choice.kind === 'hosted' && choice.model).toBe(HOSTED_MODELS[1].id)
+    expect(choice.kind === 'hosted' && choice.model).toBe(models[1].id)
   })
 
   it('refuses a model this deployment does not offer, rather than passing it upstream', () => {
     // A request naming an arbitrary model is a request to spend money on
     // something nobody chose. Fall back to the default instead.
-    const choice = chooseProvider({ HOSTED_API_KEY: KEY } as unknown as NodeJS.ProcessEnv, 'some-enormous-model')
+    const env = { HOSTED_API_KEY: KEY } as unknown as NodeJS.ProcessEnv
+    const models = hostedModels(env)
+    const choice = chooseProvider(env, 'some-enormous-model')
 
-    expect(choice.kind === 'hosted' && choice.model).toBe(HOSTED_MODELS[0].id)
+    expect(choice.kind === 'hosted' && choice.model).toBe(models[0].id)
   })
 
   it('says what is wrong when a key is set but the model list is empty', () => {
@@ -61,5 +65,13 @@ describe('chooseProvider', () => {
 
     expect(choice.kind).toBe('none')
     expect(choice.kind === 'none' && choice.reason.length).toBeGreaterThan(20)
+  })
+
+  it('treats a list of blank entries as no list at all', () => {
+    // "HOSTED_MODEL_IDS=, ," is a plausible way to end up with nothing,
+    // and it must reach the same named failure as an empty string.
+    const choice = chooseProvider({ HOSTED_API_KEY: KEY, HOSTED_MODEL_IDS: ' , ,' } as unknown as NodeJS.ProcessEnv)
+
+    expect(choice.kind).toBe('none')
   })
 })
