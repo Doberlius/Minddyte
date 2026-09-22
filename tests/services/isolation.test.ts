@@ -83,10 +83,16 @@ describe('one workspace cannot see another', () => {
   })
 
   it("counts only this workspace's messages, even for chats it cannot see", async () => {
-    // perChat reads `messages`, which has no workspace column of its own. An
-    // unfiltered read there does not leak through today's return value, but
-    // nothing enforces that — so the count is what this asserts on, because
-    // it is the only observable perChat produces.
+    // Guards a real property: loadGraph(A) returns only A's chats, each
+    // carrying A's own message count. It does NOT prove perChat's own
+    // `inArray` filter — delete that filter and this test stays green,
+    // because perChat groups by sessionId, a globally unique uuid, so B's
+    // messages never land in A's group whether perChat itself is scoped or
+    // not. The filter earns its place anyway: it keeps B's rows out of
+    // perChat's own result set, so loadGraph's correctness stops resting on
+    // the invariant the block below holds by convention — that `stats` is
+    // only ever read via ids already drawn from the scoped chatRows —
+    // rather than on the query itself.
     const a = await createChat(A)
     const b = await createChat(B)
     await say(A, a.id, 'PostgreSQL in production.')
