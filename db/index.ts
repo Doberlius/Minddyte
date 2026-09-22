@@ -2,7 +2,7 @@ import { PGlite } from '@electric-sql/pglite'
 import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm'
 import { drizzle } from 'drizzle-orm/pglite'
 import { ensureSchema } from './bootstrap'
-import { acquireLock, lockPathFor, releaseLock } from './lock'
+import { acquireLock, lockPathFor, releaseLock, startHeartbeat } from './lock'
 import * as schema from './schema'
 import * as relations from './apiRelations'
 
@@ -67,7 +67,37 @@ async function open() {
   //
   // Must stay synchronous — 'exit' listeners cannot await anything — which is
   // exactly what releaseLock's rmSync already is.
-  if (!inMemory) process.on('exit', () => releaseLock(lockPathFor(dataDir)))
+  if (!inMemory) {
+    const lockPath = lockPathFor(dataDir)
+    process.on('exit', () => releaseLock(lockPath))
+
+    // The claim has to be RENEWED, not just taken. Across containers a pid
+    // proves nothing, so the only evidence that this instance is still alive
+    // is that it keeps saying so; stop saying so and the lease expires and
+    // the directory becomes takeable. The timer is unref'd inside
+    // startHeartbeat, so it never holds a finished script open.
+    startHeartbeat(lockPath)
+
+    // A container is stopped with SIGTERM, which by default kills the process
+    // WITHOUT emitting 'exit' — so the handler above would never run and the
+    // replacement would sit out the full lease on every single deploy. That
+    // matters here more than it looks: redeploying to the same URL is how
+    // this app is meant to be updated.
+    //
+    // Re-raising rather than exiting: removing this listener and sending the
+    // signal again reproduces exactly what would have happened without it,
+    // and only when nothing else is listening. `next start` installs its own
+    // graceful shutdown, and cutting that short with process.exit() would
+    // drop connections this has no business dropping.
+    for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+      const onSignal = () => {
+        releaseLock(lockPath)
+        process.removeListener(signal, onSignal)
+        if (process.listenerCount(signal) === 0) process.kill(process.pid, signal)
+      }
+      process.on(signal, onSignal)
+    }
+  }
 
   return { pg, db: drizzle(pg, { schema: { ...schema, ...relations } }) }
 }
