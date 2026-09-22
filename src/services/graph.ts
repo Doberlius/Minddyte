@@ -8,12 +8,30 @@ import { appendToCompaction } from "@/lib/compaction"
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0]
 
 export async function persistMessage(input: {
+  workspaceId: string
   sessionId: string
   role: "user" | "assistant"
   content: string
   modelUsed?: string
 }): Promise<string> {
   const db = await getDb()
+
+  // messages carries no workspace_id of its own — it inherits one through
+  // sessionId's foreign key. So the only way to keep a stranger's sessionId
+  // from writing into this workspace's chat is to check ownership here,
+  // before the insert, rather than trust the column to enforce it.
+  const [owned] = await db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(and(eq(sessions.id, input.sessionId), eq(sessions.workspaceId, input.workspaceId)))
+
+  if (!owned) {
+    // Never fail blankly — but never confirm the row exists elsewhere
+    // either. "Not yours" and "not there" must be indistinguishable from
+    // outside, or the error becomes a way to ask whether a chat id is real.
+    throw new Error(`No chat ${input.sessionId} in this workspace.`)
+  }
+
   const [row] = await db
     .insert(messages)
     .values({
@@ -43,18 +61,23 @@ export async function persistMessage(input: {
  */
 async function upsertNodeAndLink(
   tx: Tx,
+  workspaceId: string,
   sessionId: string,
   label: string
 ): Promise<string | null> {
   const key = canonicalKey(label)
   if (!key) return null
 
-  // The unique constraint IS the dedup. Spec §4.3.
+  // The unique constraint IS the dedup, and it is now composite — so the
+  // conflict target has to name both columns. Naming only canonicalKey here
+  // would fail at runtime against a constraint that no longer exists, which
+  // is the better of the two failures available: the alternative is that it
+  // silently matches some other workspace's row.
   const [node] = await tx
     .insert(nodes)
-    .values({ label, canonicalKey: key })
+    .values({ workspaceId, label, canonicalKey: key })
     .onConflictDoUpdate({
-      target: [nodes.canonicalKey],
+      target: [nodes.workspaceId, nodes.canonicalKey],
       set: { lastReferencedAt: new Date() },
     })
     .returning({ id: nodes.id })
@@ -82,6 +105,7 @@ async function upsertNodeAndLink(
  * 300-500ms to time-to-first-token.
  */
 export async function ingestUserMessage(input: {
+  workspaceId: string
   sessionId: string
   messageId: string
   content: string
@@ -102,7 +126,7 @@ export async function ingestUserMessage(input: {
   const db = await getDb()
   await db.transaction(async (tx) => {
     for (const label of auto) {
-      const nodeId = await upsertNodeAndLink(tx, input.sessionId, label)
+      const nodeId = await upsertNodeAndLink(tx, input.workspaceId, input.sessionId, label)
       if (!nodeId) continue
 
       await tx
@@ -128,13 +152,13 @@ export async function ingestUserMessage(input: {
       const headlineLabel = extractConcepts(title).auto[0] ?? auto[0] ?? null
 
       const headlineNodeId = headlineLabel
-        ? await upsertNodeAndLink(tx, input.sessionId, headlineLabel)
+        ? await upsertNodeAndLink(tx, input.workspaceId, input.sessionId, headlineLabel)
         : null
 
       await tx
         .update(sessions)
         .set({ title, headlineNodeId })
-        .where(eq(sessions.id, input.sessionId))
+        .where(and(eq(sessions.id, input.sessionId), eq(sessions.workspaceId, input.workspaceId)))
     }
 
     // Incremental compaction. Spec §4.1 — never re-reads history.
@@ -149,7 +173,7 @@ export async function ingestUserMessage(input: {
     const [s] = await tx
       .select({ compaction: sessions.compaction })
       .from(sessions)
-      .where(eq(sessions.id, input.sessionId))
+      .where(and(eq(sessions.id, input.sessionId), eq(sessions.workspaceId, input.workspaceId)))
 
     if (s) {
       // Both roles, the user's first. appendToCompaction PREPENDS, so the
@@ -168,7 +192,7 @@ export async function ingestUserMessage(input: {
           compactionUpdatedAt: new Date(),
           updatedAt: new Date(),
         })
-        .where(eq(sessions.id, input.sessionId))
+        .where(and(eq(sessions.id, input.sessionId), eq(sessions.workspaceId, input.workspaceId)))
     }
   })
 }

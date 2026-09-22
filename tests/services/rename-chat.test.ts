@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { truncateAll } from '../helpers/pglite'
+import { FIXTURE_WORKSPACE_ID, truncateAll } from '../helpers/pglite'
 import { createChat, listChats, renameChat, loadChat } from '@/services/dbApi'
 import { persistMessage, ingestUserMessage } from '@/services/graph'
 
@@ -17,8 +17,10 @@ beforeEach(truncateAll)
  */
 
 async function say(sessionId: string, content: string) {
-  const messageId = await persistMessage({ sessionId, role: 'user', content })
-  await ingestUserMessage({ sessionId, messageId, content })
+  const messageId = await persistMessage({
+    workspaceId: FIXTURE_WORKSPACE_ID, sessionId, role: 'user', content,
+  })
+  await ingestUserMessage({ workspaceId: FIXTURE_WORKSPACE_ID, sessionId, messageId, content })
 }
 
 async function titleOf(id: string): Promise<string | undefined> {
@@ -27,7 +29,7 @@ async function titleOf(id: string): Promise<string | undefined> {
 
 describe('renameChat', () => {
   it('sets the title', async () => {
-    const { id } = await createChat()
+    const { id } = await createChat(FIXTURE_WORKSPACE_ID)
 
     await renameChat(id, 'Ledger design notes')
 
@@ -35,14 +37,14 @@ describe('renameChat', () => {
   })
 
   it('reports whether there was a chat to rename', async () => {
-    const { id } = await createChat()
+    const { id } = await createChat(FIXTURE_WORKSPACE_ID)
 
     expect(await renameChat(id, 'Kept')).toBe(true)
     expect(await renameChat('00000000-0000-0000-0000-000000000000', 'Nope')).toBe(false)
   })
 
   it('trims the surrounding whitespace someone pasted in', async () => {
-    const { id } = await createChat()
+    const { id } = await createChat(FIXTURE_WORKSPACE_ID)
 
     await renameChat(id, '   Ledger design notes\n')
 
@@ -50,7 +52,7 @@ describe('renameChat', () => {
   })
 
   it('refuses a name that is only whitespace', async () => {
-    const { id } = await createChat()
+    const { id } = await createChat(FIXTURE_WORKSPACE_ID)
     await renameChat(id, 'Real name')
 
     expect(await renameChat(id, '    ')).toBe(false)
@@ -60,7 +62,7 @@ describe('renameChat', () => {
   })
 
   it('caps a very long name rather than storing it whole', async () => {
-    const { id } = await createChat()
+    const { id } = await createChat(FIXTURE_WORKSPACE_ID)
 
     await renameChat(id, 'x'.repeat(400))
 
@@ -71,7 +73,7 @@ describe('renameChat', () => {
   it('does not touch the concepts or the memory', async () => {
     // A rename changes a label. The Headline was taken from the first
     // message's own words and stays what it was.
-    const { id } = await createChat()
+    const { id } = await createChat(FIXTURE_WORKSPACE_ID)
     await say(id, 'We run PostgreSQL in production.')
     const before = await loadChat(id)
 
@@ -83,7 +85,7 @@ describe('renameChat', () => {
   })
 
   it('shows the new name in the list', async () => {
-    const { id } = await createChat()
+    const { id } = await createChat(FIXTURE_WORKSPACE_ID)
 
     await renameChat(id, 'Ledger design notes')
 
@@ -93,7 +95,7 @@ describe('renameChat', () => {
   it('does not re-derive the title on the next message', async () => {
     // deriveTitle runs once, on the FIRST user message. A chat renamed after
     // that must keep the name through everything said afterwards.
-    const { id } = await createChat()
+    const { id } = await createChat(FIXTURE_WORKSPACE_ID)
     await say(id, 'We run PostgreSQL in production.')
     await renameChat(id, 'Ledger design notes')
 

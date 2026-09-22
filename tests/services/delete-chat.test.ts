@@ -4,6 +4,7 @@ import { createChat, deleteChat, listChats } from '@/services/dbApi'
 import { persistMessage, ingestUserMessage } from '@/services/graph'
 import { getDb, nodes } from '../../db'
 import { eq } from 'drizzle-orm'
+import { newWorkspaceId } from '@/lib/workspace'
 
 beforeEach(truncateAll)
 
@@ -17,10 +18,16 @@ beforeEach(truncateAll)
  * number the canvas prints on a concept, permanently and invisibly.
  */
 
+// One workspace for the whole file — deleteChat's isolation ACROSS
+// workspaces is isolation.test.ts's job. Here every chat shares one, so a
+// two-chat test like "keeps a concept another chat still holds" still
+// dedups onto the same node the way it did before workspaces existed.
+const WORKSPACE_ID = newWorkspaceId()
+
 /** Put a message through the real ingest path, so the graph is real. */
 async function say(sessionId: string, content: string) {
-  const messageId = await persistMessage({ sessionId, role: 'user', content })
-  await ingestUserMessage({ sessionId, messageId, content })
+  const messageId = await persistMessage({ workspaceId: WORKSPACE_ID, sessionId, role: 'user', content })
+  await ingestUserMessage({ workspaceId: WORKSPACE_ID, sessionId, messageId, content })
 }
 
 async function countFor(key: string): Promise<number | null> {
@@ -31,7 +38,7 @@ async function countFor(key: string): Promise<number | null> {
 
 describe('deleteChat', () => {
   it('removes the chat', async () => {
-    const { id } = await createChat()
+    const { id } = await createChat(WORKSPACE_ID)
     await say(id, 'We run PostgreSQL in production.')
 
     await deleteChat(id)
@@ -40,7 +47,7 @@ describe('deleteChat', () => {
   })
 
   it('takes its messages with it', async () => {
-    const { id } = await createChat()
+    const { id } = await createChat(WORKSPACE_ID)
     await say(id, 'We run PostgreSQL in production.')
     expect(await countRows('messages')).toBe(1)
 
@@ -50,7 +57,7 @@ describe('deleteChat', () => {
   })
 
   it('takes its links to concepts with it', async () => {
-    const { id } = await createChat()
+    const { id } = await createChat(WORKSPACE_ID)
     await say(id, 'We run PostgreSQL in production.')
     expect(await countRows('session_nodes')).toBeGreaterThan(0)
 
@@ -60,7 +67,7 @@ describe('deleteChat', () => {
   })
 
   it('removes a concept no other chat holds', async () => {
-    const { id } = await createChat()
+    const { id } = await createChat(WORKSPACE_ID)
     await say(id, 'We run PostgreSQL in production.')
     expect(await countFor('postgresql')).toBe(1)
 
@@ -70,8 +77,8 @@ describe('deleteChat', () => {
   })
 
   it('keeps a concept another chat still holds', async () => {
-    const a = await createChat()
-    const b = await createChat()
+    const a = await createChat(WORKSPACE_ID)
+    const b = await createChat(WORKSPACE_ID)
     await say(a.id, 'We run PostgreSQL in production.')
     await say(b.id, 'Is PostgreSQL a good fit for a ledger?')
     expect(await countFor('postgresql')).toBe(2)
@@ -85,9 +92,9 @@ describe('deleteChat', () => {
     // The whole reason this function is more than one DELETE. `chat_count` is
     // a denormalised counter that only ever goes up; a cascade would leave it
     // reading 2 for a concept one chat holds.
-    const a = await createChat()
-    const b = await createChat()
-    const c = await createChat()
+    const a = await createChat(WORKSPACE_ID)
+    const b = await createChat(WORKSPACE_ID)
+    const c = await createChat(WORKSPACE_ID)
     for (const chat of [a, b, c]) await say(chat.id, 'Kubernetes schedules it anyway.')
     expect(await countFor('kubernetes')).toBe(3)
 
@@ -98,8 +105,8 @@ describe('deleteChat', () => {
   })
 
   it('leaves the other chats alone', async () => {
-    const a = await createChat()
-    const b = await createChat()
+    const a = await createChat(WORKSPACE_ID)
+    const b = await createChat(WORKSPACE_ID)
     await say(a.id, 'We run PostgreSQL in production.')
     await say(b.id, 'Rust has no garbage collector.')
 
@@ -112,7 +119,7 @@ describe('deleteChat', () => {
   })
 
   it('reports whether there was anything to delete', async () => {
-    const { id } = await createChat()
+    const { id } = await createChat(WORKSPACE_ID)
 
     expect(await deleteChat(id)).toBe(true)
     expect(await deleteChat(id)).toBe(false)

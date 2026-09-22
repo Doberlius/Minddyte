@@ -146,12 +146,14 @@ export async function touchNodes(nodeIds: string[]) {
  * behind every time someone opened one and walked away, and would then need a
  * guard to clean them up.
  *
- * No arguments: `user_id` is gone (ticket 03) and `title` defaults to
- * 'New Session', overwritten once by deriveTitle on the first message.
+ * `workspaceId` is a parameter, not read from a cookie in here — no service
+ * function may find its own workspace, or a caller that forgets to pass one
+ * would go unnoticed instead of failing to typecheck. `title` still defaults
+ * to 'New Session', overwritten once by deriveTitle on the first message.
  */
-export async function createChat(): Promise<{ id: string }> {
+export async function createChat(workspaceId: string): Promise<{ id: string }> {
   const db = await getDb()
-  const [row] = await db.insert(sessions).values({}).returning({ id: sessions.id })
+  const [row] = await db.insert(sessions).values({ workspaceId }).returning({ id: sessions.id })
   return { id: row.id }
 }
 

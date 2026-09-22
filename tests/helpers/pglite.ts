@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { getDb, sessions } from '../../db'
+import { newWorkspaceId } from '@/lib/workspace'
 
 /**
  * Every table in the schema. Listed explicitly rather than discovered, so that
@@ -31,12 +32,25 @@ export async function truncateAll(): Promise<void> {
   await db.execute(sql.raw(`truncate table ${list} restart identity cascade`))
 }
 
+/**
+ * One workspace, shared by every fixture chat this helper creates.
+ *
+ * `sessions.workspace_id` is NOT NULL, so a fixture needs a value from
+ * somewhere. A single fixed id — not a fresh one per call — is what lets a
+ * test's own helper (e.g. `turn(chatId, ...)` in graph.test.ts) pass the
+ * same workspace it used to create the chat, without `newChat` having to
+ * hand the id back. The one test that actually cross-checks two workspaces
+ * (`isolation.test.ts`) mints its own with `newWorkspaceId()` and does not
+ * use this helper.
+ */
+export const FIXTURE_WORKSPACE_ID = newWorkspaceId()
+
 /** A fixture is just a sessions row — ticket 03 removed users entirely. */
 export async function newChat(title?: string): Promise<string> {
   const db = await getDb()
   const [row] = await db
     .insert(sessions)
-    .values(title ? { title } : {})
+    .values({ workspaceId: FIXTURE_WORKSPACE_ID, ...(title ? { title } : {}) })
     .returning({ id: sessions.id })
   return row.id
 }

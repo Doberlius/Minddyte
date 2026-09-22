@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { newChat, truncateAll } from '../helpers/pglite'
+import { FIXTURE_WORKSPACE_ID, newChat, truncateAll } from '../helpers/pglite'
 import { persistMessage, ingestUserMessage } from '@/services/graph'
 import { retrieveContext } from '@/services/retrieval'
 import { AUTO_REACH_CAP } from '@/lib/rank'
@@ -11,8 +11,12 @@ const UNRELATED = 'Sourdough starter needs feeding twice a day.'
 /** Build a chat that has really been ingested, so it owns real Nodes. */
 async function ingestedChat(text: string, reply = 'A reply.'): Promise<string> {
   const chatId = await newChat()
-  const messageId = await persistMessage({ sessionId: chatId, role: 'user', content: text })
-  await ingestUserMessage({ sessionId: chatId, messageId, content: text, assistantContent: reply })
+  const messageId = await persistMessage({
+    workspaceId: FIXTURE_WORKSPACE_ID, sessionId: chatId, role: 'user', content: text,
+  })
+  await ingestUserMessage({
+    workspaceId: FIXTURE_WORKSPACE_ID, sessionId: chatId, messageId, content: text, assistantContent: reply,
+  })
   return chatId
 }
 

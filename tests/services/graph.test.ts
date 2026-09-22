@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { getDb, nodes, sessions } from '../../db'
-import { countRows, newChat, truncateAll } from '../helpers/pglite'
+import { countRows, FIXTURE_WORKSPACE_ID, newChat, truncateAll } from '../helpers/pglite'
 import { persistMessage, ingestUserMessage } from '@/services/graph'
 import { RECORD_SEPARATOR } from '@/lib/compaction'
 
@@ -18,12 +18,15 @@ const SECOND = 'How do Kafka partitions affect throughput?'
 
 /** One full turn: persist the user message, then run the graph write path. */
 async function turn(chatId: string, userText: string, assistantText: string) {
-  const messageId = await persistMessage({ sessionId: chatId, role: 'user', content: userText })
+  const workspaceId = FIXTURE_WORKSPACE_ID
+  const messageId = await persistMessage({
+    workspaceId, sessionId: chatId, role: 'user', content: userText,
+  })
   await persistMessage({
-    sessionId: chatId, role: 'assistant', content: assistantText, modelUsed: 'test',
+    workspaceId, sessionId: chatId, role: 'assistant', content: assistantText, modelUsed: 'test',
   })
   await ingestUserMessage({
-    sessionId: chatId, messageId, content: userText, assistantContent: assistantText,
+    workspaceId, sessionId: chatId, messageId, content: userText, assistantContent: assistantText,
   })
 }
 
