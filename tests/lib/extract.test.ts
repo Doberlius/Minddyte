@@ -52,4 +52,30 @@ describe('pronouns are never concepts', () => {
     expect([...r.auto, ...r.suggested]).not.toContain('chat I')
     expect(r.auto).not.toContain('chat')
   })
+
+})
+
+describe('a comma inside a matched phrase', () => {
+  // An internal comma survived into the canonical key, because punctuation was
+  // stripped only from the END of a matched phrase (`/[.,;:!?]+$/`). Two concepts
+  // fused into one Node whose key could never match anything in another Chat.
+  it('splits a matched phrase on an internal comma rather than fusing two concepts', () => {
+    const r = extractConcepts('I use PostgreSQL, Redis, and Kafka for this project.')
+    expect(r.auto).toContain('PostgreSQL')
+    expect(r.auto).toContain('Redis')
+    expect(r.auto).not.toContain('PostgreSQL, Redis')
+  })
+
+  it('recovers both concepts from a comma-separated noun run', () => {
+    const r = extractConcepts(
+      'Explain the custodian agency system, data gaps in developing countries, and the tier classification.',
+    )
+    expect(r.auto).toContain('custodian agency system')
+    expect(r.auto).toContain('data gaps')
+  })
+
+  it('leaves a clause-separating comma alone', () => {
+    const r = extractConcepts('After the migration, the retrieval query got faster.')
+    expect(r.auto).toContain('retrieval query')
+  })
 })

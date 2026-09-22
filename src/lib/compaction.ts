@@ -13,13 +13,33 @@ export const COMPACTION_CAP = 500
 export const RECORD_SEPARATOR = String.fromCharCode(0x1e) // ASCII record separator (RS)
 
 /**
- * Join sentences and drop WHOLE ones from the tail until within cap.
+ * Join the sentences that FIT, in order, until the cap is reached.
  *
  * Sentences are kept verbatim — never rewritten or whitespace-normalized.
  * Joins with RECORD_SEPARATOR so the boundary stays unambiguous: unlike a
  * space or a newline, that character cannot occur inside a sentence, so
  * appendToCompaction can always split it back apart correctly, even for a
  * pasted code block that contains newlines and indentation.
+ *
+ * This used to `break` on the first sentence that did not fit, which read as
+ * "drop whole ones from the tail" and is wrong in two ways that were measured:
+ *
+ *   1. It DESTROYED existing memory. appendToCompaction queues the new
+ *      message's sentences ahead of the accumulated ones, so a single
+ *      oversized message stopped the loop before any older sentence was even
+ *      considered — one 611-character message wiped a chat's whole Compaction,
+ *      silently. That is the standing rule against destroying data silently.
+ *   2. It discarded shorter sentences that fit. Measured on a real reply: 30
+ *      sentences, only 2 over cap, and still just 3 kept.
+ *
+ * `continue` skips what cannot fit and keeps looking. The result is no longer a
+ * contiguous prefix, but it is still in order, still whole sentences, and still
+ * verbatim. Both callers use this function, so the incremental-versus-rebuild
+ * invariant holds automatically.
+ *
+ * It does NOT fix the case where no sentence fits at all — a first message
+ * whose every sentence is over cap still yields "". Surfacing that to the user
+ * is a separate obligation; see ticket 11.
  */
 function trim(sentences: string[], cap: number): string {
   const kept: string[] = []
@@ -27,7 +47,7 @@ function trim(sentences: string[], cap: number): string {
   for (const s of sentences) {
     if (!s) continue
     const add = kept.length ? s.length + 1 : s.length
-    if (len + add > cap) break
+    if (len + add > cap) continue
     kept.push(s)
     len += add
   }

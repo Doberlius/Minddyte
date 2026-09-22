@@ -65,6 +65,5 @@ test
 
 # Supabase CLI scratch state — project ref and pooler URL, never commit
 supabase/.temp/
-
-agents 
 skills
+agents
