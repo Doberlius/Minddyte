@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { chooseProvider, hostedModels } from '@/lib/provider'
+import { clientFor } from '@/lib/ollama'
 
 /**
  * Which provider answers is decided by environment alone, so it is a pure
@@ -73,5 +74,64 @@ describe('chooseProvider', () => {
     const choice = chooseProvider({ HOSTED_API_KEY: KEY, HOSTED_MODEL_IDS: ' , ,' } as unknown as NodeJS.ProcessEnv)
 
     expect(choice.kind).toBe('none')
+  })
+
+  it('refuses to fall back to localhost when HOSTED_API_KEY is empty but HOSTED_BASE_URL is set', () => {
+    // The Railway/Vercel deploy mistake: the variable name exists with an
+    // empty value because someone forgot to paste the secret. A configured
+    // HOSTED_BASE_URL next to it proves the intent was hosted, not local.
+    const choice = chooseProvider({
+      HOSTED_API_KEY: '',
+      HOSTED_BASE_URL: 'https://example.com/api',
+    } as unknown as NodeJS.ProcessEnv)
+
+    expect(choice.kind).toBe('none')
+    expect(choice.kind === 'none' && choice.reason).toMatch(/HOSTED_API_KEY/)
+  })
+
+  it('catches a whitespace-only key the same way, when HOSTED_MODEL_IDS is set', () => {
+    const choice = chooseProvider({
+      HOSTED_API_KEY: '   ',
+      HOSTED_MODEL_IDS: 'gpt-oss:120b-cloud',
+    } as unknown as NodeJS.ProcessEnv)
+
+    expect(choice.kind).toBe('none')
+    expect(choice.kind === 'none' && choice.reason).toMatch(/HOSTED_API_KEY/)
+  })
+
+  it('stays local when none of the three hosted variables are set at all', () => {
+    // The fix for the two tests above must not catch a plain developer
+    // machine that has never heard of any hosted variable.
+    const choice = chooseProvider({ HOSTED_API_KEY: '' } as unknown as NodeJS.ProcessEnv)
+
+    expect(choice.kind).toBe('local')
+  })
+
+  it('defaults the hosted base url when HOSTED_BASE_URL is unset', () => {
+    const choice = chooseProvider({ HOSTED_API_KEY: KEY } as unknown as NodeJS.ProcessEnv)
+
+    expect(choice.kind === 'hosted' && choice.baseURL).toBe('https://ollama.com/api')
+  })
+
+  it('honours an explicit HOSTED_BASE_URL, and falls back to the default when it is blank', () => {
+    const overridden = chooseProvider({
+      HOSTED_API_KEY: KEY,
+      HOSTED_BASE_URL: 'https://example.com/api',
+    } as unknown as NodeJS.ProcessEnv)
+    expect(overridden.kind === 'hosted' && overridden.baseURL).toBe('https://example.com/api')
+
+    const blank = chooseProvider({
+      HOSTED_API_KEY: KEY,
+      HOSTED_BASE_URL: '   ',
+    } as unknown as NodeJS.ProcessEnv)
+    expect(blank.kind === 'hosted' && blank.baseURL).toBe('https://ollama.com/api')
+  })
+
+  it('clientFor throws on a none choice, carrying the reason', () => {
+    // clientFor's own docblock says construction is local object creation,
+    // not a connection — so this needs no network and no mock.
+    const reason = 'HOSTED_API_KEY is empty, but HOSTED_BASE_URL is set.'
+
+    expect(() => clientFor({ kind: 'none', reason })).toThrow(reason)
   })
 })

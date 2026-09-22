@@ -12,11 +12,13 @@ import type { ModelEntry } from '@/types'
  * one this machine has is already the fallback when nothing is picked.
  *
  * Worth being precise about what a cloud tag IS here, because the name
- * suggests otherwise: it still goes through the Ollama daemon on localhost.
- * The app holds no credential; the daemon is signed in and relays upstream on
- * its behalf (`constants/models.ts`). So this changes the answer's quality,
- * not where the app can run — a deployment without a daemon has no models at
- * all, cloud or otherwise.
+ * suggests otherwise: on a developer's machine it still goes through the
+ * Ollama daemon on localhost, which is signed in and relays upstream on its
+ * own credentials (`constants/models.ts`). A deployment with a hosted key set
+ * has no daemon at all — the app talks to the hosted provider directly with
+ * that key (`@/lib/provider`). Either way, this list is what answers when
+ * nothing local is chosen; a deployment with neither a daemon nor a hosted
+ * key has no models at all.
  *
  * The list is asked for on first open rather than on mount: most visits never
  * touch it, and the daemon call is only worth making when someone is choosing.
@@ -89,7 +91,7 @@ export function ModelPicker({
 
       {open && (
         <div className="model-pop" role="listbox" aria-label="Cloud models">
-          <div className="picker-head">Cloud models — answered upstream via your daemon</div>
+          <div className="picker-head">Cloud models — answered upstream</div>
 
           {failed && (
             <p className="picker-empty">
@@ -97,7 +99,7 @@ export function ModelPicker({
             </p>
           )}
 
-          {!failed && models === null && <p className="picker-empty">Asking the daemon…</p>}
+          {!failed && models === null && <p className="picker-empty">Loading models…</p>}
 
           {!failed && models?.length === 0 && (
             <p className="picker-empty">
@@ -134,7 +136,7 @@ export function ModelPicker({
               }}
             >
               <span className="model-name">Automatic</span>
-              <span className="model-note">whatever the daemon offers</span>
+              <span className="model-note">the server decides</span>
               {value === null && <Check size={13} aria-hidden="true" />}
             </div>
           )}

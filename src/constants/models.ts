@@ -25,10 +25,12 @@ export function labelFor(id: string): string {
 }
 
 /**
- * Cloud tags run on Ollama's infrastructure rather than this machine, so they
- * need the daemon to be signed in (`ollama signin`). The app itself never
- * authenticates — it talks to localhost and the daemon relays upstream with
- * its own credentials.
+ * Cloud tags run upstream rather than on this machine. Locally that means the
+ * Ollama daemon must be signed in (`ollama signin`) — the app itself never
+ * authenticates there, and the daemon relays upstream with its own
+ * credentials. A deployment with a hosted key skips the daemon entirely: the
+ * app authenticates directly with the hosted provider using HOSTED_API_KEY
+ * (`@/lib/provider`).
  */
 export function isCloudModel(id: string): boolean {
   return id.endsWith('-cloud') || id.endsWith(':cloud')

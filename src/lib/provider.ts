@@ -64,6 +64,22 @@ export function chooseProvider(
     }
   }
 
+  // A blank key with either of the other two hosted variables set is not
+  // "no hosted setup" — it is the single most common deploy mistake. Railway
+  // and Vercel both create a variable with an empty value the moment you add
+  // its name, so an empty HOSTED_API_KEY next to a configured HOSTED_BASE_URL
+  // or HOSTED_MODEL_IDS means someone forgot to paste the secret, not that
+  // they want the local daemon. Falling back to localhost here would report
+  // "no model, start Ollama" to someone who has no Ollama to start.
+  if (env.HOSTED_BASE_URL?.trim() || env.HOSTED_MODEL_IDS?.trim()) {
+    return {
+      kind: 'none',
+      reason:
+        'HOSTED_API_KEY is empty, but HOSTED_BASE_URL or HOSTED_MODEL_IDS is set, which ' +
+        'only makes sense for a hosted deployment. Paste the real key into HOSTED_API_KEY.',
+    }
+  }
+
   return {
     kind: 'local',
     baseURL: apiBase(env.OLLAMA_BASE_URL ?? 'http://localhost:11434'),
