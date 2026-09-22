@@ -101,7 +101,9 @@ export function ModelPicker({
 
           {!failed && models?.length === 0 && (
             <p className="picker-empty">
-              No cloud models on this daemon. Run <code>ollama signin</code>, then reopen this.
+              No models available. On a local setup, run <code>ollama signin</code>;
+              on a deployment, check <code>HOSTED_API_KEY</code> and{' '}
+              <code>HOSTED_MODEL_IDS</code>.
             </p>
           )}
 

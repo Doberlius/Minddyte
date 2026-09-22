@@ -33,13 +33,6 @@ export const API_BASE = apiBase(process.env.OLLAMA_BASE_URL ?? 'http://localhost
 
 const BASE = API_BASE
 
-/**
- * The provider client. Note it carries **no credential** — Minddyte talks to
- * the local daemon and never authenticates. A cloud tag works because the
- * daemon itself is signed in and relays upstream on our behalf.
- */
-export const ollama = createOllama({ baseURL: BASE })
-
 type Cached = { at: number; models: ModelEntry[] }
 let cached: Cached | null = null
 const TTL_MS = 30_000
