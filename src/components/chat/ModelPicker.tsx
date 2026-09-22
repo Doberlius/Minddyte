@@ -21,7 +21,7 @@ import type { ModelEntry } from '@/types'
  * key has no models at all.
  *
  * The list is asked for on first open rather than on mount: most visits never
- * touch it, and the daemon call is only worth making when someone is choosing.
+ * touch it, and the provider call is only worth making when someone is choosing.
  */
 
 export function ModelPicker({
@@ -95,7 +95,7 @@ export function ModelPicker({
 
           {failed && (
             <p className="picker-empty">
-              Could not reach Ollama. The daemon has to be running for any model to answer.
+              Could not fetch models. Ensure Ollama is running locally, or verify HOSTED_API_KEY on deployment.
             </p>
           )}
 
