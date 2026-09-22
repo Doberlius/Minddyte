@@ -22,10 +22,15 @@ export async function requireWorkspace(): Promise<string> {
   const id = newWorkspaceId()
   jar.set(WORKSPACE_COOKIE, id, {
     httpOnly: true,
-    // Not in development: a Secure cookie is dropped over plain http, so
-    // setting it unconditionally would mint a new workspace on every single
-    // request on localhost and nothing would ever persist.
-    secure: process.env.NODE_ENV === 'production',
+    // Secure unless this is explicitly a development server. Written as
+    // `!== 'development'` rather than `=== 'production'` on purpose: the
+    // first is wrong only when someone deliberately says development, the
+    // second is wrong whenever NODE_ENV is unset, misspelled, or says
+    // something like "staging" — and being wrong there means the id that
+    // separates two visitors' conversations travels in the clear. Next sets
+    // NODE_ENV=development for `next dev` itself, so nothing has to be
+    // configured for a developer to get a working cookie over http.
+    secure: process.env.NODE_ENV !== 'development',
     sameSite: 'lax',
     maxAge: COOKIE_MAX_AGE,
     path: '/',

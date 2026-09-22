@@ -33,6 +33,12 @@ describe('workspace identity', () => {
       '11111111-1111-1111-1111-11111111111', // one char short
       '11111111-1111-1111-1111-1111111111111', // one char long
       'ZZZZZZZZ-1111-1111-1111-111111111111', // not hex
+      // Right shape, wrong version — a v1 uuid. The `4` in the regex is the
+      // only thing rejecting this, and nothing else in this list would fail
+      // if that position were loosened to any hex digit.
+      '11111111-1111-1111-8111-111111111111',
+      // Right shape, wrong variant nibble: v4 requires 8, 9, a or b there.
+      '11111111-1111-4111-c111-111111111111',
       null,
       undefined,
       42,
