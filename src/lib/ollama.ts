@@ -1,6 +1,7 @@
 import { createOllama } from 'ollama-ai-provider-v2'
 import { labelFor, isCloudModel, PREFERRED_MODEL_ID } from '@/constants/models'
 import type { ModelEntry } from '@/types'
+import type { ProviderChoice } from './provider'
 
 /**
  * Ollama serves its HTTP API under `/api`, but `OLLAMA_BASE_URL` reads like the
@@ -123,4 +124,22 @@ export async function resolveModel(requested?: string | null): Promise<string | 
   if (available.length === 0) return null
   if (available.some((m) => m.id === PREFERRED_MODEL_ID)) return PREFERRED_MODEL_ID
   return (available.find((m) => m.location === 'cloud') ?? available[0]).id
+}
+
+/**
+ * A client for one resolved choice.
+ *
+ * The module-level `ollama` export above is bound to `API_BASE` at import
+ * time, which cannot carry a hosted base URL or an Authorization header —
+ * so the route builds its client per request from the choice instead.
+ * Creating the client is local object construction, not a connection.
+ */
+export function clientFor(choice: ProviderChoice) {
+  if (choice.kind === 'none') throw new Error(choice.reason)
+  return createOllama({
+    baseURL: choice.baseURL,
+    ...(choice.kind === 'hosted'
+      ? { headers: { Authorization: `Bearer ${choice.apiKey}` } }
+      : {}),
+  })
 }

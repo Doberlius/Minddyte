@@ -1,5 +1,6 @@
 import { streamText, convertToModelMessages, type UIMessage } from "ai"
-import { ollama, resolveModel } from "@/lib/ollama"
+import { clientFor, resolveModel } from "@/lib/ollama"
+import { chooseProvider } from "@/lib/provider"
 import { retrieveContext } from "@/services/retrieval"
 import { persistMessage, ingestUserMessage } from "@/services/graph"
 import { sessionExists } from "@/services/dbApi"
@@ -16,15 +17,26 @@ export async function POST(req: Request) {
     model?: string
   } = await req.json()
 
-  // Validated against what the daemon actually reports, not a hardcoded list.
-  const modelId = await resolveModel(model)
+  const choice = chooseProvider(process.env, model)
+
+  if (choice.kind === "none") {
+    // Standing rule: say what is wrong and how to fix it, never fail blankly.
+    return Response.json({ error: choice.reason }, { status: 503 })
+  }
+
+  // The hosted path already knows its model; only the local daemon has to be
+  // asked what it actually has. Validated against what the daemon actually
+  // reports, not a hardcoded list.
+  const modelId =
+    choice.kind === "hosted" ? choice.model : await resolveModel(choice.model)
+
   if (!modelId) {
     // Standing rule: say what is wrong and how to fix it, never fail blankly.
     return Response.json(
       {
         error:
-          "No model available. Start Ollama, then pull one with `ollama pull gemma3` " +
-          "— or run `ollama signin` to use cloud models.",
+          "No model available. Start Ollama and pull one with `ollama pull gemma3`, " +
+          "or set HOSTED_API_KEY to use a hosted model instead.",
       },
       { status: 503 },
     )
@@ -73,7 +85,7 @@ export async function POST(req: Request) {
   const systemPrompt = buildSystemPrompt(mode, chats)
 
   const result = streamText({
-    model: ollama(modelId),
+    model: clientFor(choice)(modelId),
     system: systemPrompt,
     messages: await convertToModelMessages(messages),
     maxOutputTokens: 2048,
