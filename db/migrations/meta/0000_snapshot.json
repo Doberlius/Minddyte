@@ -1,5 +1,5 @@
 {
-  "id": "d8a244dd-25df-4256-9c53-843ce5329537",
+  "id": "6a1acc21-4969-4945-af74-fe99c6c3a05c",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -8,6 +8,12 @@
       "name": "cluster_origins",
       "schema": "",
       "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
         "cluster_key": {
           "name": "cluster_key",
           "type": "text",
@@ -30,9 +36,10 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "cluster_origins_cluster_key_pk": {
-          "name": "cluster_origins_cluster_key_pk",
+        "cluster_origins_workspace_id_cluster_key_pk": {
+          "name": "cluster_origins_workspace_id_cluster_key_pk",
           "columns": [
+            "workspace_id",
             "cluster_key"
           ]
         }
@@ -113,6 +120,12 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
         "title": {
           "name": "title",
           "type": "text",
@@ -173,6 +186,12 @@
           "name": "idx_collections_one_featured",
           "columns": [
             {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
               "expression": "featured",
               "isExpression": false,
               "asc": true,
@@ -191,119 +210,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.edges": {
-      "name": "edges",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "from_node_id": {
-          "name": "from_node_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "to_node_id": {
-          "name": "to_node_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'overlap'"
-        },
-        "relationship_label": {
-          "name": "relationship_label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "idx_edges_from_node": {
-          "name": "idx_edges_from_node",
-          "columns": [
-            {
-              "expression": "from_node_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "edges_from_node_id_nodes_id_fk": {
-          "name": "edges_from_node_id_nodes_id_fk",
-          "tableFrom": "edges",
-          "tableTo": "nodes",
-          "columnsFrom": [
-            "from_node_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "edges_to_node_id_nodes_id_fk": {
-          "name": "edges_to_node_id_nodes_id_fk",
-          "tableFrom": "edges",
-          "tableTo": "nodes",
-          "columnsFrom": [
-            "to_node_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "edges_unique": {
-          "name": "edges_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "from_node_id",
-            "to_node_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "edges_no_self_loop": {
-          "name": "edges_no_self_loop",
-          "value": "\"edges\".\"from_node_id\" <> \"edges\".\"to_node_id\""
-        },
-        "edges_source_check": {
-          "name": "edges_source_check",
-          "value": "\"edges\".\"source\" in ('overlap', 'bridge', 'manual')"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.forgotten": {
@@ -586,6 +492,12 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
         "label": {
           "name": "label",
           "type": "text",
@@ -650,10 +562,11 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "nodes_canonical_unique": {
-          "name": "nodes_canonical_unique",
+        "nodes_workspace_canonical_unique": {
+          "name": "nodes_workspace_canonical_unique",
           "nullsNotDistinct": false,
           "columns": [
+            "workspace_id",
             "canonical_key"
           ]
         }
@@ -666,6 +579,12 @@
       "name": "rejected_phrases",
       "schema": "",
       "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
         "phrase": {
           "name": "phrase",
           "type": "text",
@@ -676,9 +595,10 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "rejected_phrases_phrase_pk": {
-          "name": "rejected_phrases_phrase_pk",
+        "rejected_phrases_workspace_id_phrase_pk": {
+          "name": "rejected_phrases_workspace_id_phrase_pk",
           "columns": [
+            "workspace_id",
             "phrase"
           ]
         }
@@ -781,6 +701,12 @@
           "primaryKey": true,
           "notNull": true,
           "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
         },
         "title": {
           "name": "title",

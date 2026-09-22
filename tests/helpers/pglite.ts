@@ -10,7 +10,6 @@ const TABLES = [
   'cluster_origins',
   'collection_nodes',
   'collections',
-  'edges',
   'forgotten',
   'graph_positions',
   'message_nodes',

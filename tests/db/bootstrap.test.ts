@@ -11,7 +11,7 @@ const fresh = () => PGlite.create({ extensions: { pg_trgm } })
 describe('bootstrap', () => {
   it('splits the migration into executable statements', () => {
     const statements = migrationStatements()
-    expect(statements.length).toBeGreaterThan(30)
+    expect(statements.length).toBeGreaterThan(20)
     // If a breakpoint survives into a statement, the split silently failed.
     expect(statements.some((s) => s.includes('statement-breakpoint'))).toBe(false)
   })
@@ -22,7 +22,7 @@ describe('bootstrap', () => {
     await pg.close()
   })
 
-  it('creates all 12 tables, and a second call is a no-op', async () => {
+  it('creates all 11 tables, and a second call is a no-op', async () => {
     const pg = await fresh()
     expect(await ensureSchema(pg)).toBe('created')
 
@@ -31,7 +31,7 @@ describe('bootstrap', () => {
          from information_schema.tables
         where table_schema = 'public' and table_type = 'BASE TABLE'`,
     )
-    expect(rows[0].n).toBe(12)
+    expect(rows[0].n).toBe(11)
 
     // Drizzle's generated SQL is not idempotent, so a second run MUST be
     // skipped by the catalog check rather than survived by CREATE IF NOT EXISTS.

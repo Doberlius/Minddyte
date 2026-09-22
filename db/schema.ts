@@ -10,6 +10,7 @@ const float4 = customType<{ data: number; driverData: number }>({
 
 export const collections = pgTable("collections", {
   id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id").notNull(),
   title: text("title").notNull(),
   category: text("category").notNull().default("General"),
   description: text("description"),
@@ -19,14 +20,17 @@ export const collections = pgTable("collections", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
-  // Exactly one featured Collection. Every indexed row has featured = true, so
-  // uniqueness on that column permits at most one — same guarantee the old
-  // per-user index gave, without a user to scope it to. Ticket 03.
-  uniqueIndex("idx_collections_one_featured").on(t.featured).where(sql`${t.featured} = true`),
+  // Exactly one featured Collection PER WORKSPACE. Before this it was one
+  // per database, so the second visitor to feature anything would collide
+  // with the first — a unique-violation on someone else's row.
+  uniqueIndex("idx_collections_one_featured")
+    .on(t.workspaceId, t.featured)
+    .where(sql`${t.featured} = true`),
 ])
 
 export const sessions = pgTable("sessions", {
   id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id").notNull(),
   title: text("title").notNull().default("New Session"),
   preview: text("preview"),
   collectionId: uuid("collection_id").references(() => collections.id, { onDelete: "set null" }),
@@ -57,6 +61,7 @@ export const messages = pgTable("messages", {
 
 export const nodes = pgTable("nodes", {
   id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id").notNull(),
   label: text("label").notNull(),
   // Spec §4.3 — the unique constraint IS the dedup mechanism.
   canonicalKey: text("canonical_key").notNull(),
@@ -69,23 +74,20 @@ export const nodes = pgTable("nodes", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
-  unique("nodes_canonical_unique").on(t.canonicalKey),
+  // The dedup mechanism, now scoped. Spec §2: without the workspace in this
+  // constraint, two visitors who both say "PostgreSQL" infer onto the SAME
+  // node row, session_nodes links both their chats to it, chat_count counts
+  // across strangers, and the Brain canvas draws an edge between two people
+  // who have never met. The chat list would look correctly separated the
+  // whole time.
+  unique("nodes_workspace_canonical_unique").on(t.workspaceId, t.canonicalKey),
 ])
 
-export const edges = pgTable("edges", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  fromNodeId: uuid("from_node_id").notNull().references(() => nodes.id, { onDelete: "cascade" }),
-  toNodeId: uuid("to_node_id").notNull().references(() => nodes.id, { onDelete: "cascade" }),
-  // Spec §3.1 — replaces the old confirmed/suggested `type`.
-  source: text("source").notNull().default("overlap"),
-  relationshipLabel: text("relationship_label"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [
-  unique("edges_unique").on(t.fromNodeId, t.toNodeId),
-  check("edges_no_self_loop", sql`${t.fromNodeId} <> ${t.toNodeId}`),
-  check("edges_source_check", sql`${t.source} in ('overlap', 'bridge', 'manual')`),
-  index("idx_edges_from_node").on(t.fromNodeId),
-])
+// `edges` was dropped here rather than scoped. Layered-memory ticket 01
+// found it unfillable — nothing ever wrote a node-to-node edge — and
+// scoping a dead table would tell the next reader that Minddyte has a
+// concept-to-concept graph. It does not: the graph is bipartite, chats to
+// concepts and back.
 
 export const graphPositions = pgTable("graph_positions", {
   nodeId: uuid("node_id").primaryKey().references(() => nodes.id, { onDelete: "cascade" }),
@@ -96,10 +98,11 @@ export const graphPositions = pgTable("graph_positions", {
 
 /** Spec §7.2 — a Cluster is placed once and never recomputed. */
 export const clusterOrigins = pgTable("cluster_origins", {
+  workspaceId: uuid("workspace_id").notNull(),
   clusterKey: text("cluster_key").notNull(),
   x: float4("x").notNull(),
   y: float4("y").notNull(),
-}, (t) => [primaryKey({ columns: [t.clusterKey] })])
+}, (t) => [primaryKey({ columns: [t.workspaceId, t.clusterKey] })])
 
 /** Spec §3.2 — scoped to ONE Chat. Not the same as rejectedPhrases. */
 export const forgotten = pgTable("forgotten", {
@@ -109,8 +112,9 @@ export const forgotten = pgTable("forgotten", {
 
 /** Spec §3.2 — scoped to the ACCOUNT. Not the same as forgotten. */
 export const rejectedPhrases = pgTable("rejected_phrases", {
+  workspaceId: uuid("workspace_id").notNull(),
   phrase: text("phrase").notNull(),
-}, (t) => [primaryKey({ columns: [t.phrase] })])
+}, (t) => [primaryKey({ columns: [t.workspaceId, t.phrase] })])
 
 export const sessionNodes = pgTable("session_nodes", {
   sessionId: uuid("session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
