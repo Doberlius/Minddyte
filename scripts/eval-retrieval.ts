@@ -83,9 +83,14 @@ async function main() {
   }
 
   // Title -> id, so a human can write cases without touching uuids.
-  const rows = await db.select({ id: sessions.id, title: sessions.title }).from(sessions)
+  const rows = await db
+    .select({ id: sessions.id, title: sessions.title, workspaceId: sessions.workspaceId })
+    .from(sessions)
   const idOf = new Map(rows.map((r) => [r.title, r.id]))
   const titleOf = new Map(rows.map((r) => [r.id, r.title]))
+  // Cases only name titles, not workspaces, so a case is scored inside
+  // whichever workspace the "from" chat actually belongs to.
+  const workspaceOf = new Map(rows.map((r) => [r.id, r.workspaceId]))
 
   const unresolved: string[] = []
   const resolve = (title: string): string | null => {
@@ -101,6 +106,7 @@ async function main() {
     if (!from || expected.length === 0) continue
 
     const result = await retrieveContext({
+      workspaceId: workspaceOf.get(from)!,
       sessionId: from,
       mode: c.mode ?? 'explore',
       taggedChatIds: (c.tag ?? []).map(resolve).filter((id): id is string => id !== null),

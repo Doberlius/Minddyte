@@ -1,4 +1,5 @@
 import { deleteChat, loadChat, renameChat, TITLE_CAP } from "@/services/dbApi"
+import { requireWorkspace } from "@/server/workspace"
 
 /**
  * One chat, with its messages.
@@ -16,7 +17,7 @@ import { deleteChat, loadChat, renameChat, TITLE_CAP } from "@/services/dbApi"
  */
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const chat = await loadChat(id)
+  const chat = await loadChat(await requireWorkspace(), id)
 
   if (!chat) {
     return Response.json({ error: "session_not_found" }, { status: 404 })
@@ -38,7 +39,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
 
-  if (!(await deleteChat(id))) {
+  if (!(await deleteChat(await requireWorkspace(), id))) {
     return Response.json({ error: "session_not_found" }, { status: 404 })
   }
 
@@ -69,7 +70,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     )
   }
 
-  if (!(await renameChat(id, body.title))) {
+  if (!(await renameChat(await requireWorkspace(), id, body.title))) {
     return Response.json({ error: "session_not_found" }, { status: 404 })
   }
 

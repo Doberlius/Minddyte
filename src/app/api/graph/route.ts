@@ -1,4 +1,5 @@
 import { loadGraph } from "@/services/dbApi"
+import { requireWorkspace } from "@/server/workspace"
 
 /**
  * Everything the Brain and the Archive draw, in one request.
@@ -9,5 +10,5 @@ import { loadGraph } from "@/services/dbApi"
  * mean two round trips for one picture.
  */
 export async function GET() {
-  return Response.json(await loadGraph())
+  return Response.json(await loadGraph(await requireWorkspace()))
 }

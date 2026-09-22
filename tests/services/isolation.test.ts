@@ -4,6 +4,7 @@ import {
   createChat, deleteChat, listChats, loadChat, loadGraph, renameChat, sessionExists,
 } from '@/services/dbApi'
 import { ingestUserMessage, persistMessage } from '@/services/graph'
+import { retrieveContext } from '@/services/retrieval'
 import { getDb, nodes } from '../../db'
 import { eq } from 'drizzle-orm'
 import { newWorkspaceId } from '@/lib/workspace'
@@ -150,5 +151,50 @@ describe('one workspace cannot see another', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0].workspaceId).toBe(B)
     expect(rows[0].chatCount).toBe(1)
+  })
+})
+
+describe('retrieval', () => {
+  it('never reaches into another workspace, however much it shares', async () => {
+    // Explore mode reaches chats "sharing a Node with the current Chat".
+    // With a global node table that reach crossed workspaces, so a
+    // stranger's conversation was handed to the model as this chat's own
+    // memory. Nothing in the UI would have shown it.
+    const a = await createChat(A)
+    const b = await createChat(B)
+    await say(A, a.id, 'PostgreSQL in production.')
+    await say(B, b.id, 'PostgreSQL is what we use too, with a secret plan.')
+
+    const a2 = await createChat(A)
+    await say(A, a2.id, 'More about PostgreSQL.')
+
+    const { chats } = await retrieveContext({
+      workspaceId: A,
+      sessionId: a2.id,
+      mode: 'explore',
+      taggedChatIds: [],
+      draftText: 'PostgreSQL',
+    })
+
+    expect(chats.map((c) => c.id)).toContain(a.id)
+    expect(chats.map((c) => c.id)).not.toContain(b.id)
+  })
+
+  it('will not bridge to a tagged chat from another workspace', async () => {
+    // Tagging is uncapped and skips ranking, so it is the widest door in
+    // the retrieval path — and taggedChatIds comes from the client.
+    const a = await createChat(A)
+    const b = await createChat(B)
+    await say(B, b.id, 'A secret plan.')
+
+    const { chats } = await retrieveContext({
+      workspaceId: A,
+      sessionId: a.id,
+      mode: 'focus',
+      taggedChatIds: [b.id],
+      draftText: 'anything',
+    })
+
+    expect(chats).toHaveLength(0)
   })
 })

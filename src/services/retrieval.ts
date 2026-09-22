@@ -23,7 +23,11 @@ type Row = {
  * Match Nodes, find their Chats, and fetch those Chats' compactions together.
  * Written as three tidy functions this triples the only cost that matters.
  */
-async function candidateRows(sessionId: string, draftKeys: string[]): Promise<Row[]> {
+async function candidateRows(
+  workspaceId: string,
+  sessionId: string,
+  draftKeys: string[],
+): Promise<Row[]> {
   const db = await getDb()
 
   // Spec §6.1 — explore reaches Chats "sharing a Node with the current Chat",
@@ -34,7 +38,7 @@ async function candidateRows(sessionId: string, draftKeys: string[]): Promise<Ro
     .select({ k: nodes.canonicalKey })
     .from(sessionNodes)
     .innerJoin(nodes, eq(nodes.id, sessionNodes.nodeId))
-    .where(eq(sessionNodes.sessionId, sessionId))
+    .where(and(eq(sessionNodes.sessionId, sessionId), eq(nodes.workspaceId, workspaceId)))
 
   // The draft's concepts are NOT yet Nodes — graph writes happen after the
   // response streams (§4.5) — so they are unioned in separately. They carry
@@ -62,6 +66,15 @@ async function candidateRows(sessionId: string, draftKeys: string[]): Promise<Ro
       and(
         ne(sessions.id, sessionId),
         sql`${nodes.archivedAt} is null`,
+        // The query starts from `nodes` and joins to `sessions` — a row can
+        // enter through either side, so both need their own filter. Filtering
+        // only `nodes` would still let a stranger's Session join in through
+        // `sessionNodes` as long as SOME node of theirs matched; filtering
+        // only `sessions` would still let a stranger's Node match through the
+        // outer `matches` clause. Spec §1: the filter goes at the root of
+        // each query, not on a joined table.
+        eq(sessions.workspaceId, workspaceId),
+        eq(nodes.workspaceId, workspaceId),
         // sql`= any(${keys})` with a JS array compiles to a row constructor
         // `= any(($1, $2))`, which Postgres rejects — inArray compiles to
         // `in ($1, $2)` instead. Do not "optimise" this back to sql`= any(...)`.
@@ -71,6 +84,7 @@ async function candidateRows(sessionId: string, draftKeys: string[]): Promise<Ro
 }
 
 export async function retrieveContext(input: {
+  workspaceId: string
   sessionId: string
   mode: "focus" | "explore"
   taggedChatIds: string[]
@@ -86,6 +100,7 @@ export async function retrieveContext(input: {
   const rows =
     input.mode === "explore"
       ? await candidateRows(
+          input.workspaceId,
           input.sessionId,
           extractConcepts(input.draftText).auto.map(canonicalKey).filter(Boolean),
         )
@@ -134,6 +149,11 @@ export async function retrieveContext(input: {
           and(
             ne(sessions.id, input.sessionId),
             inArray(sessions.id, input.taggedChatIds),
+            // taggedChatIds arrives from the client — this is the filter that
+            // stops a visitor naming someone else's chat id and being handed
+            // its compaction. Tagging is uncapped and skips ranking, so it is
+            // the widest door in the retrieval path.
+            eq(sessions.workspaceId, input.workspaceId),
           ),
         )
     : []

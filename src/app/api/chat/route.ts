@@ -5,8 +5,16 @@ import { retrieveContext } from "@/services/retrieval"
 import { persistMessage, ingestUserMessage } from "@/services/graph"
 import { sessionExists } from "@/services/dbApi"
 import { buildSystemPrompt } from "@/lib/prompt"
+import { requireWorkspace } from "@/server/workspace"
 
 export async function POST(req: Request) {
+  // Read once, pass the same value everywhere below. sessionExists,
+  // retrieveContext, persistMessage and ingestUserMessage all need it;
+  // calling requireWorkspace() again for each would still work today, but it
+  // invites a future edit where two of those calls read the cookie at
+  // different moments and disagree.
+  const workspaceId = await requireWorkspace()
+
   const {
     messages, sessionId, taggedChatIds = [], mode = "explore", model,
   }: {
@@ -57,7 +65,7 @@ export async function POST(req: Request) {
   // "session_not_found" is a machine-readable marker (not just the status
   // code) so the client can tell this apart from every OTHER way a chat
   // request can fail, and react specifically: forget the id, start a new chat.
-  if (!(await sessionExists(sessionId))) {
+  if (!(await sessionExists(workspaceId, sessionId))) {
     return Response.json(
       {
         error: "session_not_found",
@@ -69,13 +77,13 @@ export async function POST(req: Request) {
 
   // 1. persist the user message
   const messageId = await persistMessage({
-    sessionId, role: "user", content: draft,
+    workspaceId, sessionId, role: "user", content: draft,
   })
 
   // 2. retrieve against the PREVIOUS graph state, then call the model
   let chats: Awaited<ReturnType<typeof retrieveContext>>["chats"] = []
   try {
-    ;({ chats } = await retrieveContext({ sessionId, mode, taggedChatIds, draftText: draft }))
+    ;({ chats } = await retrieveContext({ workspaceId, sessionId, mode, taggedChatIds, draftText: draft }))
   } catch (err) {
     // Spec §6.5 — never block the message. Memory is the feature; the answer is
     // the product. Degrade to no memory rather than failing the request.
@@ -93,10 +101,10 @@ export async function POST(req: Request) {
     onFinish: async ({ text }) => {
       try {
         await persistMessage({
-          sessionId, role: "assistant", content: text, modelUsed: modelId,
+          workspaceId, sessionId, role: "assistant", content: text, modelUsed: modelId,
         })
         await ingestUserMessage({
-          sessionId, messageId, content: draft,
+          workspaceId, sessionId, messageId, content: draft,
           // Compaction takes both roles (spec §4.1); extraction stays
           // user-only (spec §4.2). ingestUserMessage enforces that split.
           assistantContent: text,

@@ -28,7 +28,7 @@ describe('retrieval against a real database', () => {
     const current = await ingestedChat(SHARED)
 
     const { chats } = await retrieveContext({
-      sessionId: current, mode: 'explore', taggedChatIds: [], draftText: DRAFT,
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: current, mode: 'explore', taggedChatIds: [], draftText: DRAFT,
     })
 
     expect(chats.map((c) => c.id)).toContain(other)
@@ -43,7 +43,7 @@ describe('retrieval against a real database', () => {
     const current = await ingestedChat(SHARED)
 
     const { chats } = await retrieveContext({
-      sessionId: current, mode: 'focus', taggedChatIds: [], draftText: DRAFT,
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: current, mode: 'focus', taggedChatIds: [], draftText: DRAFT,
     })
 
     expect(chats).toHaveLength(0)
@@ -54,7 +54,7 @@ describe('retrieval against a real database', () => {
     const current = await ingestedChat(SHARED)
 
     const { chats } = await retrieveContext({
-      sessionId: current, mode: 'focus', taggedChatIds: [tagged], draftText: DRAFT,
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: current, mode: 'focus', taggedChatIds: [tagged], draftText: DRAFT,
     })
 
     expect(chats.map((c) => c.id)).toEqual([tagged])
@@ -69,12 +69,12 @@ describe('retrieval against a real database', () => {
     const current = await ingestedChat(SHARED)
 
     const auto = await retrieveContext({
-      sessionId: current, mode: 'explore', taggedChatIds: [], draftText: DRAFT,
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: current, mode: 'explore', taggedChatIds: [], draftText: DRAFT,
     })
     expect(auto.chats).toHaveLength(AUTO_REACH_CAP)
 
     const withTags = await retrieveContext({
-      sessionId: current, mode: 'explore', taggedChatIds: overlapping, draftText: DRAFT,
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: current, mode: 'explore', taggedChatIds: overlapping, draftText: DRAFT,
     })
     // All of them are tagged, so all of them come back — uncapped.
     expect(withTags.chats).toHaveLength(overlapping.length)
@@ -85,7 +85,7 @@ describe('retrieval against a real database', () => {
     const current = await ingestedChat(SHARED)
 
     const { chats } = await retrieveContext({
-      sessionId: current, mode: 'explore', taggedChatIds: [both], draftText: DRAFT,
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: current, mode: 'explore', taggedChatIds: [both], draftText: DRAFT,
     })
 
     expect(chats.filter((c) => c.id === both)).toHaveLength(1)
@@ -99,7 +99,7 @@ describe('retrieval against a real database', () => {
     const current = await ingestedChat(SHARED)
 
     const { chats } = await retrieveContext({
-      sessionId: current, mode: 'explore', taggedChatIds: [tagged], draftText: DRAFT,
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: current, mode: 'explore', taggedChatIds: [tagged], draftText: DRAFT,
     })
 
     expect(chats[0].id).toBe(tagged)
@@ -111,7 +111,7 @@ describe('retrieval against a real database', () => {
     const current = await ingestedChat(SHARED)
 
     const { chats } = await retrieveContext({
-      sessionId: current, mode: 'explore', taggedChatIds: [], draftText: DRAFT,
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: current, mode: 'explore', taggedChatIds: [], draftText: DRAFT,
     })
 
     expect(chats).toHaveLength(0)
