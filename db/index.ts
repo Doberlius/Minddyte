@@ -112,7 +112,23 @@ const g = globalThis as typeof globalThis & { __minddyteConn?: Promise<Conn> }
 function conn(): Promise<Conn> {
   // `??=` assigns the promise on first call and returns the SAME promise
   // afterwards, so concurrent callers all await one initialisation.
-  return (g.__minddyteConn ??= open())
+  //
+  // The catch is what stops a FAILED open being cached forever. Without it
+  // the rejected promise stays in this slot, every later request gets that
+  // same rejection back in microseconds, and the process never tries again —
+  // so one transient failure at boot bricks the server until someone
+  // redeploys it. Seen in production on Render: the instance exceeded its
+  // memory limit while PGlite was starting, restarted, and from then on every
+  // database route returned 500 in 0.2s while /api/models kept answering,
+  // because nothing was retrying.
+  //
+  // Clearing the slot means the next request starts a fresh attempt. If the
+  // cause has passed, it recovers on its own; if it has not, it fails the
+  // same way and says so again, which is the honest outcome either way.
+  return (g.__minddyteConn ??= open().catch((err) => {
+    g.__minddyteConn = undefined
+    throw err
+  }))
 }
 
 export async function getDb(): Promise<Db> {
