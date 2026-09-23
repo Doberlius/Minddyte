@@ -7,6 +7,14 @@ import { sessionExists } from "@/services/dbApi"
 import { buildSystemPrompt } from "@/lib/prompt"
 import { requireWorkspace } from "@/server/workspace"
 
+/**
+ * The ceiling on one answer, and therefore on what one message can cost.
+ *
+ * Named because it has to be passed twice, in two different dialects, and a
+ * pair of bare 2048s that must agree is a pair that eventually will not.
+ */
+const MAX_OUTPUT_TOKENS = 2048
+
 export async function POST(req: Request) {
   // Read once, pass the same value everywhere below. sessionExists,
   // retrieveContext, persistMessage and ingestUserMessage all need it;
@@ -96,7 +104,16 @@ export async function POST(req: Request) {
     model: clientFor(choice)(modelId),
     system: systemPrompt,
     messages: await convertToModelMessages(messages),
-    maxOutputTokens: 2048,
+    // maxOutputTokens alone does NOT cap anything against ollama.com/api.
+    // The provider maps it to `max_tokens`, which is the OpenAI-compatible
+    // field; this endpoint is Ollama's native one and reads `num_predict`
+    // out of `options` instead, so the standardized setting is sent and
+    // silently ignored. Measured: the same question returned 4,576 output
+    // tokens with the cap "set", and exactly 2,048 once num_predict was
+    // passed. Both are kept — maxOutputTokens is what the local daemon and
+    // any future OpenAI-shaped provider read.
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
+    providerOptions: { ollama: { options: { num_predict: MAX_OUTPUT_TOKENS } } },
     // 3-6. Graph writes happen AFTER the stream. Spec §4.5.
     onFinish: async ({ text }) => {
       try {
