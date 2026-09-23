@@ -30,6 +30,15 @@ export function NeuralChat({
   onSessionChange: (id: string | null) => void
   onChatsChanged: () => void
 }) {
+  /**
+   * The chat this panel is currently meant to be showing.
+   *
+   * A ref rather than the prop, because it is read from inside a promise that
+   * resolves long after the render that started it — see the load effect for
+   * why "was this run superseded" and "is this answer still the right one"
+   * turned out to be different questions.
+   */
+  const wanted = useRef<string | null | undefined>(undefined)
   const [input, setInput] = useState('')
   const [tagged, setTagged] = useState<ChatSummary[]>([])
   const [mode, setMode] = useState<'focus' | 'explore'>('explore')
@@ -193,6 +202,7 @@ export function NeuralChat({
      *
      * There is nothing to load for a new chat, so there is nothing to wait for.
      */
+    wanted.current = sessionId
     setOpening(Boolean(sessionId))
 
     if (!sessionId) {
@@ -200,12 +210,26 @@ export function NeuralChat({
       return
     }
 
-    let cancelled = false
+    /**
+     * Whether this answer is still the one being waited for.
+     *
+     * NOT "was this effect run superseded". Those came apart in practice: a
+     * run can be torn down — a remount, a tab switch, React's own
+     * double-invoke — while the panel still wants exactly the chat that run
+     * was fetching. The old code used a `cancelled` boolean for both, so a
+     * torn-down run threw away a correct answer for a chat nobody had
+     * navigated away from, and nothing refetched it.
+     *
+     * Comparing the id answers the question that actually matters. A stale
+     * response — one for a chat the person has since left — still cannot
+     * overwrite anything, which is what the guard was protecting.
+     */
+    const stillWanted = () => wanted.current === sessionId
 
     fetch(`/api/sessions/${sessionId}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('session_not_found'))))
       .then((chat: { messages?: StoredMessage[] }) => {
-        if (cancelled) return
+        if (!stillWanted()) return
         setMessages(
           (chat.messages ?? []).map((m) => ({
             id: m.id,
@@ -215,17 +239,33 @@ export function NeuralChat({
         )
       })
       .catch(() => {
-        if (cancelled) return
+        if (!stillWanted()) return
         // Same three causes as above, reached by a different door.
         setMessages([])
         onSessionChange(null)
       })
       .finally(() => {
-        if (!cancelled) setOpening(false)
+        if (stillWanted()) setOpening(false)
       })
 
     return () => {
-      cancelled = true
+      // Clearing the flag HERE, not only in `finally`, is what stops this
+      // panel getting stuck on "Opening this chat…" forever.
+      //
+      // `finally` is guarded by `!cancelled`, which is right for setMessages —
+      // a superseded response must never overwrite a newer one. But it was
+      // also the only place that lowered `opening`, so a run that got
+      // cancelled before its fetch resolved left the flag raised with nothing
+      // able to lower it again. Traced in a browser: one effect run, one
+      // cleanup, the fetch returning 200 with two messages, and both
+      // `setMessages` and `setOpening(false)` skipped because `cancelled` was
+      // already true — after which the effect never ran again and the pane
+      // read "Opening this chat…" until a reload.
+      //
+      // Safe against flicker: React runs this cleanup immediately before the
+      // replacing effect body, so a run that IS replaced has its flag raised
+      // again in the same commit, and the two updates batch into one render.
+      setOpening(false)
     }
   }, [sessionId, setMessages, onSessionChange])
 
