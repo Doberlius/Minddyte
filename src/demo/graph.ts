@@ -1,6 +1,7 @@
 import { extractConcepts } from '@/lib/extract'
-import { canonicalKey, deriveTitle, splitSentences } from '@/lib/text'
+import { canonicalKey, deriveTitle } from '@/lib/text'
 import { appendToCompaction, buildCompaction, type Turn } from '@/lib/compaction'
+import { proseSentences } from '@/lib/prose'
 // Shared with the app, which computes the same links over database rows.
 export { overlaps, type Overlap } from '@/lib/graph-overlaps'
 
@@ -227,12 +228,19 @@ function mentions(sentence: string, label: string): boolean {
   return new RegExp(`\\b${escaped}\\b`, 'i').test(sentence)
 }
 
-/** The same text with every forgotten sentence dropped — whole, never trimmed. */
+/**
+ * The same text with every forgotten sentence dropped — whole, never trimmed.
+ *
+ * Split with the Compaction's own splitter, and re-joined with blank lines so
+ * each kept sentence parses back as its own paragraph. Joining with spaces
+ * flattened a markdown reply into one paragraph, and headings and table rows
+ * leaked back into memory in any chat where something had been forgotten.
+ */
 function withoutForgotten(text: string, forgotten: string[]): string {
   if (forgotten.length === 0) return text
-  return splitSentences(text)
+  return proseSentences(text)
     .filter((sentence) => !forgotten.some((label) => mentions(sentence, label)))
-    .join(' ')
+    .join('\n\n')
 }
 
 /**

@@ -2,7 +2,7 @@ import { getDb, type Db, messages, nodes, sessions, sessionNodes, messageNodes }
 import { eq, and, sql } from "drizzle-orm"
 import { extractConcepts } from "@/lib/extract"
 import { canonicalKey, deriveTitle } from "@/lib/text"
-import { appendToCompaction } from "@/lib/compaction"
+import { appendToCompaction, whyNotRemembered } from "@/lib/compaction"
 
 /** The type of the `tx` argument `db.transaction(async (tx) => ...)` hands us. */
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0]
@@ -120,11 +120,11 @@ export async function ingestUserMessage(input: {
    * appendToCompaction and nothing else — never extractConcepts.
    */
   assistantContent?: string
-}): Promise<void> {
+}): Promise<{ notRemembered: ReturnType<typeof whyNotRemembered> }> {
   const { auto } = extractConcepts(input.content)
 
   const db = await getDb()
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     // `upsertNodeAndLink` inserts into `session_nodes` with `input.sessionId`
     // and never proves it belongs to `input.workspaceId` itself — it trusts
     // its caller. Today the chat route proves that upstream (it only ever
@@ -205,14 +205,22 @@ export async function ingestUserMessage(input: {
         ? appendToCompaction(s.compaction, input.assistantContent)
         : s.compaction
 
+      const compaction = appendToCompaction(withAssistant, input.content)
       await tx
         .update(sessions)
         .set({
-          compaction: appendToCompaction(withAssistant, input.content),
+          compaction,
           compactionUpdatedAt: new Date(),
           updatedAt: new Date(),
         })
         .where(and(eq(sessions.id, input.sessionId), eq(sessions.workspaceId, input.workspaceId)))
+
+      // Ticket 11, decision 3 — never silent. Returned rather than logged here
+      // so the caller decides how to surface it, and so a test can assert it.
+      // Only the USER's message is checked: a reply that loses the cap to the
+      // user's own sentences is the design working (spec §4.1), not a loss.
+      return { notRemembered: whyNotRemembered(input.content, compaction) }
     }
+    return { notRemembered: null }
   })
 }

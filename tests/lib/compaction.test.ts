@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appendToCompaction, buildCompaction, RECORD_SEPARATOR, type Turn } from '@/lib/compaction'
+import { appendToCompaction, buildCompaction, whyNotRemembered, RECORD_SEPARATOR, type Turn } from '@/lib/compaction'
 
 const CAP = 120
 
@@ -108,5 +108,46 @@ describe('the incremental invariant', () => {
   it('preserves a pasted code block byte-for-byte', () => {
     const code = 'def f(x):\n    if x:\n        return 1\n    return 0'
     expect(appendToCompaction('', code, 500)).toBe(code)
+  })
+})
+
+describe('markdown in a message (ticket 11)', () => {
+  const md = '## Setup\n\n| Tool | Use |\n|---|---|\n| Kafka | queue |\n\n- Kafka keeps order per partition.\n\nConsumers scale by group.'
+
+  it('stores no heading, table or bullet markup in the Compaction', () => {
+    const out = appendToCompaction('', md, 500)
+    expect(out).not.toContain('##')
+    expect(out).not.toContain('|---|')
+    expect(out.split(RECORD_SEPARATOR).some((s) => s.startsWith('- '))).toBe(false)
+    expect(out).toContain('Kafka keeps order per partition.')
+    expect(out).toContain('Consumers scale by group.')
+  })
+
+  it('the rebuild parses markdown the same way the incremental path does', () => {
+    const turn: Turn = { user: 'Tell me about Kafka.', assistant: md }
+    const incremental = appendToCompaction(appendToCompaction('', md, 500), turn.user, 500)
+    expect(buildCompaction([turn], 500)).toBe(incremental)
+  })
+})
+
+describe('whyNotRemembered — the silent-loss guard (ticket 11, decision 3)', () => {
+  it('names over-cap when every sentence of the message is too long to keep', () => {
+    const tooLong = 'A'.repeat(CAP + 50) + '.'
+    const after = appendToCompaction('We chose Argon2.', tooLong, CAP)
+    expect(whyNotRemembered(tooLong, after)).toBe('over-cap')
+  })
+
+  it('names no-prose when the message holds only code', () => {
+    const code = '```ts\nconst x = 1\n```'
+    expect(whyNotRemembered(code, appendToCompaction('', code, CAP))).toBe('no-prose')
+  })
+
+  it('is null when any sentence of the message was kept', () => {
+    const msg = 'A'.repeat(CAP + 50) + '. Short one.'
+    expect(whyNotRemembered(msg, appendToCompaction('', msg, CAP))).toBeNull()
+  })
+
+  it('is null for an empty message — there was nothing to lose', () => {
+    expect(whyNotRemembered('   ', 'Existing.')).toBeNull()
   })
 })

@@ -155,3 +155,25 @@ describe('the graph write path against a real database', () => {
     }
   })
 })
+
+describe('the silent-loss guard (ticket 11, decision 3)', () => {
+  async function ingestOnly(chatId: string, content: string) {
+    const workspaceId = FIXTURE_WORKSPACE_ID
+    const messageId = await persistMessage({ workspaceId, sessionId: chatId, role: 'user', content })
+    return ingestUserMessage({ workspaceId, sessionId: chatId, messageId, content })
+  }
+
+  it('reports a message whose only sentence is too long to remember', async () => {
+    const chatId = await newChat()
+    // One dense 610-character sentence — the exact case that used to leave
+    // memory empty with no log and no sign.
+    const dense = 'Kafka ' + 'partitions preserve order within a single partition only '.repeat(10) + 'end.'
+    expect(dense.length).toBeGreaterThan(500)
+    expect(await ingestOnly(chatId, dense)).toEqual({ notRemembered: 'over-cap' })
+  })
+
+  it('reports nothing for a message that reached memory', async () => {
+    const chatId = await newChat()
+    expect(await ingestOnly(chatId, FIRST)).toEqual({ notRemembered: null })
+  })
+})

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { forget, sendMessage, chatById, nodeByKey } from '@/demo/graph'
+import { forget, sendMessage, chatById, nodeByKey, emptyGraph } from '@/demo/graph'
 import { seededGraph } from '@/demo/seed'
 import { RECORD_SEPARATOR } from '@/lib/compaction'
 
@@ -114,5 +114,19 @@ describe('forget', () => {
 
     expect(before.nodes).toHaveLength(nodeCount)
     expect(memory(before, SAFETY)).toContain('Rust has no garbage collector.')
+  })
+})
+
+describe('forget, on a markdown reply', () => {
+  // withoutForgotten used to re-join kept sentences with spaces, flattening
+  // headings and tables into one paragraph — so once the Compaction parses
+  // markdown, a chat with anything forgotten would leak markup back in.
+  it('keeps markup out of the rebuilt Compaction', () => {
+    const reply = '## Stack\n\n| Tool | Use |\n|---|---|\n| Redis | cache |\n\nRedis caches sessions. Kafka carries events.'
+    let g = sendMessage(emptyGraph(), { chatId: 'c', userText: 'I use Redis and Kafka together.', assistantText: reply })
+    g = forget(g, { chatId: 'c', label: 'Kafka' })
+    const kept = (chatById(g, 'c')?.compaction ?? '').split(RECORD_SEPARATOR).filter(Boolean)
+    expect(kept).toContain('Redis caches sessions.')
+    expect(kept.some((s) => s.includes('|') || s.includes('#'))).toBe(false)
   })
 })

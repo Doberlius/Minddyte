@@ -179,12 +179,20 @@ export async function POST(req: Request) {
         await persistMessage({
           workspaceId, sessionId, role: "assistant", content: text, modelUsed: modelId,
         })
-        await ingestUserMessage({
+        const { notRemembered } = await ingestUserMessage({
           workspaceId, sessionId, messageId, content: draft,
           // Compaction takes both roles (spec §4.1); extraction stays
           // user-only (spec §4.2). ingestUserMessage enforces that split.
           assistantContent: text,
         })
+        // Ticket 11 — a message that reached no memory is a loss, and a loss
+        // is never silent. Logged only for now: how it reaches the USER is
+        // still undecided, and the stream has already closed by this point.
+        if (notRemembered) {
+          console.warn(
+            `[chat] message ${messageId} in chat ${sessionId} left nothing in memory (${notRemembered})`,
+          )
+        }
       } catch (err) {
         // Spec §4.5 — the write path runs after the stream, so a failure here must
         // never break the answer the user already received. But it must not vanish

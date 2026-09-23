@@ -1,4 +1,4 @@
-import { splitSentences } from './text'
+import { proseSentences } from './prose'
 
 /** Spec §4.1 — 400–600 characters, ~100–150 tokens. */
 export const COMPACTION_CAP = 500
@@ -37,9 +37,10 @@ export const RECORD_SEPARATOR = String.fromCharCode(0x1e) // ASCII record separa
  * verbatim. Both callers use this function, so the incremental-versus-rebuild
  * invariant holds automatically.
  *
- * It does NOT fix the case where no sentence fits at all — a first message
- * whose every sentence is over cap still yields "". Surfacing that to the user
- * is a separate obligation; see ticket 11.
+ * It does NOT fix the case where no sentence fits at all — a message whose
+ * every sentence is over cap contributes nothing. whyNotRemembered below
+ * detects that so it is never silent; how to RECOVER from it (clause
+ * splitting, an elision marker, or nothing) waits on ticket 05.
  */
 function trim(sentences: string[], cap: number): string {
   const kept: string[] = []
@@ -64,7 +65,7 @@ function trim(sentences: string[], cap: number): string {
  * "We tried X first, but that made it worse" cut short becomes an endorsement.
  */
 export function appendToCompaction(current: string, message: string, cap = COMPACTION_CAP): string {
-  const incoming = splitSentences(message)
+  const incoming = proseSentences(message)
   if (incoming.length === 0) return current
   const existing = current.split(RECORD_SEPARATOR).filter(Boolean)
   return trim([...incoming, ...existing], cap)
@@ -108,8 +109,33 @@ export function buildCompaction(turns: Turn[], cap = COMPACTION_CAP): string {
   const sentences = [...turns]
     .reverse()
     .flatMap((t) => [
-      ...splitSentences(t.user),
-      ...(t.assistant ? splitSentences(t.assistant) : []),
+      ...proseSentences(t.user),
+      ...(t.assistant ? proseSentences(t.assistant) : []),
     ])
   return trim(sentences, cap)
+}
+
+/**
+ * Why a message left nothing in the Compaction, or null if it left something.
+ * Ticket 11, decision 3: the silent-loss guard.
+ *
+ * Never destroy data silently. The message stays readable in its chat, but if
+ * none of it reached memory, no later chat can ever reach it — and until this
+ * existed, that happened with no log and no sign.
+ *
+ *   'over-cap'  every sentence was longer than the cap on its own
+ *   'no-prose'  the message had text, but no sentences — only code or a table
+ *
+ * Detection only. What should be kept INSTEAD is ticket 05's question, since
+ * if pointers win there is no cap to fall short of.
+ */
+export function whyNotRemembered(
+  message: string,
+  compactionAfter: string,
+): 'over-cap' | 'no-prose' | null {
+  if (!message.trim()) return null
+  const sentences = proseSentences(message)
+  if (sentences.length === 0) return 'no-prose'
+  const kept = new Set(compactionAfter.split(RECORD_SEPARATOR))
+  return sentences.some((s) => kept.has(s)) ? null : 'over-cap'
 }
