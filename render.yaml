@@ -17,7 +17,22 @@ services:
     # A disk requires a paid instance type; the free one has no persistent
     # filesystem at all, which for this app means every deploy starts with an
     # empty database and every conversation is lost.
-    plan: starter
+    #
+    # `standard` (1 CPU / 2 GB) rather than `starter` (512 MB), and the reason
+    # is the FIRST boot only. Measured RSS for this app:
+    #
+    #   creating the database (initdb)   ~1,000 MB   once, ever
+    #   running against an existing one     240 MB   every boot after that
+    #
+    # 512 MB dies during initdb. That is not a guess: the first deploy here
+    # exceeded its memory limit, restarted, and then served 500s on every
+    # database route while /api/models kept answering.
+    #
+    # Once the disk holds a database, this can be lowered to `starter` and
+    # 240 MB leaves plenty of room. Do that AFTER a deploy has succeeded, and
+    # remember to raise it again if the disk is ever wiped, because initdb
+    # will then run a second time.
+    plan: standard
 
     healthCheckPath: /
 

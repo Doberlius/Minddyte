@@ -21,6 +21,36 @@ export function resolveDataDir(): string {
   return process.env.MINDDYTE_DATA_DIR ?? DEFAULT_DATA_DIR
 }
 
+/**
+ * Postgres settings, sized for one visitor at a time rather than for a server.
+ *
+ * PGlite's defaults are a general-purpose Postgres's defaults, and they are
+ * the difference between fitting on a small instance and not. Measured on a
+ * 39 MB database: reopening it costs 644 MB of RSS with the defaults and
+ * 226 MB with these — a 65% cut, and the reason a deployment stopped being
+ * killed for exceeding its memory limit.
+ *
+ * The trade is real and it is the right way round here. Small shared_buffers
+ * and work_mem mean less caching and more spilling to disk, which matters for
+ * a database under concurrent load. This one serves a handful of visitors
+ * reading their own few hundred rows, and it is single-connection by
+ * architecture — PGlite has no second backend to contend with — so the
+ * capacity being given up was never reachable.
+ *
+ * `initialMemory` is deliberately NOT set alongside these. Lowering it made
+ * startup hang for over ten minutes rather than use less: the wasm heap has
+ * to grow to the same place either way, and starting it small just makes it
+ * get there slowly.
+ */
+const LEAN_POSTGRES = [
+  'shared_buffers = 16MB',
+  'work_mem = 1MB',
+  'maintenance_work_mem = 8MB',
+  'max_connections = 4',
+  'effective_cache_size = 32MB',
+  'wal_buffers = 512kB',
+]
+
 async function open() {
   const dataDir = resolveDataDir()
   const inMemory = dataDir.startsWith('memory://')
@@ -33,7 +63,11 @@ async function open() {
   try {
     // pg_trgm has to be handed in as a bundled extension: a wasm build cannot
     // load a shared library off disk the way a server Postgres does.
-    pg = await PGlite.create({ dataDir, extensions: { pg_trgm } })
+    pg = await PGlite.create({
+      dataDir,
+      extensions: { pg_trgm },
+      postgresqlconf: LEAN_POSTGRES,
+    })
   } catch (err) {
     // Standing rule: DO NOT DELETE SOMEONE'S DATABASE — TELL THEM WHAT'S WRONG.
     // The likeliest cause is a PGlite minor-version bump that no longer accepts
