@@ -67,3 +67,6 @@ test
 supabase/.temp/
 skills
 agents
+
+# Isolated worktrees for agent work
+.claude/worktrees/
