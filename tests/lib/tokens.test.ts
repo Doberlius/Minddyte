@@ -37,4 +37,23 @@ describe('strongPhrases', () => {
   it('returns nothing for a draft with no multi-word concept', () => {
     expect(strongPhrases('system?')).toEqual([])
   })
+
+  // Ticket 05 fix round 1: compromise tags "our" as a possessive NOUN, not a
+  // Pronoun, so extractConcepts keeps "our retention period" whole and
+  // strict_word_similarity('our retention period', <its own sentence>)
+  // measured 0.81 — below the 0.9 promotion threshold. Stripping the leading
+  // possessive determiner here (not in extract.ts — see tokens.ts's comment
+  // on stripLeadingPossessive) fixes that without touching extraction.
+  it('strips a leading possessive determiner before scoring', () => {
+    expect(strongPhrases('What is our retention period?')).toEqual(['retention period'])
+  })
+
+  // The closed set (my/our/your/his/her/its/their) must NOT catch a
+  // proper-noun possessive: measured extractConcepts("Kafka's partitions
+  // keep order.").auto === ["Kafka's partitions"] — "Kafka's" is not in the
+  // closed set, so the phrase, and its noun, survive whole.
+  it('leaves a proper-noun possessive alone', () => {
+    const phrases = strongPhrases("Kafka's partitions keep order.")
+    expect(phrases.some((p) => p.toLowerCase().includes('kafka'))).toBe(true)
+  })
 })

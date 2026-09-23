@@ -37,6 +37,47 @@ export function significantTokenCount(phrase: string): number {
 }
 
 /**
+ * A closed set of possessive determiners, matched as a whole leading word.
+ * "Kafka's" and "PostgreSQL's" are NOT in this set — see the comment on
+ * `stripLeadingPossessive` for why that distinction matters.
+ */
+const LEADING_POSSESSIVE = /^(my|our|your|his|her|its|their)\s+/i
+
+/**
+ * Strips a single leading possessive determiner ("our", "my", ...) from a
+ * phrase before it is scored or returned, e.g. "our retention period" ->
+ * "retention period", "Kafka's partitions" -> unchanged.
+ *
+ * Why this exists: compromise tags "our" as a possessive NOUN, not a
+ * Pronoun, so extract.ts's `.not('#Pronoun')` filter does not exclude it,
+ * and extractConcepts keeps "our retention period" whole. Measured:
+ * strict_word_similarity('our retention period', 'The retention period for
+ * audit logs is ninety days by default.') = 0.81 — below
+ * PROVISIONAL.strongStrictSimilarity (0.9) — so a chat that genuinely says
+ * "retention period" verbatim never earns the strong-text promotion this
+ * phrase exists to trigger.
+ *
+ * Why it is NOT fixed in extract.ts: the same Possessive tag also marks a
+ * proper-noun possessive — "Kafka's partitions", "PostgreSQL's connection
+ * pool" — and excluding the whole tag there drops the concept's own noun.
+ * Measured on this worktree: extractConcepts("Kafka's partitions keep
+ * order.").auto goes from `["Kafka's partitions"]` to `[]` — the concept is
+ * gone entirely, not just trimmed. extract.ts is also outside this task's
+ * file list, and the spec requires re-measuring extraction precision (§4.2)
+ * before any change to it. So this strips ONLY the closed set of pronoun-like
+ * possessive determiners, here, in search-only code, and leaves a
+ * proper-noun's possessive alone.
+ *
+ * The extraction defect itself is still open: extractConcepts (and therefore
+ * Node creation) still turns "our retention period" into a Node verbatim.
+ * This function only keeps that leftover "our" from blocking a search-time
+ * text match — it does not touch what gets written to the graph.
+ */
+function stripLeadingPossessive(phrase: string): string {
+  return phrase.replace(LEADING_POSSESSIVE, '')
+}
+
+/**
  * The phrases in a draft that could earn the strong-text tier: its own
  * extracted concepts (auto and suggested), multi-word ones only.
  */
@@ -44,7 +85,8 @@ export function strongPhrases(draft: string): string[] {
   const { auto, suggested } = extractConcepts(draft)
   const seen = new Set<string>()
   const out: string[] = []
-  for (const p of [...auto, ...suggested]) {
+  for (const raw of [...auto, ...suggested]) {
+    const p = stripLeadingPossessive(raw)
     const key = p.toLowerCase()
     if (seen.has(key) || significantTokenCount(p) < STRONG_MIN_SIGNIFICANT_TOKENS) continue
     seen.add(key)

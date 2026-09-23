@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
 import { getDb } from '../../db'
+import { strongPhrases } from '@/lib/tokens'
 import { FIXTURE_WORKSPACE_ID, newChat, truncateAll } from '../helpers/pglite'
 import { ingestUserMessage, persistMessage } from '@/services/graph'
 import { retrieveContext } from '@/services/retrieval'
@@ -90,6 +91,28 @@ describe('reach by text', () => {
     expect(chats[0].why).toMatch(/matches exact phrase "retention period"/i)
   })
 
+  // Fix round 1, finding 2: every other test in this file reaches through a
+  // strong phrase, so 'text' — the plain, unpromoted tier — and its "matches
+  // your wording" reason were never exercised. Measured against this exact
+  // fixture: word_similarity('ninety days sounds about right', 'The
+  // retention period for audit logs is ninety days by default.') = 0.387,
+  // above PROVISIONAL.reachWordSimilarity (0.3); strongPhrases('ninety days
+  // sounds about right') = [] (no phrase of >= 2 significant tokens), so
+  // promotion never fires and the chat surfaces via the plain text tier.
+  it('reaches a chat by wording alone, with no strong phrase to promote it', async () => {
+    const a = await newChat('Logs')
+    await turn(a, 'What are the defaults?', 'The retention period for audit logs is ninety days by default.')
+    expect(strongPhrases('ninety days sounds about right')).toEqual([])
+    const b = await newChat('B')
+    const { chats } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'explore', taggedChatIds: [],
+      draftText: 'ninety days sounds about right',
+    })
+    expect(chats.map((c) => c.id)).toContain(a)
+    const found = chats.find((c) => c.id === a)!
+    expect(found.why).toMatch(/matches your wording/i)
+  })
+
   it('does not reach by text in focus mode', async () => {
     const a = await newChat('Logs')
     await turn(a, 'Defaults?', 'The retention period for audit logs is ninety days by default.')
@@ -110,5 +133,8 @@ describe('reach by text', () => {
     const res = await db.execute(sql`show pg_trgm.word_similarity_threshold`)
     const value = Object.values((res as unknown as { rows: Record<string, string>[] }).rows[0])[0]
     expect(value).toBe('0.6')
+    const strictRes = await db.execute(sql`show pg_trgm.strict_word_similarity_threshold`)
+    const strictValue = Object.values((strictRes as unknown as { rows: Record<string, string>[] }).rows[0])[0]
+    expect(strictValue).toBe('0.5')
   })
 })

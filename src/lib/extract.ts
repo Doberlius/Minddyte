@@ -22,7 +22,7 @@ export function extractConcepts(text: string): { auto: string[]; suggested: stri
   // "I". Dropping pronoun tokens leaves every real concept untouched and
   // reduces "chat I" to "chat", which then falls to `bare` and is only
   // suggested. Spec §4.2.
-  const raw: string[] = doc.match(PATTERN).not('#Pronoun').not('#Possessive').out('array')
+  const raw: string[] = doc.match(PATTERN).not('#Pronoun').out('array')
 
   const auto: string[] = []
   const suggested: string[] = []
