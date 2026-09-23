@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { sql } from 'drizzle-orm'
+import { getDb } from '../../db'
 import { FIXTURE_WORKSPACE_ID, newChat, truncateAll } from '../helpers/pglite'
 import { ingestUserMessage, persistMessage } from '@/services/graph'
 import { retrieveContext } from '@/services/retrieval'
@@ -59,5 +61,54 @@ describe('retrieval reads memory from pointers', () => {
     // Every chat is accounted for: fully sent, or named in `dropped`.
     const full = chats.filter((c) => !dropped.includes(c.title))
     expect(full.length + dropped.length).toBe(4)
+  })
+})
+
+describe('reach by text', () => {
+  // The case node overlap cannot reach: the fact is in the ASSISTANT reply,
+  // extraction is user-only (§4.2), so no Node is attached to it.
+  it('reaches a chat whose only relevant content is an assistant fact', async () => {
+    const a = await newChat('Logs')
+    await turn(a, 'What are the defaults?', 'The retention period for audit logs is ninety days by default.')
+    const b = await newChat('B')
+    const { chats } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'explore', taggedChatIds: [],
+      draftText: 'how long do we keep audit logs',
+    })
+    expect(chats.map((c) => c.id)).toContain(a)
+  })
+
+  it('promotes an exact multi-word phrase, and says so', async () => {
+    const a = await newChat('Logs')
+    await turn(a, 'Defaults?', 'The retention period for audit logs is ninety days by default.')
+    const b = await newChat('B')
+    const { chats } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'explore', taggedChatIds: [],
+      draftText: 'What is our retention period?',
+    })
+    expect(chats[0].id).toBe(a)
+    expect(chats[0].why).toMatch(/matches exact phrase "retention period"/i)
+  })
+
+  it('does not reach by text in focus mode', async () => {
+    const a = await newChat('Logs')
+    await turn(a, 'Defaults?', 'The retention period for audit logs is ninety days by default.')
+    const b = await newChat('B')
+    const { chats } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'focus', taggedChatIds: [], draftText: 'retention period',
+    })
+    expect(chats).toEqual([])
+  })
+
+  // Review Focus 3: a leaked GUC is permanent on single-connection PGlite.
+  it('leaves the trigram thresholds at their defaults afterwards', async () => {
+    const b = await newChat('B')
+    await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'explore', taggedChatIds: [], draftText: 'anything at all',
+    })
+    const db = await getDb()
+    const res = await db.execute(sql`show pg_trgm.word_similarity_threshold`)
+    const value = Object.values((res as unknown as { rows: Record<string, string>[] }).rows[0])[0]
+    expect(value).toBe('0.6')
   })
 })

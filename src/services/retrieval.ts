@@ -4,6 +4,8 @@ import { rankCandidates, AUTO_REACH_CAP, type Candidate } from "@/lib/rank"
 import { extractConcepts } from "@/lib/extract"
 import { canonicalKey } from "@/lib/text"
 import { selectWindows, type ScoredPointer } from "@/lib/windows"
+import { PROVISIONAL } from "@/lib/provisional"
+import { strongPhrases } from "@/lib/tokens"
 
 /** Spec §6.2 — a QUALITY limit, not a capacity one. */
 export const CONTEXT_CHAR_BUDGET = 2000 * 4 // ~2000 tokens
@@ -124,6 +126,83 @@ async function scoredPointers(
   return out
 }
 
+type TextHit = {
+  chatId: string
+  title: string
+  reach: number
+  strong: number
+  phrase: string | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+/**
+ * Chats whose passages match the draft's words. Ticket 05, rounds 2–4:
+ *   reach      word_similarity(draft, passage) >= PROVISIONAL.reachWordSimilarity
+ *   promotion  strict_word_similarity(phrase, passage) >= PROVISIONAL.strongStrictSimilarity
+ *              for a draft phrase of >= 2 significant tokens (strongPhrases)
+ *
+ * The operators `<%` and `<<%` use the GIN index, and read their thresholds
+ * from GUCs. Those are set with SET LOCAL inside this transaction: a bare SET
+ * would outlive it, and on single-connection PGlite that means for the life of
+ * the process.
+ */
+async function textHits(workspaceId: string, sessionId: string, draft: string): Promise<TextHit[]> {
+  if (!draft.trim()) return []
+  const db = await getDb()
+  const phrases = strongPhrases(draft)
+
+  return db.transaction(async (tx) => {
+    await tx.execute(sql.raw(`set local pg_trgm.word_similarity_threshold = ${PROVISIONAL.reachWordSimilarity}`))
+    await tx.execute(sql.raw(`set local pg_trgm.strict_word_similarity_threshold = ${PROVISIONAL.strongStrictSimilarity}`))
+
+    const phraseMatch = phrases.length
+      ? sql.join(phrases.map((p) => sql`${p} <<% ${chatPointers.matchText}`), sql` or `)
+      : sql`false`
+    // Per-phrase strict_word_similarity maxima, as separate named columns:
+    // dynamic column keys (`...perPhrase` spread into `.select({...})`) do not
+    // typecheck against drizzle's select-shape inference, which needs a
+    // statically known object literal. A parallel array of `{ p, s }`
+    // aggregate expressions, unpacked into named columns below, keeps the
+    // same one-query, one-transaction shape the brief calls for.
+    const perPhrase = phrases.map(
+      (p, i) => [`s${i}`, sql<number>`max(strict_word_similarity(${p}, ${chatPointers.matchText}))`.mapWith(Number)] as const,
+    )
+
+    const rows = await tx
+      .select({
+        chatId: sessions.id,
+        title: sessions.title,
+        createdAt: sessions.createdAt,
+        updatedAt: sessions.updatedAt,
+        reach: sql<number>`max(word_similarity(${draft}, ${chatPointers.matchText}))`.mapWith(Number),
+        ...Object.fromEntries(perPhrase),
+      })
+      .from(chatPointers)
+      .innerJoin(sessions, eq(sessions.id, chatPointers.sessionId))
+      .where(
+        and(
+          // Both, at the root, as candidateRows does: defense in depth.
+          eq(chatPointers.workspaceId, workspaceId),
+          eq(sessions.workspaceId, workspaceId),
+          ne(chatPointers.sessionId, sessionId),
+          sql`(${draft} <% ${chatPointers.matchText} or ${phraseMatch})`,
+        ),
+      )
+      .groupBy(sessions.id, sessions.title, sessions.createdAt, sessions.updatedAt)
+
+    return rows.map((r) => {
+      const scores = phrases.map((_, i) => (r as unknown as Record<string, number>)[`s${i}`] ?? 0)
+      const best = scores.reduce((bi, s, i) => (s > scores[bi] ? i : bi), 0)
+      return {
+        chatId: r.chatId, title: r.title, createdAt: r.createdAt, updatedAt: r.updatedAt, reach: r.reach,
+        strong: scores.length ? scores[best] : 0,
+        phrase: scores.length ? phrases[best] : null,
+      }
+    })
+  })
+}
+
 export async function retrieveContext(input: {
   workspaceId: string
   sessionId: string
@@ -172,8 +251,36 @@ export async function retrieveContext(input: {
       })
   }
 
+  // Text reach — explore only, like Node reach (§6.1).
+  const textWhy = new Map<string, string>()
+  const hits = input.mode === "explore" ? await textHits(input.workspaceId, input.sessionId, input.draftText) : []
+  for (const h of hits) {
+    if (tagged.has(h.chatId)) continue // tagged chats are handled below, uncapped
+    const strong = h.strong >= PROVISIONAL.strongStrictSimilarity
+    meta.set(h.chatId, { title: h.title })
+    textWhy.set(
+      h.chatId,
+      strong ? `matches exact phrase "${h.phrase}" (${h.strong.toFixed(2)})` : `matches your wording (${h.reach.toFixed(2)})`,
+    )
+    const existing = byChat.get(h.chatId)
+    if (existing) {
+      // Already reached through a Node: strong text evidence outranks overlap;
+      // an ordinary match does not demote it.
+      if (strong) { existing.kind = "strong-text"; existing.textScore = h.strong }
+    } else {
+      byChat.set(h.chatId, {
+        chatId: h.chatId,
+        kind: strong ? "strong-text" : "text",
+        sharedNodes: [],
+        textScore: strong ? h.strong : h.reach,
+        lastReferencedAt: h.updatedAt.getTime(),
+        createdAt: h.createdAt.getTime(),
+      })
+    }
+  }
+
   // Tagged chats are UNCAPPED; only automatic reaches are capped. Spec §6.2.
-  const autoRanked = rankCandidates([...byChat.values()].filter((c) => c.kind === "overlap"))
+  const autoRanked = rankCandidates([...byChat.values()].filter((c) => c.kind !== "bridge"))
     .slice(0, AUTO_REACH_CAP)
 
   const taggedRows = input.taggedChatIds.length
@@ -222,7 +329,10 @@ export async function retrieveContext(input: {
       id: c.chatId,
       title: meta.get(c.chatId)!.title,
       labels: c.sharedNodes.map((n) => n.label),
-      why: `shares ${c.sharedNodes.map((n) => n.label).join(", ")}`,
+      why: [
+        c.sharedNodes.length ? `shares ${c.sharedNodes.map((n) => n.label).join(", ")}` : null,
+        textWhy.get(c.chatId) ?? null,
+      ].filter(Boolean).join(" · "),
     })),
   ]
 

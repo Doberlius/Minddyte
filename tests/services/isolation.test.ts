@@ -224,6 +224,22 @@ describe('retrieval', () => {
   })
 })
 
+describe('text reach stays inside the workspace', () => {
+  it("never reaches another workspace's passages", async () => {
+    const b1 = await createChat(B)
+    const mB = await persistMessage({ workspaceId: B, sessionId: b1.id, role: 'user', content: 'Defaults?' })
+    const aB = await persistMessage({ workspaceId: B, sessionId: b1.id, role: 'assistant', content: 'The retention period for audit logs is ninety days by default.' })
+    await ingestUserMessage({ workspaceId: B, sessionId: b1.id, messageId: mB, content: 'Defaults?', assistantContent: 'The retention period for audit logs is ninety days by default.', assistantMessageId: aB })
+
+    const a1 = await createChat(A)
+    const { chats } = await retrieveContext({
+      workspaceId: A, sessionId: a1.id, mode: 'explore', taggedChatIds: [],
+      draftText: 'What is our retention period for audit logs?',
+    })
+    expect(chats).toEqual([])
+  })
+})
+
 describe('ownership guards on the write path', () => {
   it('persistMessage refuses a sessionId that belongs to a different workspace', async () => {
     // `messages` carries no workspace_id of its own — this ownership check

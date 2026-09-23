@@ -13,10 +13,14 @@ export type SharedNode = {
   isHeadlineOfCandidate: boolean
 }
 
+export type CandidateKind = 'bridge' | 'strong-text' | 'overlap' | 'text'
+
 export type Candidate = {
   chatId: string
-  kind: 'bridge' | 'overlap'
+  kind: CandidateKind
   sharedNodes: SharedNode[]
+  /** The text-match score for the text tiers: strict similarity for strong-text, word similarity for text. */
+  textScore?: number
   /** epoch ms */
   lastReferencedAt: number
   /** epoch ms */
@@ -25,6 +29,14 @@ export type Candidate = {
 
 /** Spec §6.2 — a count, not a token budget. Predictable where a budget is not. */
 export const AUTO_REACH_CAP = 3
+
+/**
+ * Ticket 05, the total order: tagged > strong text evidence > node overlap >
+ * ordinary text match. A tier, not a bonus — "you connected this" or "matches
+ * the exact phrase" is explainable; a summed score across different scales is
+ * not (§6.4).
+ */
+const TIER: Record<CandidateKind, number> = { bridge: 0, 'strong-text': 1, overlap: 2, text: 3 }
 
 /**
  * Rarity: a Node in 15 Chats is weak evidence; one in 2 is strong.
@@ -37,16 +49,22 @@ function score(c: Candidate): number {
 
 export function rankCandidates(candidates: Candidate[]): Candidate[] {
   return [...candidates].sort((a, b) => {
-    // 1. Bridges are louder, not longer — authored beats derived.
-    if (a.kind !== b.kind) return a.kind === 'bridge' ? -1 : 1
-    // 2. Headline bonus — a Chat that is ABOUT the shared Node beats one
-    //    merely mentioning it, even where the other shares more Nodes. Spec §6.3.
-    const aHeadline = a.sharedNodes.some((n) => n.isHeadlineOfCandidate)
-    const bHeadline = b.sharedNodes.some((n) => n.isHeadlineOfCandidate)
-    if (aHeadline !== bHeadline) return aHeadline ? -1 : 1
-    // 3. Shared-Node count × rarity.
-    const d = score(b) - score(a)
-    if (d !== 0) return d
+    // 1. The tier decides first.
+    if (a.kind !== b.kind) return TIER[a.kind] - TIER[b.kind]
+    if (a.kind === 'strong-text' || a.kind === 'text') {
+      // 2t. Within a text tier: the better match.
+      const t = (b.textScore ?? 0) - (a.textScore ?? 0)
+      if (t !== 0) return t
+    } else {
+      // 2. Headline bonus — a Chat that is ABOUT the shared Node beats one
+      //    merely mentioning it, even where the other shares more Nodes. Spec §6.3.
+      const aHeadline = a.sharedNodes.some((n) => n.isHeadlineOfCandidate)
+      const bHeadline = b.sharedNodes.some((n) => n.isHeadlineOfCandidate)
+      if (aHeadline !== bHeadline) return aHeadline ? -1 : 1
+      // 3. Shared-Node count × rarity.
+      const d = score(b) - score(a)
+      if (d !== 0) return d
+    }
     // 4. More recently referenced.
     if (a.lastReferencedAt !== b.lastReferencedAt) return b.lastReferencedAt - a.lastReferencedAt
     // 5. Older chat wins.

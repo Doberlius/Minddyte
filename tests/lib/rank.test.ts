@@ -73,3 +73,24 @@ describe('rankCandidates', () => {
     expect(rankCandidates([a, b]).map((x) => x.chatId)).toEqual(['dup', 'dup'])
   })
 })
+
+describe('the four tiers (ticket 05)', () => {
+  const base = { sharedNodes: [], lastReferencedAt: 0, createdAt: 0 }
+  it('orders bridge > strong-text > overlap > text', () => {
+    const out = rankCandidates([
+      { ...base, chatId: 't', kind: 'text', textScore: 0.99 },
+      { ...base, chatId: 'o', kind: 'overlap', sharedNodes: [{ label: 'x', chatCount: 1, isHeadlineOfCandidate: false }] },
+      { ...base, chatId: 's', kind: 'strong-text', textScore: 0.9 },
+      { ...base, chatId: 'b', kind: 'bridge' },
+    ])
+    expect(out.map((c) => c.chatId)).toEqual(['b', 's', 'o', 't'])
+  })
+
+  it('orders within a text tier by score, then the usual backstops', () => {
+    const out = rankCandidates([
+      { ...base, chatId: 'low', kind: 'text', textScore: 0.31 },
+      { ...base, chatId: 'high', kind: 'text', textScore: 0.6 },
+    ])
+    expect(out.map((c) => c.chatId)).toEqual(['high', 'low'])
+  })
+})
