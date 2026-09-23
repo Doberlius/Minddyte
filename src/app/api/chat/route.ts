@@ -8,12 +8,25 @@ import { buildSystemPrompt } from "@/lib/prompt"
 import { requireWorkspace } from "@/server/workspace"
 
 /**
- * The ceiling on one answer, and therefore on what one message can cost.
+ * A runaway guard, NOT a budget.
+ *
+ * It was 2048, which is roughly half of what this model writes unprompted —
+ * so it did not shorten answers, it truncated them. Measured: a question
+ * about Postgres indexing stopped mid-table with finishReason 'length',
+ * which in a demo reads as the app breaking rather than as a limit being
+ * reached. A cap cannot make a model concise; the model does not know the
+ * cap exists, so it plans a long answer and gets cut off. Only the prompt
+ * can do that, and the decision here is deliberately to let answers run.
+ *
+ * 16384 because the most sprawling question I could construct — "explain the
+ * entire query planner, with examples for every join strategy" — finished on
+ * its own at 7,381 tokens. Half that again is headroom; anything past it is
+ * a model looping, not a model answering.
  *
  * Named because it has to be passed twice, in two different dialects, and a
- * pair of bare 2048s that must agree is a pair that eventually will not.
+ * pair of bare numbers that must agree is a pair that eventually will not.
  */
-const MAX_OUTPUT_TOKENS = 2048
+const MAX_OUTPUT_TOKENS = 16384
 
 export async function POST(req: Request) {
   // Read once, pass the same value everywhere below. sessionExists,
@@ -104,14 +117,12 @@ export async function POST(req: Request) {
     model: clientFor(choice)(modelId),
     system: systemPrompt,
     messages: await convertToModelMessages(messages),
-    // maxOutputTokens alone does NOT cap anything against ollama.com/api.
-    // The provider maps it to `max_tokens`, which is the OpenAI-compatible
-    // field; this endpoint is Ollama's native one and reads `num_predict`
-    // out of `options` instead, so the standardized setting is sent and
-    // silently ignored. Measured: the same question returned 4,576 output
-    // tokens with the cap "set", and exactly 2,048 once num_predict was
-    // passed. Both are kept — maxOutputTokens is what the local daemon and
-    // any future OpenAI-shaped provider read.
+    // maxOutputTokens alone does NOT reach ollama.com/api. The provider maps
+    // it to `max_tokens`, the OpenAI-compatible field; this endpoint is
+    // Ollama's native one and reads `num_predict` out of `options` instead,
+    // so the standardized setting was sent and silently ignored on every
+    // request. Both are kept — maxOutputTokens is what a local daemon and any
+    // future OpenAI-shaped provider read, num_predict is what this one reads.
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     providerOptions: { ollama: { options: { num_predict: MAX_OUTPUT_TOKENS } } },
     // 3-6. Graph writes happen AFTER the stream. Spec §4.5.
