@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useChat } from '@ai-sdk/react'
-import { UsageGauge } from './UsageGauge'
 import { DefaultChatTransport } from 'ai'
 import { AlertCircle } from 'lucide-react'
 import { AtPicker } from './AtPicker'
@@ -300,9 +299,6 @@ export function NeuralChat({
           {mode}
           {activeChat ? ` · ${activeChat.nodeCount} concept${activeChat.nodeCount === 1 ? '' : 's'}` : ''}
         </span>
-        {/* Re-read whenever a turn finishes, so the ring moves on the reply
-            the visitor was already waiting for rather than on a poll. */}
-        <UsageGauge refreshKey={messages.length} />
       </header>
 
       {/* The turns are centred in a column rather than spread across the pane.

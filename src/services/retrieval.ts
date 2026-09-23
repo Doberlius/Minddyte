@@ -93,15 +93,6 @@ export async function retrieveContext(input: {
   mode: "focus" | "explore"
   taggedChatIds: string[]
   draftText: string
-  /**
-   * How many characters of memory this request may carry.
-   *
-   * Passed in rather than read from the constant because the per-request cap
-   * is shared with the message itself: a long message leaves less room, and
-   * the caller is the only one that knows how long it was. Defaults to the
-   * quality budget for every caller that has no cap of its own.
-   */
-  budgetChars?: number
 }) {
   const db = await getDb()
   const tagged = new Set(input.taggedChatIds)
@@ -206,9 +197,8 @@ export async function retrieveContext(input: {
   const chats: typeof ordered = []
   const dropped: string[] = []
   let used = 0
-  const budget = input.budgetChars ?? CONTEXT_CHAR_BUDGET
   for (const c of ordered) {
-    if (used + c.compaction.length > budget) { dropped.push(c.title); continue }
+    if (used + c.compaction.length > CONTEXT_CHAR_BUDGET) { dropped.push(c.title); continue }
     chats.push(c)
     used += c.compaction.length
   }
