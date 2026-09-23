@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { proseSentences } from '@/lib/prose'
+import { proseSentences, proseSpans } from '@/lib/prose'
 import { splitSentences } from '@/lib/text'
 
 /**
@@ -66,5 +66,31 @@ describe('proseSentences', () => {
 
   it('returns nothing for whitespace', () => {
     expect(proseSentences('  \n ')).toEqual([])
+  })
+})
+
+describe('proseSpans', () => {
+  const slices = (t: string) => proseSpans(t).map((s) => ({ kind: s.kind, text: t.slice(s.start, s.end) }))
+
+  it('gives every sentence an exact span into the original text', () => {
+    const t = 'Kafka keeps order. Redis caches sessions.'
+    expect(slices(t)).toEqual([
+      { kind: 'sentence', text: 'Kafka keeps order.' },
+      { kind: 'sentence', text: 'Redis caches sessions.' },
+    ])
+  })
+
+  it('keeps a code block as ONE span, fences included', () => {
+    const t = 'Set it like this:\n\n```properties\nmax.poll.records=500\n```'
+    expect(slices(t)).toContainEqual({ kind: 'code', text: '```properties\nmax.poll.records=500\n```' })
+  })
+
+  it('keeps a table as ONE span', () => {
+    const t = '| Goal | Status |\n|---|---|\n| SDG 1 | tier I |'
+    expect(slices(t)).toEqual([{ kind: 'table', text: t }])
+  })
+
+  it('still skips headings', () => {
+    expect(slices('## Setup\n\nKafka keeps order.')).toEqual([{ kind: 'sentence', text: 'Kafka keeps order.' }])
   })
 })
