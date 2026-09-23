@@ -134,7 +134,7 @@ export async function loadChat(workspaceId: string, sessionId: string) {
     // bodies) the moment they opened a chat. Named explicitly rather than
     // omitted-by-exception, so a column this doesn't ask for stays out by
     // default rather than by memory.
-    columns: { id: true, title: true, compaction: true, headlineNodeId: true },
+    columns: { id: true, title: true, headlineNodeId: true },
     with: { messages: { orderBy: messages.createdAt } },
   })
 }

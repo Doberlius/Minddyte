@@ -1,12 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import { proseSentences, proseSpans } from '@/lib/prose'
+import { proseSpans } from '@/lib/prose'
 import { splitSentences } from '@/lib/text'
 
 /**
  * Ticket 11, decision 1: markdown is PARSED before sentences are picked.
  * Markup is not content; words are. These are the shapes that measured as
- * leaking into Compactions when the raw reply went straight to splitSentences.
+ * leaking into memory when the raw reply went straight to splitSentences.
  */
+
+const proseSentences = (t: string) =>
+  proseSpans(t).filter((s) => s.kind === 'sentence').map((s) => t.slice(s.start, s.end))
 
 // The exact sample ticket 11's prototype measured (md-blocks.ts).
 const SDG = `## 1.

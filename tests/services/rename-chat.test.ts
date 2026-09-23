@@ -80,7 +80,6 @@ describe('renameChat', () => {
     await renameChat(FIXTURE_WORKSPACE_ID, id, 'Something else entirely')
     const after = await loadChat(FIXTURE_WORKSPACE_ID, id)
 
-    expect(after!.compaction).toBe(before!.compaction)
     expect(after!.headlineNodeId).toBe(before!.headlineNodeId)
   })
 

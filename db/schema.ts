@@ -34,9 +34,6 @@ export const sessions = pgTable("sessions", {
   title: text("title").notNull().default("New Session"),
   preview: text("preview"),
   collectionId: uuid("collection_id").references(() => collections.id, { onDelete: "set null" }),
-  // Spec §3.1 — the Chat's memory lives here.
-  compaction: text("compaction").notNull().default(""),
-  compactionUpdatedAt: timestamp("compaction_updated_at", { withTimezone: true }),
   // Spec §4.4 — set once at creation, never re-derived on rename.
   headlineNodeId: uuid("headline_node_id"),
   // Spec §9 — null means inherit the global default.

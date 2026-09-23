@@ -15,6 +15,13 @@
       "when": 1790191246930,
       "tag": "0001_chat_pointers",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790194767036,
+      "tag": "0002_drop_compaction",
+      "breakpoints": true
     }
   ]
 }

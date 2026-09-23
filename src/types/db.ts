@@ -23,9 +23,6 @@ export interface DbSession {
     title: string,
     preview: string | null,
     collection_id: string | null,
-    /** Spec §3.1 — the Chat's memory. Verbatim sentences, record-separated. */
-    compaction: string,
-    compaction_updated_at: string | null,
     /** Spec §4.4 — set once at creation, never re-derived on rename. */
     headline_node_id: string | null,
     /** Spec §9 — null means inherit the global default. */

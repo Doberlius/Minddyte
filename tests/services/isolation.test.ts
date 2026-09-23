@@ -280,12 +280,10 @@ describe('ownership guards on the write path', () => {
       }),
     ).rejects.toThrow()
 
-    // Title/headline still default, compaction still empty — B's call never
-    // touched A's chat.
+    // Title/headline still default — B's call never touched A's chat.
     const chat = await loadChat(A, a.id)
     expect(chat!.title).toBe('New Session')
     expect(chat!.headlineNodeId).toBeNull()
-    expect(chat!.compaction).toBe('')
 
     // Pointers are written inside the same ownership check.
     expect(await countRows('chat_pointers')).toBe(0)

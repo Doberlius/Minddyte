@@ -180,21 +180,13 @@ export async function POST(req: Request) {
         const assistantMessageId = await persistMessage({
           workspaceId, sessionId, role: "assistant", content: text, modelUsed: modelId,
         })
-        const { notRemembered, skipped } = await ingestUserMessage({
+        const { skipped } = await ingestUserMessage({
           workspaceId, sessionId, messageId, content: draft,
-          // Compaction takes both roles (spec §4.1); extraction stays
-          // user-only (spec §4.2). ingestUserMessage enforces that split.
+          // Pointers take both roles; extraction stays user-only (spec §4.2).
+          // ingestUserMessage enforces that split.
           assistantContent: text,
           assistantMessageId,
         })
-        // Ticket 11 — a message that reached no memory is a loss, and a loss
-        // is never silent. Logged only for now: how it reaches the USER is
-        // still undecided, and the stream has already closed by this point.
-        if (notRemembered) {
-          console.warn(
-            `[chat] message ${messageId} in chat ${sessionId} left nothing in memory (${notRemembered})`,
-          )
-        }
         // Ticket 05, Q14 — a block too large to index is a loss, and a loss
         // is never silent. Logged only: one block, not the whole message.
         for (const s of skipped) console.warn(`[chat] ${describeSkip(sessionId, s.messageId, s)}`)

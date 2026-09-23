@@ -22,7 +22,7 @@ type Row = {
 
 /**
  * Spec §6.6 — ONE query. Not three sequential ones.
- * Match Nodes, find their Chats, and fetch those Chats' compactions together.
+ * Match Nodes, find their Chats, and fetch those Chats' metadata together.
  * Written as three tidy functions this triples the only cost that matters.
  */
 async function candidateRows(
@@ -298,7 +298,7 @@ export async function retrieveContext(input: {
             inArray(sessions.id, input.taggedChatIds),
             // taggedChatIds arrives from the client — this is the filter that
             // stops a visitor naming someone else's chat id and being handed
-            // its compaction. Tagging is uncapped and skips ranking, so it is
+            // its passages. Tagging is uncapped and skips ranking, so it is
             // the widest door in the retrieval path.
             eq(sessions.workspaceId, input.workspaceId),
           ),

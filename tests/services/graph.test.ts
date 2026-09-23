@@ -3,7 +3,6 @@ import { eq, sql } from 'drizzle-orm'
 import { getDb, nodes, sessions } from '../../db'
 import { countRows, FIXTURE_WORKSPACE_ID, newChat, truncateAll } from '../helpers/pglite'
 import { persistMessage, ingestUserMessage } from '@/services/graph'
-import { RECORD_SEPARATOR } from '@/lib/compaction'
 
 // Both sentences share this concept. Step 1 confirmed extractConcepts returns
 // the label "Kafka partitions" in `auto` for BOTH fixture sentences below.
@@ -116,23 +115,6 @@ describe('the graph write path against a real database', () => {
     }
   })
 
-  it('stores the compaction verbatim, separator surviving a real column', async () => {
-    // Coverage item 6. Both roles go in (spec §4.1) with the user's sentences
-    // in front, where they survive trimming longest.
-    const chatId = await newChat()
-    await turn(chatId, FIRST, 'Partitions preserve order within a key.')
-
-    const db = await getDb()
-    const [chat] = await db.select().from(sessions).where(eq(sessions.id, chatId))
-
-    expect(chat.compaction).toContain(RECORD_SEPARATOR)
-    const records = chat.compaction.split(RECORD_SEPARATOR)
-    expect(records.length).toBeGreaterThanOrEqual(2)
-    expect(chat.compaction).toContain('Kafka partitions')
-    expect(chat.compaction).toContain('Partitions preserve order')
-    expect(chat.compactionUpdatedAt).not.toBeNull()
-  })
-
   it('a label with no alphanumeric characters never becomes a Node', async () => {
     // '...' alone does NOT reach the guard this test means to check: its
     // extractConcepts().auto is empty, so the only node the write path
@@ -153,28 +135,6 @@ describe('the graph write path against a real database', () => {
     for (const n of rows) {
       expect(n.canonicalKey.length).toBeGreaterThan(0)
     }
-  })
-})
-
-describe('the silent-loss guard (ticket 11, decision 3)', () => {
-  async function ingestOnly(chatId: string, content: string) {
-    const workspaceId = FIXTURE_WORKSPACE_ID
-    const messageId = await persistMessage({ workspaceId, sessionId: chatId, role: 'user', content })
-    return ingestUserMessage({ workspaceId, sessionId: chatId, messageId, content })
-  }
-
-  it('reports a message whose only sentence is too long to remember', async () => {
-    const chatId = await newChat()
-    // One dense 610-character sentence — the exact case that used to leave
-    // memory empty with no log and no sign.
-    const dense = 'Kafka ' + 'partitions preserve order within a single partition only '.repeat(10) + 'end.'
-    expect(dense.length).toBeGreaterThan(500)
-    expect(await ingestOnly(chatId, dense)).toEqual({ notRemembered: 'over-cap', skipped: [] })
-  })
-
-  it('reports nothing for a message that reached memory', async () => {
-    const chatId = await newChat()
-    expect(await ingestOnly(chatId, FIRST)).toEqual({ notRemembered: null, skipped: [] })
   })
 })
 

@@ -2,7 +2,6 @@ import { getDb, type Db, messages, nodes, sessions, sessionNodes, messageNodes, 
 import { eq, and, sql } from "drizzle-orm"
 import { extractConcepts } from "@/lib/extract"
 import { canonicalKey, deriveTitle } from "@/lib/text"
-import { appendToCompaction, whyNotRemembered } from "@/lib/compaction"
 import { pointerRows, type SkippedSpan } from "@/lib/pointers"
 
 /** The type of the `tx` argument `db.transaction(async (tx) => ...)` hands us. */
@@ -133,19 +132,19 @@ export async function ingestUserMessage(input: {
   messageId: string
   content: string
   /**
-   * The assistant's reply to this message, for the Compaction only.
+   * The assistant's reply to this message, for its own pointers only.
    *
-   * Spec §4.1 takes BOTH roles into the Compaction — a memory built from
-   * questions alone records what was asked, never what was concluded.
-   * Extraction is a separate concern and stays user-only (spec §4.2): an
-   * assistant reply runs to hundreds of words and would swamp the index
-   * with concepts the user never raised. So this text reaches
-   * appendToCompaction and nothing else — never extractConcepts.
+   * Spec §4.1 takes BOTH roles into memory — a memory built from questions
+   * alone records what was asked, never what was concluded. Extraction is a
+   * separate concern and stays user-only (spec §4.2): an assistant reply runs
+   * to hundreds of words and would swamp the index with concepts the user
+   * never raised. So this text reaches writePointers and nothing else — never
+   * extractConcepts.
    */
   assistantContent?: string
   /** The assistant message's own id — its pointers point into THAT row. */
   assistantMessageId?: string
-}): Promise<{ notRemembered: ReturnType<typeof whyNotRemembered>; skipped: Skip[] }> {
+}): Promise<{ skipped: Skip[] }> {
   const { auto } = extractConcepts(input.content)
 
   const db = await getDb()
@@ -206,56 +205,23 @@ export async function ingestUserMessage(input: {
         .where(and(eq(sessions.id, input.sessionId), eq(sessions.workspaceId, input.workspaceId)))
     }
 
-    // Incremental compaction. Spec §4.1 — never re-reads history.
-    //
-    // This read used to carry `.for('update')`, which locked the session row so
-    // two overlapping ingests could not both read the same compaction and have
-    // the second write silently overwrite the first. PGlite is single-connection
-    // by architecture, so two transactions physically cannot overlap and the
-    // clause did nothing. Recorded cost: the lost-update race returns the moment
-    // anything reintroduces concurrent writers to one session — a hosted variant
-    // would have to put this back, with a reason attached.
-    const [s] = await tx
-      .select({ compaction: sessions.compaction })
-      .from(sessions)
+    // Pointers for both roles. The ownership guard at the top of this
+    // transaction already threw for a foreign sessionId, so these writes
+    // inherit that same proof rather than re-reading the session to get it.
+    const skipped = [
+      ...(await writePointers(tx, { ...input, messageId: input.messageId, content: input.content })),
+      ...(input.assistantContent && input.assistantMessageId
+        ? await writePointers(tx, { ...input, messageId: input.assistantMessageId, content: input.assistantContent })
+        : []),
+    ]
+
+    // Chat lists sort by updatedAt. The Compaction used to update alongside
+    // it in this same statement; that write is gone, this one stays.
+    await tx
+      .update(sessions)
+      .set({ updatedAt: new Date() })
       .where(and(eq(sessions.id, input.sessionId), eq(sessions.workspaceId, input.workspaceId)))
 
-    if (s) {
-      // Both roles, the user's first. appendToCompaction PREPENDS, so the
-      // assistant's reply goes in first and the user's message second —
-      // leaving the user's sentences at the front, where they survive
-      // trimming longest. Spec §4.1. buildCompaction's doc comment carries
-      // the matching rebuild order; the invariant test asserts they agree.
-      const withAssistant = input.assistantContent
-        ? appendToCompaction(s.compaction, input.assistantContent)
-        : s.compaction
-
-      const compaction = appendToCompaction(withAssistant, input.content)
-      await tx
-        .update(sessions)
-        .set({
-          compaction,
-          compactionUpdatedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(and(eq(sessions.id, input.sessionId), eq(sessions.workspaceId, input.workspaceId)))
-
-      // Ticket 11, decision 3 — never silent. Returned rather than logged here
-      // so the caller decides how to surface it, and so a test can assert it.
-      // Only the USER's message is checked: a reply that loses the cap to the
-      // user's own sentences is the design working (spec §4.1), not a loss.
-      //
-      // Inside `if (s)`: `s` exists only when this session belongs to this
-      // workspace, so pointers inherit the same ownership proof as everything
-      // else written here.
-      const skipped = [
-        ...(await writePointers(tx, { ...input, messageId: input.messageId, content: input.content })),
-        ...(input.assistantContent && input.assistantMessageId
-          ? await writePointers(tx, { ...input, messageId: input.assistantMessageId, content: input.assistantContent })
-          : []),
-      ]
-      return { notRemembered: whyNotRemembered(input.content, compaction), skipped }
-    }
-    return { notRemembered: null, skipped: [] }
+    return { skipped }
   })
 }

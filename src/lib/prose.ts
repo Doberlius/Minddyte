@@ -85,10 +85,3 @@ export function proseSpans(text: string): ProseSpan[] {
   walk(tree)
   return out
 }
-
-/** The sentences only, as text. Used by the Compaction until it is dropped. */
-export function proseSentences(text: string): string[] {
-  return proseSpans(text)
-    .filter((s) => s.kind === 'sentence')
-    .map((s) => text.slice(s.start, s.end))
-}
