@@ -1,9 +1,9 @@
 import { defineConfig } from "drizzle-kit";
 
-// No migrations are generated this phase (ticket 02, decision 2) — a schema
-// change means `bun run db:reset`. This config exists so `drizzle-kit generate`
-// still works when that policy ends, and it points at PGlite so nothing here
-// can quietly reach for a Supabase URL that no longer exists.
+// Migrations are real as of 2026-09-23: `bunx drizzle-kit generate` writes a
+// new numbered file into db/migrations, and db/bootstrap.ts applies any that a
+// database has not recorded yet. Never edit a migration that has shipped —
+// generate a new one.
 export default defineConfig({
   schema: './db/schema.ts',
   out: './db/migrations',

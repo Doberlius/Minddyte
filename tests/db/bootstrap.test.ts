@@ -22,20 +22,53 @@ describe('bootstrap', () => {
     await pg.close()
   })
 
-  it('creates all 11 tables, and a second call is a no-op', async () => {
+  it('builds a fresh database through the migrator and records every migration', async () => {
     const pg = await fresh()
-    expect(await ensureSchema(pg)).toBe('created')
+    const first = await ensureSchema(pg)
+    expect(first.start).toBe('empty')
+    expect(first.applied).toBeGreaterThanOrEqual(1)
 
     const { rows } = await pg.query<{ n: number }>(
-      `select count(*)::int as n
-         from information_schema.tables
-        where table_schema = 'public' and table_type = 'BASE TABLE'`,
+      `select count(*)::int as n from drizzle.__drizzle_migrations`,
     )
-    expect(rows[0].n).toBe(11)
+    expect(rows[0].n).toBe(first.applied)
 
-    // Drizzle's generated SQL is not idempotent, so a second run MUST be
-    // skipped by the catalog check rather than survived by CREATE IF NOT EXISTS.
-    expect(await ensureSchema(pg)).toBe('present')
+    // A second boot applies nothing. Drizzle's generated SQL is not
+    // idempotent, so this must be skipped by the record, not survived.
+    const second = await ensureSchema(pg)
+    expect(second).toEqual({ start: 'tracked', applied: 0 })
+    await pg.close()
+  })
+
+  // The Render disk: created by the old bootstrap, which ran 0000's
+  // statements and recorded nothing. It must be marked as having 0000
+  // applied, not re-run, and it must keep its rows.
+  it('marks a pre-migrator database as having 0000, and keeps its rows', async () => {
+    const pg = await fresh()
+    for (const s of migrationStatements()) await pg.exec(s)
+    await pg.exec(
+      `insert into sessions (workspace_id, title) values ('00000000-0000-4000-8000-000000000001', 'kept')`,
+    )
+
+    const out = await ensureSchema(pg)
+    expect(out.start).toBe('untracked')
+
+    const { rows } = await pg.query<{ title: string }>(`select title from sessions`)
+    expect(rows.map((r) => r.title)).toEqual(['kept'])
+    await pg.close()
+  })
+
+  // Standing rule: never act on a database we do not understand. A database
+  // from before workspace scoping has the tables but not this column, so it
+  // is NOT 0000 and must not be marked as if it were.
+  it('refuses to mark a database whose shape is not 0000, and deletes nothing', async () => {
+    const pg = await fresh()
+    await pg.exec(`create table sessions (id uuid primary key, title text)`)
+    await pg.exec(`insert into sessions values ('00000000-0000-4000-8000-000000000002', 'old')`)
+
+    await expect(ensureSchema(pg)).rejects.toThrow(/NOTHING HAS BEEN DELETED/)
+    const { rows } = await pg.query<{ n: number }>(`select count(*)::int as n from sessions`)
+    expect(rows[0].n).toBe(1)
     await pg.close()
   })
 
