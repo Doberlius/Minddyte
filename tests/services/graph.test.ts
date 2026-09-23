@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { getDb, nodes, sessions } from '../../db'
 import { countRows, FIXTURE_WORKSPACE_ID, newChat, truncateAll } from '../helpers/pglite'
 import { persistMessage, ingestUserMessage } from '@/services/graph'
@@ -169,11 +169,69 @@ describe('the silent-loss guard (ticket 11, decision 3)', () => {
     // memory empty with no log and no sign.
     const dense = 'Kafka ' + 'partitions preserve order within a single partition only '.repeat(10) + 'end.'
     expect(dense.length).toBeGreaterThan(500)
-    expect(await ingestOnly(chatId, dense)).toEqual({ notRemembered: 'over-cap' })
+    expect(await ingestOnly(chatId, dense)).toEqual({ notRemembered: 'over-cap', skipped: [] })
   })
 
   it('reports nothing for a message that reached memory', async () => {
     const chatId = await newChat()
-    expect(await ingestOnly(chatId, FIRST)).toEqual({ notRemembered: null })
+    expect(await ingestOnly(chatId, FIRST)).toEqual({ notRemembered: null, skipped: [] })
+  })
+})
+
+describe('pointers (ticket 05)', () => {
+  async function fullTurn(chatId: string, user: string, assistant: string) {
+    const workspaceId = FIXTURE_WORKSPACE_ID
+    const messageId = await persistMessage({ workspaceId, sessionId: chatId, role: 'user', content: user })
+    const assistantMessageId = await persistMessage({
+      workspaceId, sessionId: chatId, role: 'assistant', content: assistant, modelUsed: 'test',
+    })
+    return ingestUserMessage({
+      workspaceId, sessionId: chatId, messageId, content: user,
+      assistantContent: assistant, assistantMessageId,
+    })
+  }
+
+  it('writes one pointer per sentence for BOTH roles', async () => {
+    const chatId = await newChat()
+    await fullTurn(chatId, 'How do partitions work?', 'Partitions keep order. Consumers scale by group.')
+    expect(await countRows('chat_pointers')).toBe(3)
+  })
+
+  it('reads back the exact text by offset, through a real column', async () => {
+    const chatId = await newChat()
+    await fullTurn(chatId, '🎉 Kafka keeps order. Redis caches sessions.', 'Noted.')
+    const db = await getDb()
+    const rows = await db.execute(sql`
+      select substring(m.content from p.start_char + 1 for p.end_char - p.start_char) as t
+        from chat_pointers p join messages m on m.id = p.message_id
+       order by m.created_at, p.ordinal`)
+    const texts = (rows as unknown as { rows: { t: string }[] }).rows.map((r) => r.t)
+    expect(texts).toContain('Redis caches sessions.')
+  })
+
+  it('is idempotent — ingesting the same message twice adds nothing', async () => {
+    const chatId = await newChat()
+    const workspaceId = FIXTURE_WORKSPACE_ID
+    const messageId = await persistMessage({ workspaceId, sessionId: chatId, role: 'user', content: 'One. Two.' })
+    await ingestUserMessage({ workspaceId, sessionId: chatId, messageId, content: 'One. Two.' })
+    await ingestUserMessage({ workspaceId, sessionId: chatId, messageId, content: 'One. Two.' })
+    expect(await countRows('chat_pointers')).toBe(2)
+  })
+
+  it('reports a code block too large to index, and still indexes the rest', async () => {
+    const chatId = await newChat()
+    const big = '```\n' + 'x'.repeat(4100) + '\n```'
+    const out = await fullTurn(chatId, 'Here is my config.', `Look at this.\n\n${big}`)
+    expect(out.skipped).toEqual([expect.objectContaining({ kind: 'code', length: big.length })])
+    expect(await countRows('chat_pointers')).toBe(2)
+  })
+
+  // Known limit, stated rather than hidden: no capital letters means no
+  // sentence boundaries, and pg_trgm cannot trigram Thai. It must still be
+  // stored, whole, without error.
+  it('stores a Thai message as one pointer without error', async () => {
+    const chatId = await newChat()
+    await fullTurn(chatId, 'สวัสดีครับ วันนี้อากาศดีมาก เราไปเที่ยวกันไหม', 'ได้เลย')
+    expect(await countRows('chat_pointers')).toBe(2)
   })
 })

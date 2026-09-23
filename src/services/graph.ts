@@ -1,11 +1,34 @@
-import { getDb, type Db, messages, nodes, sessions, sessionNodes, messageNodes } from "../../db"
+import { getDb, type Db, messages, nodes, sessions, sessionNodes, messageNodes, chatPointers } from "../../db"
 import { eq, and, sql } from "drizzle-orm"
 import { extractConcepts } from "@/lib/extract"
 import { canonicalKey, deriveTitle } from "@/lib/text"
 import { appendToCompaction, whyNotRemembered } from "@/lib/compaction"
+import { pointerRows, type SkippedSpan } from "@/lib/pointers"
 
 /** The type of the `tx` argument `db.transaction(async (tx) => ...)` hands us. */
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0]
+
+export type Skip = SkippedSpan & { messageId: string }
+
+/**
+ * Index one message's passages. Inside the caller's transaction, so a chat's
+ * pointers and its graph writes land together or not at all.
+ * `onConflictDoNothing` makes a repeat ingest (or the backfill racing a live
+ * one) harmless: the primary key is (message_id, ordinal).
+ */
+async function writePointers(
+  tx: Tx,
+  input: { workspaceId: string; sessionId: string; messageId: string; content: string },
+): Promise<Skip[]> {
+  const { rows, skipped } = pointerRows(input.content)
+  if (rows.length > 0) {
+    await tx
+      .insert(chatPointers)
+      .values(rows.map((r) => ({ ...r, workspaceId: input.workspaceId, sessionId: input.sessionId, messageId: input.messageId })))
+      .onConflictDoNothing()
+  }
+  return skipped.map((s) => ({ ...s, messageId: input.messageId }))
+}
 
 export async function persistMessage(input: {
   workspaceId: string
@@ -120,7 +143,9 @@ export async function ingestUserMessage(input: {
    * appendToCompaction and nothing else — never extractConcepts.
    */
   assistantContent?: string
-}): Promise<{ notRemembered: ReturnType<typeof whyNotRemembered> }> {
+  /** The assistant message's own id — its pointers point into THAT row. */
+  assistantMessageId?: string
+}): Promise<{ notRemembered: ReturnType<typeof whyNotRemembered>; skipped: Skip[] }> {
   const { auto } = extractConcepts(input.content)
 
   const db = await getDb()
@@ -219,8 +244,18 @@ export async function ingestUserMessage(input: {
       // so the caller decides how to surface it, and so a test can assert it.
       // Only the USER's message is checked: a reply that loses the cap to the
       // user's own sentences is the design working (spec §4.1), not a loss.
-      return { notRemembered: whyNotRemembered(input.content, compaction) }
+      //
+      // Inside `if (s)`: `s` exists only when this session belongs to this
+      // workspace, so pointers inherit the same ownership proof as everything
+      // else written here.
+      const skipped = [
+        ...(await writePointers(tx, { ...input, messageId: input.messageId, content: input.content })),
+        ...(input.assistantContent && input.assistantMessageId
+          ? await writePointers(tx, { ...input, messageId: input.assistantMessageId, content: input.assistantContent })
+          : []),
+      ]
+      return { notRemembered: whyNotRemembered(input.content, compaction), skipped }
     }
-    return { notRemembered: null }
+    return { notRemembered: null, skipped: [] }
   })
 }

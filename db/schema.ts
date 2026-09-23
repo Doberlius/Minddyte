@@ -137,3 +137,45 @@ export const collectionNodes = pgTable("collection_nodes", {
   collectionId: uuid("collection_id").notNull().references(() => collections.id, { onDelete: "cascade" }),
   nodeId: uuid("node_id").notNull().references(() => nodes.id, { onDelete: "cascade" }),
 }, (t) => [primaryKey({ columns: [t.collectionId, t.nodeId] })])
+
+/**
+ * Where each passage of a chat is — ticket 05 (read-time pointers).
+ *
+ * One row per sentence, code block or table, for both roles. The TEXT sent
+ * to the model is read from `messages.content` by offset at question time, so
+ * a quotation can never drift from what was said. `match_text` is a search
+ * index only: if it ever drifted, the failure would be a missed match, never
+ * a wrong quote.
+ *
+ * `workspace_id` is carried directly (Q9). Unlike `messages`, text search
+ * STARTS here, scanning every chat's passages, so staying inside one
+ * workspace must not depend on someone remembering a join.
+ *
+ * Offsets are code points, because Postgres substring() counts characters.
+ */
+export const chatPointers = pgTable("chat_pointers", {
+  workspaceId: uuid("workspace_id").notNull(),
+  sessionId: uuid("session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
+  messageId: uuid("message_id").notNull().references(() => messages.id, { onDelete: "cascade" }),
+  ordinal: integer("ordinal").notNull(),
+  kind: text("kind").notNull(),
+  startChar: integer("start_char").notNull(),
+  endChar: integer("end_char").notNull(),
+  matchText: text("match_text").notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.messageId, t.ordinal] }),
+  check("chat_pointers_kind_check", sql`${t.kind} in ('sentence', 'code', 'table')`),
+  check("chat_pointers_span_check", sql`${t.startChar} >= 0 and ${t.endChar} > ${t.startChar}`),
+  index("idx_chat_pointers_session").on(t.sessionId),
+  index("idx_chat_pointers_match_trgm").using("gin", t.matchText.op("gin_trgm_ops")),
+])
+
+/**
+ * Code migrations that have run — the backfill that cannot be a .sql file,
+ * because computing pointers needs remark. Drizzle's own table records .sql
+ * migrations only. One row per step, so a step never runs twice.
+ */
+export const dataMigrations = pgTable("data_migrations", {
+  name: text("name").primaryKey(),
+  appliedAt: timestamp("applied_at", { withTimezone: true }).notNull().defaultNow(),
+})

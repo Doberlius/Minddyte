@@ -8,9 +8,11 @@ import { newWorkspaceId } from '@/lib/workspace'
  * its neighbours rather than as silent cross-test leakage.
  */
 const TABLES = [
+  'chat_pointers',
   'cluster_origins',
   'collection_nodes',
   'collections',
+  'data_migrations',
   'forgotten',
   'graph_positions',
   'message_nodes',

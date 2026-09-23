@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { truncateAll } from '../helpers/pglite'
+import { countRows, truncateAll } from '../helpers/pglite'
 import {
   createChat, deleteChat, listChats, loadChat, loadGraph, renameChat, sessionExists,
 } from '@/services/dbApi'
@@ -270,6 +270,9 @@ describe('ownership guards on the write path', () => {
     expect(chat!.title).toBe('New Session')
     expect(chat!.headlineNodeId).toBeNull()
     expect(chat!.compaction).toBe('')
+
+    // Pointers are written inside the same ownership check.
+    expect(await countRows('chat_pointers')).toBe(0)
   })
 })
 

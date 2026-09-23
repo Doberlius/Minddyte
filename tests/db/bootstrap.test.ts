@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { PGlite } from '@electric-sql/pglite'
 import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm'
@@ -7,6 +9,24 @@ import { ensureSchema, hasSchema, migrationStatements } from '../../db/bootstrap
 // migration's `CREATE EXTENSION` statement fails without it, because a wasm
 // build cannot load a shared library off disk the way a server Postgres does.
 const fresh = () => PGlite.create({ extensions: { pg_trgm } })
+
+/**
+ * Just 0000's statements — what the OLD, pre-migrator bootstrap actually ran.
+ * `migrationStatements()` now returns EVERY migration file (0001 joined 0000
+ * in this ticket), so using it here would also apply 0001 raw, and then
+ * `ensureSchema`'s own `migrate()` call would try to create `chat_pointers` a
+ * second time. This reads only the first file, by sorted name, so the
+ * simulation stays true to what a pre-migrator database actually has: 0000
+ * applied, nothing recorded.
+ */
+function firstMigrationStatements(): string[] {
+  const dir = path.join(process.cwd(), 'db', 'migrations')
+  const [first] = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()
+  return readFileSync(path.join(dir, first), 'utf8')
+    .split('--> statement-breakpoint')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+}
 
 describe('bootstrap', () => {
   it('splits the migration into executable statements', () => {
@@ -37,6 +57,12 @@ describe('bootstrap', () => {
     // idempotent, so this must be skipped by the record, not survived.
     const second = await ensureSchema(pg)
     expect(second).toEqual({ start: 'tracked', applied: 0 })
+
+    const { rows: tables } = await pg.query<{ n: number }>(
+      `select count(*)::int as n from information_schema.tables
+        where table_schema = 'public' and table_type = 'BASE TABLE'`,
+    )
+    expect(tables[0].n).toBe(13)
     await pg.close()
   })
 
@@ -45,7 +71,7 @@ describe('bootstrap', () => {
   // applied, not re-run, and it must keep its rows.
   it('marks a pre-migrator database as having 0000, and keeps its rows', async () => {
     const pg = await fresh()
-    for (const s of migrationStatements()) await pg.exec(s)
+    for (const s of firstMigrationStatements()) await pg.exec(s)
     await pg.exec(
       `insert into sessions (workspace_id, title) values ('00000000-0000-4000-8000-000000000001', 'kept')`,
     )

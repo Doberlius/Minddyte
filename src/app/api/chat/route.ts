@@ -6,6 +6,7 @@ import { persistMessage, ingestUserMessage } from "@/services/graph"
 import { sessionExists } from "@/services/dbApi"
 import { buildSystemPrompt } from "@/lib/prompt"
 import { requireWorkspace } from "@/server/workspace"
+import { describeSkip } from "@/lib/pointers"
 
 /**
  * A runaway guard, NOT a budget.
@@ -176,14 +177,15 @@ export async function POST(req: Request) {
     // 3-6. Graph writes happen AFTER the stream. Spec §4.5.
     onFinish: async ({ text }) => {
       try {
-        await persistMessage({
+        const assistantMessageId = await persistMessage({
           workspaceId, sessionId, role: "assistant", content: text, modelUsed: modelId,
         })
-        const { notRemembered } = await ingestUserMessage({
+        const { notRemembered, skipped } = await ingestUserMessage({
           workspaceId, sessionId, messageId, content: draft,
           // Compaction takes both roles (spec §4.1); extraction stays
           // user-only (spec §4.2). ingestUserMessage enforces that split.
           assistantContent: text,
+          assistantMessageId,
         })
         // Ticket 11 — a message that reached no memory is a loss, and a loss
         // is never silent. Logged only for now: how it reaches the USER is
@@ -193,6 +195,9 @@ export async function POST(req: Request) {
             `[chat] message ${messageId} in chat ${sessionId} left nothing in memory (${notRemembered})`,
           )
         }
+        // Ticket 05, Q14 — a block too large to index is a loss, and a loss
+        // is never silent. Logged only: one block, not the whole message.
+        for (const s of skipped) console.warn(`[chat] ${describeSkip(sessionId, s.messageId, s)}`)
       } catch (err) {
         // Spec §4.5 — the write path runs after the stream, so a failure here must
         // never break the answer the user already received. But it must not vanish
