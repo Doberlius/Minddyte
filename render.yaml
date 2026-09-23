@@ -1,0 +1,66 @@
+# Render Blueprint. Create the service from this file (Blueprints → New
+# Blueprint Instance) rather than clicking a Web Service together by hand, so
+# the disk, the mount path and the branch are recorded here instead of living
+# only in a dashboard nobody can diff.
+#
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: minddyte
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # The demo lives here, not on main.
+    branch: live-demo
+    region: singapore
+
+    # A disk requires a paid instance type; the free one has no persistent
+    # filesystem at all, which for this app means every deploy starts with an
+    # empty database and every conversation is lost.
+    plan: starter
+
+    healthCheckPath: /
+
+    disk:
+      name: minddyte-data
+      # Mounted at the PARENT of the database directory, deliberately.
+      #
+      # db/lock.ts puts the lock file BESIDE the data directory, so a disk
+      # mounted directly at /var/data/minddyte would leave the lock at
+      # /var/data/minddyte.lock — outside the disk, on the container's own
+      # filesystem, which is new on every deploy. The lease that stops two
+      # containers writing to one database would then never see each other's
+      # claim, and the protection would be gone without anything reporting it.
+      #
+      # Mounting the parent keeps the database at /var/data/minddyte and the
+      # lock at /var/data/minddyte.lock, both on the disk, which is what makes
+      # the lease work across a deploy.
+      #
+      # Render forbids mounting at /, /opt, /opt/render, /opt/render/project,
+      # /opt/render/project/src, /home, /home/render, /etc and /etc/secrets.
+      # /var/data is their own documented convention for exactly this.
+      mountPath: /var/data
+      # An empty PGlite database is 38.3 MB, most of it cluster scaffolding
+      # rather than data (local-first ticket 01). 1 GB is generous and costs
+      # about $0.25/month.
+      sizeGB: 1
+
+    envVars:
+      # Overrides the Dockerfile's /data/minddyte, which is Railway's layout.
+      # The database goes one level inside the mount; see the disk comment.
+      - key: MINDDYTE_DATA_DIR
+        value: /var/data/minddyte
+
+      # Set in the dashboard, never in this file. `sync: false` means Render
+      # asks for it on first apply and then leaves it alone — a key committed
+      # to a repo is a key that has to be rotated.
+      - key: HOSTED_API_KEY
+        sync: false
+
+# Not configured here, and worth knowing why: Render does not scale a service
+# that has a disk past one instance, which is exactly what this app needs.
+# PGlite holds its data directory exclusively — ticket 01 measured two
+# processes on one directory corrupting it and losing rows silently — and the
+# lease in db/lock.ts now makes a second instance refuse to boot rather than
+# corrupt anything. So the platform's own constraint and the app's agree, and
+# there is no replica count to get wrong.
