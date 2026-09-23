@@ -25,8 +25,8 @@ export type GraphChat = {
   id: string
   title: string
   messageCount: number
-  /** The chat's memory: verbatim sentences, newest first, separated by RECORD_SEPARATOR. */
-  compaction: string
+  /** How many passages (sentences, code blocks, tables) are indexed for retrieval. */
+  passageCount: number
   /**
    * Whether `deriveTitle` cut this title at its 60-character cap.
    *

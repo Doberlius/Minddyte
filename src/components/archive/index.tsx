@@ -6,10 +6,10 @@ import { useGraph } from '@/components/graph/useGraph'
 /**
  * The Memory Archives, over the real database.
  *
- * Every conversation's compaction — the memory it would hand the assistant if
- * it were tagged into another one. Those sentences are written by
- * `lib/compaction` on every message, so this panel reads something the app has
- * been building all along and had no way to show.
+ * Every conversation, shown by what has been indexed from it rather than by
+ * a fixed memory. Under read-time pointers the assistant picks its passages
+ * fresh at question time, so there is no one digest to preview — this panel
+ * shows how much of each conversation is indexed instead.
  */
 export function MemoryArchives({
   activeChatId,
@@ -42,7 +42,7 @@ export function MemoryArchives({
     return (
       <div className="view-empty">
         <h2>No memories yet</h2>
-        <p>Each conversation builds one as you talk, from your own sentences.</p>
+        <p>Each conversation is indexed as you talk, word for word.</p>
       </div>
     )
   }

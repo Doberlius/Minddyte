@@ -771,35 +771,15 @@ input:focus-visible, textarea:focus-visible {
 
 .arc-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 13px; }
 
-.arc-meter {
-  display: flex; justify-content: space-between; align-items: baseline;
-  padding-top: 11px; border-top: 1px solid var(--border2); margin-bottom: 9px;
-  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em;
-  color: var(--ink3);
-}
-.arc-meter .tnum { text-transform: none; letter-spacing: 0; font-weight: 400; }
-
 .arc-none { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--ink3); }
 
-.arc-memory { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.arc-memory li {
-  /* 1.7 rather than 1.6: Thai stacks vowel and tone marks above and below the
-     line, and at 1.6 they collide with the row above. */
-  font-size: 12.5px; line-height: 1.7; color: var(--ink2);
-  padding-left: 11px; border-left: 2px solid var(--violet-m);
-}
-.arc-memory strong { font-weight: 600; color: var(--ink); }
-.arc-memory em { font-style: italic; }
-.arc-memory code {
-  font-size: .92em; padding: 1px 5px; border-radius: 4px;
-  background: var(--border2); color: var(--ink);
-}
-
-.arc-more {
-  margin-top: 11px; padding: 0; border: none; background: none; cursor: pointer;
-  font-family: inherit; font-size: 11.5px; font-weight: 600; color: var(--violet);
-}
-.arc-more:hover { text-decoration: underline; }
+/* Scoped to the card, not the bare `.arc-count` above — that one styles the
+   page-level "N conversations · M concepts" line in .arc-top, and this is a
+   different line (the per-card passage count) that happens to share a class
+   name with it for the `tnum` styling. A bare `.arc-count` rule here would
+   also restyle the page-level line, so this reuses `.arc-none`'s look under
+   a selector specific enough to leave that one alone. */
+.arc-card .arc-count { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--ink3); }
 
 /* Renaming, in the menu rather than over the page. */
 .chat-rename { padding: 6px 4px 4px; }

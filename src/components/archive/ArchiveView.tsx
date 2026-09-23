@@ -1,54 +1,23 @@
 'use client'
 
-import { useState } from 'react'
 import { ArrowUpRight } from 'lucide-react'
-import { RECORD_SEPARATOR, COMPACTION_CAP } from '@/lib/compaction'
-import { splitInline } from '@/lib/inline-markdown'
 import type { ViewGraph, GraphChat } from '@/types/graph'
 
 /**
  * The Memory Archives tab.
  *
- * Every conversation, and the memory it would hand the assistant if it were
- * tagged into another one. This is the part of Minddyte hardest to believe
- * from a description — that the memory is the user's own sentences, kept word
- * for word and never paraphrased — so it is shown rather than claimed.
+ * Every conversation, shown by what has been indexed from it rather than by
+ * a fixed memory. Under read-time pointers there is no longer one digest a
+ * chat "has" — the assistant picks its passages fresh at question time, from
+ * whichever conversation is being asked about, so there is nothing fixed
+ * here to preview. What this page can show, and does, is what got indexed:
+ * how many passages (sentences, code blocks, tables) and how many messages,
+ * per conversation, alongside the concepts it shares with others.
  *
- * Three things this page learned the hard way, from real conversations rather
- * than a written seed:
- *
- * 1. A model answers in markdown, so the memory read `**parallelize** the
- *    writing` and `### Why Postgres wins`. Right bytes, and it looked like a
- *    fault in the one panel that has to be believed. `splitInline` drops the
- *    syntax for display and keeps every word.
- * 2. Memories differ enormously in length — 0 characters beside 499 — so an
- *    unclamped list tore the grid into ragged columns of dead space. Four
- *    sentences show; the rest is one press away.
- * 3. A card was a dead end. Reading a memory and wanting the conversation it
- *    came from is the obvious next move, and there was nowhere to go.
+ * A card was a dead end. Reading a conversation's summary and wanting the
+ * conversation it came from is the obvious next move, and there was nowhere
+ * to go — so a card's title opens it.
  */
-
-/** One stored sentence, with its markdown rendered rather than printed. */
-function Sentence({ text }: { text: string }) {
-  return (
-    <li>
-      {splitInline(text).map((part, i) =>
-        part.bold ? (
-          <strong key={i}>{part.text}</strong>
-        ) : part.italic ? (
-          <em key={i}>{part.text}</em>
-        ) : part.code ? (
-          <code key={i}>{part.text}</code>
-        ) : (
-          <span key={i}>{part.text}</span>
-        ),
-      )}
-    </li>
-  )
-}
-
-/** How many sentences a card shows before it asks. */
-const SHOWN = 4
 
 function Card({
   chat,
@@ -63,9 +32,6 @@ function Card({
   highlightLabel: string
   onOpen?: (id: string) => void
 }) {
-  const [all, setAll] = useState(false)
-  const sentences = chat.compaction.split(RECORD_SEPARATOR).filter(Boolean)
-  const shown = all ? sentences : sentences.slice(0, SHOWN)
   const concepts = graph.nodes.filter((n) => n.chatIds.includes(chat.id))
   // deriveTitle caps at 60 characters and can land mid-clause; without the
   // ellipsis the card reads as a rendering bug rather than a derived title.
@@ -106,34 +72,13 @@ function Card({
         </div>
       )}
 
-      <div className="arc-meter">
-        <span>Memory</span>
-        <span className="tnum">
-          {chat.compaction.length}
-          <span aria-hidden="true">/{COMPACTION_CAP}</span>
-          <span className="sr-only"> of {COMPACTION_CAP} characters used</span>
-        </span>
-      </div>
-
-      {sentences.length === 0 ? (
-        // A heading and a 0 with nothing under it reads as a broken card. It
-        // is not broken — there is simply nothing said here yet.
-        <p className="arc-none">
-          Nothing yet. A memory appears with this conversation&rsquo;s first message.
-        </p>
+      {chat.passageCount === 0 ? (
+        <p className="arc-none">Nothing yet. This conversation is indexed from its first message.</p>
       ) : (
-        <>
-          <ol className="arc-memory">
-            {shown.map((s, i) => (
-              <Sentence key={i} text={s} />
-            ))}
-          </ol>
-          {sentences.length > SHOWN && (
-            <button className="arc-more" onClick={() => setAll(!all)}>
-              {all ? 'Show less' : `Show all ${sentences.length} sentences`}
-            </button>
-          )}
-        </>
+        <p className="arc-count tnum">
+          {chat.passageCount} passage{chat.passageCount === 1 ? '' : 's'} indexed · {chat.messageCount} message
+          {chat.messageCount === 1 ? '' : 's'}
+        </p>
       )}
     </article>
   )
@@ -160,8 +105,9 @@ export function ArchiveView({
         <div className="arc-inner">
           <h1 className="arc-h1">Memory Archives</h1>
           <p className="arc-none" style={{ maxWidth: 460 }}>
-            Nothing is archived yet. Every conversation keeps a short memory of
-            its own sentences, and it appears here as soon as you send one.
+            Nothing is archived yet. Every conversation is indexed from its
+            first message, word for word, and it appears here as soon as you
+            send one.
           </p>
         </div>
       </div>
@@ -174,9 +120,9 @@ export function ArchiveView({
         <header className="arc-top">
           <h1 className="arc-h1">Memory Archives</h1>
           <p className="arc-lede">
-            What the assistant is handed when a conversation is tagged into another —
-            the original sentences, word for word, newest first, capped at{' '}
-            {COMPACTION_CAP} characters.
+            What the assistant can draw on when a conversation is tagged into
+            another — the original sentences, word for word, chosen fresh for
+            whatever is asked rather than kept as one fixed summary.
           </p>
           <p className="arc-count tnum">
             {graph.chats.length} conversation{graph.chats.length === 1 ? '' : 's'} ·{' '}

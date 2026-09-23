@@ -1,4 +1,4 @@
-import { getDb, sessions, messages, nodes, sessionNodes } from "../../db"
+import { getDb, sessions, messages, nodes, sessionNodes, chatPointers } from "../../db"
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import type { GraphNode, ViewGraph } from "@/types/graph"
 
@@ -6,9 +6,9 @@ import type { GraphNode, ViewGraph } from "@/types/graph"
  * The whole graph, shaped for the Brain and the Archive.
  *
  * Two queries rather than one join: a join across sessions × session_nodes
- * would repeat every chat's compaction once per concept it holds, and the
- * compaction runs to 500 characters. The concepts are grouped in memory
- * instead, which is a few hundred rows at the sizes this product has.
+ * would repeat every chat's row once per concept it holds, and grouping that
+ * back down in SQL is more work than grouping the concepts in memory, which
+ * is a few hundred rows at the sizes this product has.
  *
  * Archived concepts are left out. Forgetting exists so the graph stops showing
  * what you no longer use, and a canvas that draws them anyway would undo it.
@@ -20,7 +20,6 @@ export async function loadGraph(workspaceId: string): Promise<ViewGraph> {
     .select({
       id: sessions.id,
       title: sessions.title,
-      compaction: sessions.compaction,
     })
     .from(sessions)
     .where(eq(sessions.workspaceId, workspaceId))
@@ -65,6 +64,13 @@ export async function loadGraph(workspaceId: string): Promise<ViewGraph> {
 
   const stats = new Map(perChat.map((row) => [row.sessionId, row]))
 
+  const passages = await db
+    .select({ sessionId: chatPointers.sessionId, n: sql<number>`count(*)`.mapWith(Number) })
+    .from(chatPointers)
+    .where(eq(chatPointers.workspaceId, workspaceId))
+    .groupBy(chatPointers.sessionId)
+  const passageCounts = new Map(passages.map((p) => [p.sessionId, p.n]))
+
   const links = await db
     .select({
       key: nodes.canonicalKey,
@@ -91,7 +97,7 @@ export async function loadGraph(workspaceId: string): Promise<ViewGraph> {
       return {
         id: c.id,
         title: c.title,
-        compaction: c.compaction,
+        passageCount: passageCounts.get(c.id) ?? 0,
         messageCount: stat?.messageCount ?? 0,
         titleTruncated: (stat?.firstMessageLength ?? 0) > c.title.length,
       }
