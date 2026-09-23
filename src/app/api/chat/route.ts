@@ -28,6 +28,54 @@ import { requireWorkspace } from "@/server/workspace"
  */
 const MAX_OUTPUT_TOKENS = 16384
 
+/**
+ * What to tell the browser when the model call fails mid-stream.
+ *
+ * Once the stream has started the status line is already 200, so a failure
+ * after that point arrives as an `error` part inside the stream rather than
+ * as an HTTP error — which means `classifyChatFailure` on the client never
+ * sees it. The SDK's default fills that part with `error.message`, and for a
+ * 400 that string is "Bad Request": true, and useless to the person who just
+ * pasted something.
+ *
+ * The provider already said exactly what it objected to, in the response
+ * body. Measured against a 824,000-character paste, it answers:
+ *
+ *   The prompt is too long: 287145, model maximum context length: 131072
+ *
+ * So this forwards that sentence. ONLY the `error` field of a JSON body is
+ * forwarded, never `error.message` or the raw text — a bounded field cannot
+ * carry a stack trace, an internal URL or anything else this has no business
+ * showing a visitor. Anything unrecognised becomes the generic sentence, and
+ * the full error is on the server log either way.
+ */
+function explainStreamFailure(error: unknown): string {
+  const GENERIC =
+    'The model could not finish answering. Your text is still in the box — try again.'
+
+  const body = (error as { responseBody?: unknown } | null)?.responseBody
+  if (typeof body !== 'string') return GENERIC
+
+  let said: unknown
+  try {
+    said = (JSON.parse(body) as { error?: unknown }).error
+  } catch {
+    return GENERIC
+  }
+  if (typeof said !== 'string' || !said.trim()) return GENERIC
+
+  // The trailing "(ref: …)" is the provider's trace id. It belongs in the
+  // server log, which already has it, not in a sentence someone reads.
+  const sentence = said.replace(/\s*\(ref:[^)]*\)\s*$/, '').trim()
+
+  // Counted in tokens, which nobody types in. Saying so turns a number the
+  // visitor cannot act on into an instruction they can.
+  if (/prompt is too long/i.test(sentence)) {
+    return `${sentence}. Those are tokens, not characters — roughly four characters each. Send a shorter piece of it.`
+  }
+  return sentence
+}
+
 export async function POST(req: Request) {
   // Read once, pass the same value everywhere below. sessionExists,
   // retrieveContext, persistMessage and ingestUserMessage all need it;
@@ -146,5 +194,5 @@ export async function POST(req: Request) {
     },
   })
 
-  return result.toUIMessageStreamResponse()
+  return result.toUIMessageStreamResponse({ onError: explainStreamFailure })
 }
