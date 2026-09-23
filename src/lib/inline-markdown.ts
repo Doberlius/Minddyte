@@ -1,7 +1,7 @@
 /**
  * Markdown syntax removed from a sentence for DISPLAY only.
  *
- * A Compaction keeps what was said byte for byte, which is the guarantee the
+ * A passage keeps what was said byte for byte, which is the guarantee the
  * Archive is built on. A model writes a lot of that in markdown, so the panel
  * showing "your own sentences" was showing `**parallelize** the writing` and
  * `### Why Postgres wins` — the right bytes, reading like a rendering fault.
@@ -10,7 +10,7 @@
  * sentence never changes, and the text this returns, concatenated, is the same
  * text minus the markers. The tests assert exactly that on every case.
  *
- * Inline only, and deliberately so. A Compaction holds SENTENCES, cut out of
+ * Inline only, and deliberately so. Memory holds SENTENCES, cut out of
  * longer messages, so a full markdown parser would be given input it can only
  * misread — a sentence that begins inside a list, or ends mid-emphasis. An
  * unmatched marker is therefore left exactly where it is rather than

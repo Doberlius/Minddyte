@@ -43,14 +43,17 @@ graph.
 Most assistants either forget everything between sessions or hand the whole
 transcript back to a model and hope. Minddyte does neither.
 
-Every conversation contributes three things to a shared graph: a **Compaction**
-(sentences taken verbatim from its own messages, never rewritten), a
-**Headline**, and the **Concepts** found in it. Two conversations are connected
-when they hold the same concept — not because a model judged them similar, but
-because the same words were actually said in both.
+Every conversation contributes three things to a shared graph: its
+**passages** (every sentence, code block and table, indexed verbatim where it
+was said — never rewritten), a **Headline**, and the **Concepts** found in it.
+Two conversations are connected when they hold the same concept — not because
+a model judged them similar, but because the same words were actually said in
+both. Memory itself is chosen later, at question time: the best passages for
+the question actually asked, not a fixed digest written once and reused for
+everything after.
 
-That makes the graph auditable. You can point at any edge and name the sentence
-that put it there.
+That makes the graph auditable. You can point at any edge, and any fact in a
+reply, and name the sentence that put it there.
 
 ---
 
@@ -113,22 +116,28 @@ the measurement rather than intuition:
 The same input gives the same graph forever, which is the property that makes a
 memory system trustworthy.
 
-### 2. A trimming bug that silently destroyed memory — [`src/lib/compaction.ts`](src/lib/compaction.ts)
+### 2. The fix for a lossy digest was no digest — [`src/lib/pointers.ts`](src/lib/pointers.ts), [`src/lib/windows.ts`](src/lib/windows.ts)
 
-A Compaction is capped at 500 characters, so sentences that do not fit are
-dropped. The first version `break`-ed on the first sentence too long to fit,
-which reads as "drop from the tail" and is wrong in two measured ways:
+Memory used to be written at reply time, into a 500-character digest per
+chat: each new message's sentences went in first, older ones fell off the
+tail once the cap filled, and whatever fell off was gone for good. Measured
+against real replies, that digest discarded roughly 98% of a long reply: the
+short preamble survived and the facts further down did not, because the
+digest was capped and filled in order, not by importance.
 
-- **It destroyed existing memory.** New sentences queue ahead of old ones, so a
-  single oversized message stopped the loop before any older sentence was
-  considered — one 611-character message wiped a chat's entire memory, silently.
-- **It discarded short sentences that fit.** On a real reply: 30 sentences, only
-  2 over cap, and still just 3 were kept.
+The fix was not a smarter trim — it was removing the trim. Every sentence,
+code block and table is indexed where it was said, at write time, with
+nothing dropped and nothing rewritten (`src/lib/pointers.ts`). Nothing is
+chosen until a question is actually asked: at that point the best three
+passages per chat are picked, each with the sentence either side so nothing
+opens on a dangling "it" or "therefore", inside an 8,000-character budget
+(`src/lib/windows.ts`).
 
-`continue` instead of `break` skips what cannot fit and keeps looking. Sentences
-are also dropped **whole**, never truncated, because half a sentence can invert
-its meaning: *"We tried X first, but that made it worse"* cut short becomes an
-endorsement.
+Passages are still dropped **whole**, never truncated, because half a
+sentence can invert its meaning: *"We tried X first, but that made it worse"*
+cut short becomes an endorsement. What changed is that "dropped" now means
+"not selected for this question" — the sentence is still there, verbatim, for
+the next one.
 
 ### 3. Refusing to delete the user's database — [`db/index.ts`](db/index.ts)
 

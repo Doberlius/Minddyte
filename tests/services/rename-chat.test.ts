@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { eq } from 'drizzle-orm'
 import { FIXTURE_WORKSPACE_ID, truncateAll } from '../helpers/pglite'
 import { createChat, listChats, renameChat, loadChat } from '@/services/dbApi'
 import { persistMessage, ingestUserMessage } from '@/services/graph'
+import { getDb, chatPointers } from '../../db'
 
 beforeEach(truncateAll)
 
@@ -72,15 +74,21 @@ describe('renameChat', () => {
 
   it('does not touch the concepts or the memory', async () => {
     // A rename changes a label. The Headline was taken from the first
-    // message's own words and stays what it was.
+    // message's own words and stays what it was, and the passages a rename
+    // has nothing to do with must not move either.
     const { id } = await createChat(FIXTURE_WORKSPACE_ID)
     await say(id, 'We run PostgreSQL in production.')
     const before = await loadChat(FIXTURE_WORKSPACE_ID, id)
+    const db = await getDb()
+    const pointersBefore = await db.select().from(chatPointers).where(eq(chatPointers.sessionId, id))
+    expect(pointersBefore.length).toBeGreaterThan(0)
 
     await renameChat(FIXTURE_WORKSPACE_ID, id, 'Something else entirely')
     const after = await loadChat(FIXTURE_WORKSPACE_ID, id)
+    const pointersAfter = await db.select().from(chatPointers).where(eq(chatPointers.sessionId, id))
 
     expect(after!.headlineNodeId).toBe(before!.headlineNodeId)
+    expect(pointersAfter.length).toBe(pointersBefore.length)
   })
 
   it('shows the new name in the list', async () => {
