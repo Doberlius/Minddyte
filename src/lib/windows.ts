@@ -1,0 +1,58 @@
+import { PROVISIONAL } from './provisional'
+
+/** One passage of a reached chat, scored against the question. */
+export type ScoredPointer = {
+  messageId: string
+  /** epoch ms — orders messages within the chat */
+  messageCreatedAt: number
+  ordinal: number
+  /** the verbatim passage, read from messages.content by offset */
+  text: string
+  score: number
+}
+
+/**
+ * Which passages of one chat go into the prompt. Ticket 05, Q10.
+ *
+ * 1. Put every passage in conversation order (message time, then message id
+ *    for determinism, then ordinal).
+ * 2. Take the `picks` best by score. Ties go to the EARLIER passage — never to
+ *    the shorter one: preferring short is ticket 11's measured failure.
+ * 3. Add one neighbour either side, within the same message only, so no
+ *    excerpt opens on a dangling "it" or "therefore".
+ * 4. Merge touching passages into one excerpt; return excerpts in order.
+ */
+export function selectWindows(rows: ScoredPointer[], picks: number = PROVISIONAL.windowsPerChat): string[] {
+  const ordered = [...rows].sort(
+    (a, b) =>
+      a.messageCreatedAt - b.messageCreatedAt ||
+      (a.messageId < b.messageId ? -1 : a.messageId > b.messageId ? 1 : 0) ||
+      a.ordinal - b.ordinal,
+  )
+  const top = ordered
+    .map((_, i) => i)
+    .sort((a, b) => ordered[b].score - ordered[a].score || a - b)
+    .slice(0, picks)
+
+  const keep = new Set<number>()
+  for (const i of top) {
+    for (const j of [i - 1, i, i + 1]) {
+      if (j >= 0 && j < ordered.length && ordered[j].messageId === ordered[i].messageId) keep.add(j)
+    }
+  }
+
+  const excerpts: string[] = []
+  let run: string[] = []
+  let prev = -2
+  for (const i of [...keep].sort((a, b) => a - b)) {
+    const touching = i === prev + 1 && ordered[i].messageId === ordered[prev].messageId
+    if (!touching && run.length > 0) {
+      excerpts.push(run.join('\n'))
+      run = []
+    }
+    run.push(ordered[i].text)
+    prev = i
+  }
+  if (run.length > 0) excerpts.push(run.join('\n'))
+  return excerpts
+}

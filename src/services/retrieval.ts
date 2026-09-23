@@ -1,8 +1,9 @@
-import { getDb, sessions, nodes, sessionNodes } from "../../db"
+import { getDb, sessions, nodes, sessionNodes, chatPointers, messages } from "../../db"
 import { and, eq, inArray, ne, or, sql } from "drizzle-orm"
 import { rankCandidates, AUTO_REACH_CAP, type Candidate } from "@/lib/rank"
 import { extractConcepts } from "@/lib/extract"
 import { canonicalKey } from "@/lib/text"
+import { selectWindows, type ScoredPointer } from "@/lib/windows"
 
 /** Spec §6.2 — a QUALITY limit, not a capacity one. */
 export const CONTEXT_CHAR_BUDGET = 2000 * 4 // ~2000 tokens
@@ -10,7 +11,6 @@ export const CONTEXT_CHAR_BUDGET = 2000 * 4 // ~2000 tokens
 type Row = {
   chatId: string
   title: string
-  compaction: string
   label: string
   chatCount: number
   isHeadline: boolean
@@ -52,7 +52,6 @@ async function candidateRows(
     .select({
       chatId: sessions.id,
       title: sessions.title,
-      compaction: sessions.compaction,
       label: nodes.label,
       chatCount: nodes.chatCount,
       isHeadline: sql<boolean>`${sessions.headlineNodeId} = ${nodes.id}`.mapWith(Boolean),
@@ -87,6 +86,44 @@ async function candidateRows(
     )
 }
 
+/**
+ * The passages of the chosen chats, scored against the question, text read
+ * back from `messages` by offset (offsets are code points, as substring()
+ * counts). Scored against the draft AND each shared concept label, so a chat
+ * reached through a Node alone still has something to rank its passages by.
+ */
+async function scoredPointers(
+  workspaceId: string,
+  chatIds: string[],
+  queries: string[],
+): Promise<Map<string, ScoredPointer[]>> {
+  const out = new Map<string, ScoredPointer[]>()
+  if (chatIds.length === 0) return out
+  const db = await getDb()
+  const scores = queries.filter((q) => q.trim()).map((q) => sql`word_similarity(${q}, ${chatPointers.matchText})`)
+  const score = scores.length > 0 ? sql`greatest(${sql.join(scores, sql`, `)})` : sql`0`
+
+  const rows = await db
+    .select({
+      chatId: chatPointers.sessionId,
+      messageId: chatPointers.messageId,
+      ordinal: chatPointers.ordinal,
+      messageCreatedAt: messages.createdAt,
+      text: sql<string>`substring(${messages.content} from ${chatPointers.startChar} + 1 for ${chatPointers.endChar} - ${chatPointers.startChar})`,
+      score: sql<number>`${score}`.mapWith(Number),
+    })
+    .from(chatPointers)
+    .innerJoin(messages, eq(messages.id, chatPointers.messageId))
+    .where(and(eq(chatPointers.workspaceId, workspaceId), inArray(chatPointers.sessionId, chatIds)))
+
+  for (const r of rows) {
+    const list = out.get(r.chatId) ?? []
+    list.push({ messageId: r.messageId, messageCreatedAt: r.messageCreatedAt.getTime(), ordinal: r.ordinal, text: r.text, score: r.score })
+    out.set(r.chatId, list)
+  }
+  return out
+}
+
 export async function retrieveContext(input: {
   workspaceId: string
   sessionId: string
@@ -111,9 +148,9 @@ export async function retrieveContext(input: {
       : []
 
   const byChat = new Map<string, Candidate>()
-  const meta = new Map<string, { title: string; compaction: string }>()
+  const meta = new Map<string, { title: string }>()
   for (const r of rows) {
-    meta.set(r.chatId, { title: r.title, compaction: r.compaction })
+    meta.set(r.chatId, { title: r.title })
     const existing = byChat.get(r.chatId)
     const shared = {
       label: r.label,
@@ -144,7 +181,6 @@ export async function retrieveContext(input: {
         .select({
           id: sessions.id,
           title: sessions.title,
-          compaction: sessions.compaction,
           createdAt: sessions.createdAt,
           updatedAt: sessions.updatedAt,
         })
@@ -165,7 +201,7 @@ export async function retrieveContext(input: {
   // Tagged chats go through the same ranking chain as auto reaches, uncapped.
   // A tagged chat that also shares nodes reuses the sharedNodes already
   // gathered for it in byChat; otherwise it has none. Spec §6.5.
-  for (const t of taggedRows) meta.set(t.id, { title: t.title, compaction: t.compaction })
+  for (const t of taggedRows) meta.set(t.id, { title: t.title })
   const taggedCandidates: Candidate[] = taggedRows.map((t) => ({
     chatId: t.id,
     kind: "bridge",
@@ -179,28 +215,41 @@ export async function retrieveContext(input: {
     ...taggedRanked.map((c) => ({
       id: c.chatId,
       title: meta.get(c.chatId)!.title,
-      compaction: meta.get(c.chatId)!.compaction,
-      why: c.sharedNodes.length
-        ? `tagged · shares ${c.sharedNodes.map((n) => n.label).join(", ")}`
-        : "tagged",
+      labels: c.sharedNodes.map((n) => n.label),
+      why: c.sharedNodes.length ? `tagged · shares ${c.sharedNodes.map((n) => n.label).join(", ")}` : "tagged",
     })),
     ...autoRanked.map((c) => ({
       id: c.chatId,
       title: meta.get(c.chatId)!.title,
-      compaction: meta.get(c.chatId)!.compaction,
+      labels: c.sharedNodes.map((n) => n.label),
       why: `shares ${c.sharedNodes.map((n) => n.label).join(", ")}`,
     })),
   ]
 
-  // Over budget: send what fits, report what did not. Spec §6.5.
-  // Degrade by dropping WHOLE chats — never truncate a compaction.
-  const chats: typeof ordered = []
+  // Second query: §6.6's "one query" bends here, deliberately. Ranking runs in
+  // TypeScript between reach and fetch, so the chats to fetch passages for are
+  // not known until reach has returned. Measured cost in ticket 05: ~3 ms.
+  const labels = [...new Set(ordered.flatMap((c) => c.labels))]
+  const pointers = await scoredPointers(input.workspaceId, ordered.map((c) => c.id), [input.draftText, ...labels])
+
+  // Over budget: send what fits, report what did not. Spec §6.5. A passage is
+  // included whole or skipped whole — never cut. A chat that loses ANY window
+  // is reported, not only one that loses all of them: otherwise a chat can be
+  // shrunk with nobody told.
+  const chats: { id: string; title: string; excerpts: string[]; why: string }[] = []
   const dropped: string[] = []
   let used = 0
   for (const c of ordered) {
-    if (used + c.compaction.length > CONTEXT_CHAR_BUDGET) { dropped.push(c.title); continue }
-    chats.push(c)
-    used += c.compaction.length
+    const all = selectWindows(pointers.get(c.id) ?? [])
+    if (all.length === 0) continue // nothing said there yet — not a budget loss
+    const kept: string[] = []
+    for (const e of all) {
+      if (used + e.length > CONTEXT_CHAR_BUDGET) continue
+      kept.push(e)
+      used += e.length
+    }
+    if (kept.length < all.length) dropped.push(c.title)
+    if (kept.length > 0) chats.push({ id: c.id, title: c.title, excerpts: kept, why: c.why })
   }
   return { chats, dropped }
 }

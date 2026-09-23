@@ -1,22 +1,13 @@
-import { RECORD_SEPARATOR } from './compaction'
-
 /**
  * The shape retrieveContext returns for each reached Chat. Declared here rather
  * than imported from the service, because `src/lib/` never depends on anything
  * that touches the database — that boundary is what keeps these tests pure.
  */
-export type MemoryChat = { title: string; compaction: string; why: string }
+export type MemoryChat = { title: string; excerpts: string[]; why: string }
 
-/**
- * A Compaction is stored as sentences joined by RECORD_SEPARATOR, an
- * unambiguous delimiter that survives a database column. The model must never
- * see it: a control character in the prompt is both meaningless to it and
- * invisible in any log you would read afterwards.
- */
+/** Each reached chat as a heading, then its verbatim excerpts in conversation order. */
 export function buildMemoryBlock(chats: MemoryChat[]): string {
-  return chats
-    .map((c) => `## ${c.title}  (${c.why})\n${c.compaction.split(RECORD_SEPARATOR).join('\n')}`)
-    .join('\n\n')
+  return chats.map((c) => `## ${c.title}  (${c.why})\n${c.excerpts.join('\n')}`).join('\n\n')
 }
 
 /**

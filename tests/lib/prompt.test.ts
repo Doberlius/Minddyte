@@ -1,19 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { RECORD_SEPARATOR } from '@/lib/compaction'
 import { buildMemoryBlock, buildSystemPrompt, type MemoryChat } from '@/lib/prompt'
 
 const chat = (over: Partial<MemoryChat> = {}): MemoryChat => ({
   title: 'Event streaming',
-  compaction: `First sentence.${RECORD_SEPARATOR}Second sentence.`,
+  excerpts: ['First sentence.', 'Second sentence.'],
   why: 'shares kafka',
   ...over,
 })
 
 describe('buildMemoryBlock', () => {
-  it('converts the record separator to newlines so no control character reaches the model', () => {
-    const block = buildMemoryBlock([chat()])
-    expect(block).not.toContain(RECORD_SEPARATOR)
-    expect(block).toContain('First sentence.\nSecond sentence.')
+  it('lists each excerpt under its chat heading', () => {
+    const chat: MemoryChat = { title: 'Kafka', why: 'shares Kafka', excerpts: ['First passage.', 'Second passage.'] }
+    expect(buildMemoryBlock([chat])).toBe('## Kafka  (shares Kafka)\nFirst passage.\nSecond passage.')
   })
 
   it('heads each chat with its title and the reason it was reached', () => {
