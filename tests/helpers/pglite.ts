@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from 'node:fs'
+import path from 'node:path'
 import { sql } from 'drizzle-orm'
 import { getDb, sessions } from '../../db'
 import { newWorkspaceId } from '@/lib/workspace'
@@ -63,4 +65,14 @@ export async function countRows(table: string): Promise<number> {
   const res = await db.execute(sql.raw(`select count(*)::int as n from "${table}"`))
   const rows = (res as unknown as { rows: { n: number }[] }).rows
   return rows[0].n
+}
+
+/** Builds the schema a pre-migrator database (e.g. the Render disk) holds: just 0000's statements. */
+export function firstMigrationStatements(): string[] {
+  const dir = path.join(process.cwd(), 'db', 'migrations')
+  const [first] = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()
+  return readFileSync(path.join(dir, first), 'utf8')
+    .split('--> statement-breakpoint')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
 }

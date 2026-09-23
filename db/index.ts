@@ -2,6 +2,7 @@ import { PGlite } from '@electric-sql/pglite'
 import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm'
 import { drizzle } from 'drizzle-orm/pglite'
 import { ensureSchema } from './bootstrap'
+import { runDataMigrations } from './data-migrations'
 import { acquireLock, lockPathFor, releaseLock, startHeartbeat } from './lock'
 import * as schema from './schema'
 import * as relations from './apiRelations'
@@ -133,7 +134,11 @@ async function open() {
     }
   }
 
-  return { pg, db: drizzle(pg, { schema: { ...schema, ...relations } }) }
+  const db = drizzle(pg, { schema: { ...schema, ...relations } })
+  // After the schema is current, before any request can read it: a chat whose
+  // messages have no pointers yet would retrieve as empty.
+  await runDataMigrations(db)
+  return { pg, db }
 }
 
 type Conn = Awaited<ReturnType<typeof open>>
