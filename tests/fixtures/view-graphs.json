@@ -1,0 +1,277 @@
+{
+  "seeded": {
+    "chats": [
+      {
+        "id": "db",
+        "title": "We decided to use PostgreSQL because the data has a clear",
+        "compaction": "Is PostgreSQL a good fit for storing a graph of concepts?\u001eIt is, as long as the graph stays bipartite and you index the join table.\u001eWe decided to use PostgreSQL because the data has a clear relational schema.\u001eRelational integrity matters once rows reference each other.",
+        "messageCount": 4,
+        "titleTruncated": true,
+        "forgotten": []
+      },
+      {
+        "id": "lang",
+        "title": "I am comparing Go and Rust for a high throughput API server",
+        "compaction": "Go pauses for a garbage collector, and Rust does not.\u001eThat is the trade you are weighing.\u001eI am comparing Go and Rust for a high throughput API server.\u001eBoth are strong here.\u001eGo ships faster, Rust gives tighter control.",
+        "messageCount": 4,
+        "titleTruncated": true,
+        "forgotten": []
+      },
+      {
+        "id": "infra",
+        "title": "Docker Compose runs PostgreSQL locally for me",
+        "compaction": "Kubernetes feels heavy for a team of three.\u001eIt usually is, until you need rolling deploys.\u001eDocker Compose runs PostgreSQL locally for me.\u001eThat keeps development and production aligned.",
+        "messageCount": 4,
+        "titleTruncated": true,
+        "forgotten": []
+      },
+      {
+        "id": "safety",
+        "title": "Rust has no garbage collector. Ownership decides when",
+        "compaction": "Rust has no garbage collector.\u001eOwnership decides when memory is freed.\u001eThe borrow checker proves that before the program ever runs.",
+        "messageCount": 2,
+        "titleTruncated": true,
+        "forgotten": []
+      },
+      {
+        "id": "deploy",
+        "title": "We deploy with Docker Compose today, but Kubernetes is the",
+        "compaction": "PostgreSQL stays managed either way.\u001eGood call.\u001eRunning it yourself is real work.\u001eWe deploy with Docker Compose today, but Kubernetes is the plan.\u001eA staged migration is sensible.",
+        "messageCount": 4,
+        "titleTruncated": true,
+        "forgotten": []
+      }
+    ],
+    "nodes": [
+      {
+        "key": "postgresql",
+        "label": "PostgreSQL",
+        "chatIds": [
+          "db",
+          "infra",
+          "deploy"
+        ]
+      },
+      {
+        "key": "relationalschema",
+        "label": "relational schema",
+        "chatIds": [
+          "db"
+        ]
+      },
+      {
+        "key": "goodfit",
+        "label": "good fit",
+        "chatIds": [
+          "db"
+        ]
+      },
+      {
+        "key": "go",
+        "label": "Go",
+        "chatIds": [
+          "lang"
+        ]
+      },
+      {
+        "key": "rust",
+        "label": "Rust",
+        "chatIds": [
+          "lang",
+          "safety"
+        ]
+      },
+      {
+        "key": "highthroughputapiserver",
+        "label": "high throughput API server",
+        "chatIds": [
+          "lang"
+        ]
+      },
+      {
+        "key": "garbagecollector",
+        "label": "garbage collector",
+        "chatIds": [
+          "lang",
+          "safety"
+        ]
+      },
+      {
+        "key": "dockercompose",
+        "label": "Docker Compose",
+        "chatIds": [
+          "infra",
+          "deploy"
+        ]
+      },
+      {
+        "key": "kubernetes",
+        "label": "Kubernetes",
+        "chatIds": [
+          "infra",
+          "deploy"
+        ]
+      },
+      {
+        "key": "ownership",
+        "label": "Ownership",
+        "chatIds": [
+          "safety"
+        ]
+      }
+    ]
+  },
+  "solo": {
+    "chats": [
+      {
+        "id": "solo",
+        "title": "New Session",
+        "compaction": "...",
+        "messageCount": 1,
+        "titleTruncated": false,
+        "forgotten": []
+      }
+    ],
+    "nodes": [
+      {
+        "key": "newsession",
+        "label": "New Session",
+        "chatIds": [
+          "solo"
+        ]
+      }
+    ]
+  },
+  "grown": {
+    "chats": [
+      {
+        "id": "db",
+        "title": "We decided to use PostgreSQL because the data has a clear",
+        "compaction": "Is PostgreSQL a good fit for storing a graph of concepts?\u001eIt is, as long as the graph stays bipartite and you index the join table.\u001eWe decided to use PostgreSQL because the data has a clear relational schema.\u001eRelational integrity matters once rows reference each other.",
+        "messageCount": 4,
+        "titleTruncated": true,
+        "forgotten": []
+      },
+      {
+        "id": "lang",
+        "title": "I am comparing Go and Rust for a high throughput API server",
+        "compaction": "Go pauses for a garbage collector, and Rust does not.\u001eThat is the trade you are weighing.\u001eI am comparing Go and Rust for a high throughput API server.\u001eBoth are strong here.\u001eGo ships faster, Rust gives tighter control.",
+        "messageCount": 4,
+        "titleTruncated": true,
+        "forgotten": []
+      },
+      {
+        "id": "infra",
+        "title": "Docker Compose runs PostgreSQL locally for me",
+        "compaction": "Kubernetes feels heavy for a team of three.\u001eIt usually is, until you need rolling deploys.\u001eDocker Compose runs PostgreSQL locally for me.\u001eThat keeps development and production aligned.",
+        "messageCount": 4,
+        "titleTruncated": true,
+        "forgotten": []
+      },
+      {
+        "id": "safety",
+        "title": "Rust has no garbage collector. Ownership decides when",
+        "compaction": "Rust has no garbage collector.\u001eOwnership decides when memory is freed.\u001eThe borrow checker proves that before the program ever runs.",
+        "messageCount": 2,
+        "titleTruncated": true,
+        "forgotten": []
+      },
+      {
+        "id": "deploy",
+        "title": "We deploy with Docker Compose today, but Kubernetes is the",
+        "compaction": "PostgreSQL stays managed either way.\u001eGood call.\u001eRunning it yourself is real work.\u001eWe deploy with Docker Compose today, but Kubernetes is the plan.\u001eA staged migration is sensible.",
+        "messageCount": 4,
+        "titleTruncated": true,
+        "forgotten": []
+      },
+      {
+        "id": "you",
+        "title": "We run PostgreSQL on Kubernetes in production",
+        "compaction": "We run PostgreSQL on Kubernetes in production.",
+        "messageCount": 1,
+        "titleTruncated": true,
+        "forgotten": []
+      }
+    ],
+    "nodes": [
+      {
+        "key": "postgresql",
+        "label": "PostgreSQL",
+        "chatIds": [
+          "db",
+          "infra",
+          "deploy",
+          "you"
+        ]
+      },
+      {
+        "key": "relationalschema",
+        "label": "relational schema",
+        "chatIds": [
+          "db"
+        ]
+      },
+      {
+        "key": "goodfit",
+        "label": "good fit",
+        "chatIds": [
+          "db"
+        ]
+      },
+      {
+        "key": "go",
+        "label": "Go",
+        "chatIds": [
+          "lang"
+        ]
+      },
+      {
+        "key": "rust",
+        "label": "Rust",
+        "chatIds": [
+          "lang",
+          "safety"
+        ]
+      },
+      {
+        "key": "highthroughputapiserver",
+        "label": "high throughput API server",
+        "chatIds": [
+          "lang"
+        ]
+      },
+      {
+        "key": "garbagecollector",
+        "label": "garbage collector",
+        "chatIds": [
+          "lang",
+          "safety"
+        ]
+      },
+      {
+        "key": "dockercompose",
+        "label": "Docker Compose",
+        "chatIds": [
+          "infra",
+          "deploy"
+        ]
+      },
+      {
+        "key": "kubernetes",
+        "label": "Kubernetes",
+        "chatIds": [
+          "infra",
+          "deploy",
+          "you"
+        ]
+      },
+      {
+        "key": "ownership",
+        "label": "Ownership",
+        "chatIds": [
+          "safety"
+        ]
+      }
+    ]
+  }
+}

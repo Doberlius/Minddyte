@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ArrowUpRight, Trash2, X } from 'lucide-react'
+import { ArrowUpRight } from 'lucide-react'
 import { RECORD_SEPARATOR, COMPACTION_CAP } from '@/lib/compaction'
 import { splitInline } from '@/lib/inline-markdown'
 import type { ViewGraph, GraphChat } from '@/types/graph'
@@ -56,20 +56,17 @@ function Card({
   isYours,
   highlightLabel,
   onOpen,
-  onForget,
 }: {
   chat: GraphChat
   graph: ViewGraph
   isYours: boolean
   highlightLabel: string
   onOpen?: (id: string) => void
-  onForget?: (chatId: string, label: string) => void
 }) {
   const [all, setAll] = useState(false)
   const sentences = chat.compaction.split(RECORD_SEPARATOR).filter(Boolean)
   const shown = all ? sentences : sentences.slice(0, SHOWN)
   const concepts = graph.nodes.filter((n) => n.chatIds.includes(chat.id))
-  const forgotten = chat.forgotten ?? []
   // deriveTitle caps at 60 characters and can land mid-clause; without the
   // ellipsis the card reads as a rendering bug rather than a derived title.
   const truncated = chat.titleTruncated
@@ -104,28 +101,7 @@ function Card({
             >
               {n.label}
               {n.chatIds.length > 1 && <b>{n.chatIds.length}</b>}
-              {onForget && (
-                <button
-                  onClick={() => onForget(chat.id, n.label)}
-                  aria-label={`Forget ${n.label} in this conversation`}
-                  title={`Forget ${n.label} — its sentences leave this memory for good`}
-                >
-                  <X size={11} strokeWidth={2.5} aria-hidden="true" />
-                </button>
-              )}
             </span>
-          ))}
-        </div>
-      )}
-
-      {forgotten.length > 0 && (
-        // Shown rather than silently applied: a delete whose only evidence is
-        // an absence is indistinguishable from a bug.
-        <div className="demo-forgotten">
-          <span className="sr-only">Forgotten in this conversation:</span>
-          <Trash2 size={11} aria-hidden="true" />
-          {forgotten.map((label) => (
-            <s key={label}>{label}</s>
           ))}
         </div>
       )}
@@ -168,7 +144,6 @@ export function ArchiveView({
   highlight,
   highlightLabel,
   onOpen,
-  onForget,
 }: {
   graph: ViewGraph
   /** Conversations to mark apart: the demo's own, the app's open one. */
@@ -176,12 +151,6 @@ export function ArchiveView({
   highlightLabel: string
   /** Open a conversation. Without it a card is a place you can only look at. */
   onOpen?: (id: string) => void
-  /**
-   * Delete a concept from a conversation. Omitted by a caller that has not
-   * built Forgetting — the app has the table but no service behind it yet —
-   * and the chips then carry no delete rather than one that throws.
-   */
-  onForget?: (chatId: string, label: string) => void
 }) {
   const shared = graph.nodes.filter((n) => n.chatIds.length > 1).length
 
@@ -225,7 +194,6 @@ export function ArchiveView({
               isYours={highlight.includes(chat.id)}
               highlightLabel={highlightLabel}
               onOpen={onOpen}
-              onForget={onForget}
             />
           ))}
         </div>

@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { layoutGraph, conceptWidth, CONCEPT_HEIGHT, CARD_SIZE } from '@/lib/graph-layout'
-import { emptyGraph, sendMessage } from '@/demo/graph'
-import { seededGraph } from '@/demo/seed'
-import { toViewGraph } from '@/demo/view'
+import fixtures from '../fixtures/view-graphs.json'
+import type { ViewGraph } from '@/types/graph'
+
+const seeded = fixtures.seeded as unknown as ViewGraph
+const solo = fixtures.solo as unknown as ViewGraph
+const grown = fixtures.grown as unknown as ViewGraph
 
 /**
  * The layout carries an argument, so it is worth asserting rather than eyeballing:
@@ -17,7 +20,7 @@ function distance(p: { x: number; y: number }) {
 describe('layoutGraph', () => {
   // The layout reads the view shape now, which is what both the app and
   // the demo hand it.
-  const graph = toViewGraph(seededGraph())
+  const graph = seeded
   const layout = layoutGraph(graph)
 
   it('places every chat and every concept', () => {
@@ -97,8 +100,7 @@ describe('layoutGraph', () => {
   })
 
   it('survives a graph with one chat and no concepts', () => {
-    const one = sendMessage(emptyGraph(), { chatId: 'solo', userText: '...' })
-    const l = layoutGraph(toViewGraph(one))
+    const l = layoutGraph(solo)
 
     expect(l.chats).toHaveLength(1)
     expect(Number.isFinite(l.chats[0].x)).toBe(true)
@@ -108,11 +110,7 @@ describe('layoutGraph', () => {
     // The pile that prompted the box rule appeared at SIX chats, not the
     // seeded five — the ring re-spaces itself on every arrival, so the seeded
     // layout passing proves nothing about the one a visitor actually sees.
-    const grown = sendMessage(seededGraph(), {
-      chatId: 'you',
-      userText: 'We run PostgreSQL on Kubernetes in production.',
-    })
-    const l = layoutGraph(toViewGraph(grown))
+    const l = layoutGraph(grown)
 
     const boxes = l.concepts.map((c) => {
       const node = grown.nodes.find((n) => n.key === c.id)!

@@ -35,14 +35,6 @@ export type GraphChat = {
    * rendering bug instead of a derived name.
    */
   titleTruncated: boolean
-  /**
-   * Concepts the user deleted from this conversation.
-   *
-   * Optional because Forgetting ships in the demo first: the app's loader does
-   * not supply it yet, and a required field would have broken it for a feature
-   * it does not have. A view that receives none simply offers no delete.
-   */
-  forgotten?: string[]
 }
 
 export type ViewGraph = {

@@ -355,26 +355,6 @@ input:focus-visible, textarea:focus-visible {
   color: var(--ink3);
 }
 
-/* ── The guide bar ───────────────────────────────────────────
-   A visitor arrives knowing nothing and the tabs are named after product
-   concepts, not outcomes. This bar says where they are, what to do, and
-   where it leads — one sentence and one action, never a second row of
-   navigation. The dots are progress only; the tabs above still do the
-   navigating.
-   ──────────────────────────────────────────────────────────── */
-.demo-guide {
-  display: flex; align-items: center; gap: 14px;
-  padding: 9px 22px;
-  background: var(--violet-l);
-  border-bottom: 1px solid #DDDEF8;
-  flex-shrink: 0;
-}
-.demo-guide p {
-  font-size: 12.5px; line-height: 1.5; color: #40437A; margin: 0;
-  min-width: 0;
-}
-.demo-guide strong { font-weight: 600; color: #2E3070; }
-
 .demo-dots { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
 .demo-dots i {
   display: block; width: 6px; height: 6px; border-radius: 50%;
@@ -383,40 +363,6 @@ input:focus-visible, textarea:focus-visible {
 .demo-dots i.is-done { background: var(--violet); }
 .demo-dots i.is-now {
   background: var(--violet); width: 16px; border-radius: 999px;
-}
-
-.demo-guide-cta {
-  display: inline-flex; align-items: center; gap: 5px;
-  margin-left: auto; flex-shrink: 0;
-  font-family: inherit; font-size: 12px; font-weight: 600;
-  padding: 6px 12px; border-radius: 999px;
-  background: var(--violet); color: #fff; border: 1px solid var(--violet);
-  cursor: pointer;
-  transition: background .15s, border-color .15s;
-}
-.demo-guide-cta:hover { background: var(--violet-d); border-color: var(--violet-d); }
-.demo-guide-cta.is-quiet {
-  background: transparent; color: var(--violet); border-color: var(--violet-m);
-}
-.demo-guide-cta.is-quiet:hover { background: #E3E5FB; border-color: var(--violet); }
-
-/* The standing "this is a demo" mark in the nav. Small, permanent, and honest
-   about what is missing, so the claim is made once rather than in every panel. */
-.demo-badge {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 10.5px; font-weight: 600;
-  text-transform: uppercase; letter-spacing: .07em;
-  color: var(--violet); background: var(--violet-l);
-  border-radius: 999px; padding: 4px 10px;
-  white-space: nowrap;
-}
-
-/* A conversation in the archive. Not a link and not clickable, so it gains no
-   hover state — a card that lifts under the pointer promises a destination. */
-.demo-card {
-  background: var(--white);
-  border: 1px solid var(--border);
-  border-radius: 10px;
 }
 
 .demo-chip {
@@ -433,55 +379,6 @@ input:focus-visible, textarea:focus-visible {
   background: rgba(255,255,255,.26); border-radius: 999px;
   padding: 0 5px; margin-right: -3px;
 }
-
-/* Forgetting, offered on the chip itself.
-
-   Hidden until the card is hovered or the button is focused: a row of delete
-   controls sitting permanently beside every concept reads as a warning, and
-   most visits never delete anything. Focus-visible keeps it reachable from
-   the keyboard, where hover does not exist. */
-.demo-chip button {
-  display: grid; place-items: center;
-  width: 15px; height: 15px; margin-right: -4px;
-  padding: 0; border: none; border-radius: 999px;
-  background: none; color: inherit; cursor: pointer;
-  opacity: 0; transition: opacity .12s, background .12s;
-}
-.demo-card:hover .demo-chip button { opacity: .5; }
-.demo-chip button:hover { opacity: 1; background: rgba(0,0,0,.12); }
-.demo-chip.is-shared button:hover { background: rgba(255,255,255,.3); }
-.demo-chip button:focus-visible {
-  opacity: 1; outline: 2px solid var(--violet); outline-offset: 1px;
-}
-@media (hover: none) {
-  /* No hover to reveal it, so it is simply there. */
-  .demo-chip button { opacity: .5; }
-}
-
-/* A concept this conversation deleted. Listed, not hidden: a delete the user
-   cannot see the result of is indistinguishable from a bug. */
-.demo-forgotten {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-  margin-bottom: 15px; font-size: 11.5px; color: var(--ink3);
-}
-.demo-forgotten s { text-decoration-color: var(--ink3); opacity: .85; }
-
-/* A suggested opening line. Reads as something to press: it sits on white,
-   it moves, and its arrow arrives on hover. */
-.demo-prompt {
-  display: flex; align-items: center; gap: 9px; width: 100%;
-  font-size: 12.5px; line-height: 1.45; padding: 9px 14px; border-radius: 999px;
-  border: 1px solid var(--border); background: var(--white); color: var(--ink2);
-  cursor: pointer; font-family: inherit; text-align: left;
-  transition: border-color .15s, color .15s, box-shadow .15s;
-}
-.demo-prompt:hover {
-  border-color: var(--violet); color: var(--violet);
-  box-shadow: 0 2px 10px rgba(79,70,232,.1);
-}
-.demo-prompt svg { flex-shrink: 0; opacity: 0; transition: opacity .15s, transform .15s; }
-.demo-prompt:hover svg, .demo-prompt:focus-visible svg { opacity: 1; }
-.demo-prompt span { flex: 1; min-width: 0; }
 
 /* The composer — shared, not demo-only: the app's chat box is the same box,
    which is the whole reason the demo is worth showing. Named for what it is
@@ -507,8 +404,6 @@ input:focus-visible, textarea:focus-visible {
    reads as the live button, and white on --violet-m is 2:1 either way. */
 .btn-send:disabled { background: var(--border2); color: var(--ink3); cursor: not-allowed; }
 
-.demo-more { display: flex; flex-wrap: wrap; gap: 7px; }
-
 /* The stats and legend strip above the canvas. It sits above rather than
    floating on the graph: floated, it covered the cards it describes. */
 .demo-stats {
@@ -521,28 +416,6 @@ input:focus-visible, textarea:focus-visible {
 }
 .demo-stats .rule { width: 1px; height: 28px; background: var(--border); }
 .demo-legend { display: flex; gap: 16px; flex-wrap: wrap; }
-
-/* The archive grid. `min()` is what keeps a 330px column from overflowing a
-   375px phone, where `minmax(330px, 1fr)` forces a horizontal scrollbar. */
-.demo-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(330px, 100%), 1fr));
-  gap: 16px;
-  align-items: start;
-}
-
-/* The memory: the visitor's own sentences, newest first. Ordered, because the
-   order is the claim. Marked with a dot rather than a rule down the side — a
-   coloured bar there reads as a callout, and this is a record. */
-.demo-memory { list-style: none; display: flex; flex-direction: column; gap: 9px; }
-.demo-memory li {
-  position: relative; padding-left: 14px;
-  font-size: 12.5px; line-height: 1.6; color: var(--ink2);
-}
-.demo-memory li::before {
-  content: ''; position: absolute; left: 0; top: .62em;
-  width: 4px; height: 4px; border-radius: 50%; background: var(--violet-m);
-}
 
 /* React Flow's own chrome, matched to the app's surfaces. */
 .demo-flow .react-flow__controls { border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(26,26,46,.1); }
@@ -557,8 +430,6 @@ input:focus-visible, textarea:focus-visible {
    scrolls sideways.
    ──────────────────────────────────────────────────────────── */
 @media (max-width: 860px) {
-  .demo-guide { padding: 9px 16px; gap: 10px; }
-  .demo-guide p { font-size: 12px; }
   .demo-stats { gap: 16px; padding: 10px 16px; }
   .demo-stats .rule { display: none; }
   .demo-legend { gap: 12px; }
@@ -571,15 +442,7 @@ input:focus-visible, textarea:focus-visible {
      the title is a caption, and at this width only one of them fits. */
   .nav-session { display: none; }
 
-  /* Wrapped, so the sentence keeps its measure and the action stays reachable
-     under it instead of being squeezed to two words per line. */
-  .demo-guide { flex-wrap: wrap; row-gap: 8px; }
-  .demo-guide p { flex: 1 1 100%; order: 2; }
-  .demo-guide-cta { order: 3; margin-left: 0; }
-  .demo-dots { order: 1; }
-
   .demo-legend { font-size: 11px; }
-  .demo-grid { gap: 12px; }
 
   /* The badge and Reset used to be squeezed into the nav, where there was room
      for them or for the tabs. They sit in the sidebar's own footer row now,
@@ -597,9 +460,6 @@ input:focus-visible, textarea:focus-visible {
   .side:not([data-view='chat']) .side-list,
   .side:not([data-view='chat']) .side-group,
   .side:not([data-view='chat']) .side-search { display: none; }
-  /* One suggestion, not two: the composer, its note and two pills together
-     were eating the transcript they exist to fill. */
-  .demo-more > :nth-child(2) { display: none; }
 }
 
 /* ── Reduced motion ──────────────────────────────────────────

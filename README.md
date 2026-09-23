@@ -163,9 +163,6 @@ ollama pull gemma3          # or any model you have
 bun run dev                 # http://localhost:3000
 ```
 
-The demo page needs neither Ollama nor a database — open
-[`localhost:3000/demo`](http://localhost:3000/demo) straight after `bun install`.
-
 The database is created on first run at `./.data/minddyte`. Override with
 `MINDDYTE_DATA_DIR`; `bun run db:reset` starts over and `bun run db:export`
 takes a copy.
