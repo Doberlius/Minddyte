@@ -67,11 +67,17 @@ header. Type `/help` any time to show the list of commands below.
 | **Explore** | Also look in related chats, and use general knowledge. This is the default. |
 | **Focus** | Answer only from this chat and the chats you add with @. If the answer is not there, it says so. |
 | **@** | Add another chat to this one, so its conversation is used. |
+| **About you** | A short note about you that every answer can use. Only you can change it. |
 | **/help** | Show this list of commands. |
 
 A chat you add with @ is sent in full whenever it is short enough to fit —
 nothing summarized, nothing cut — so its details stay in reach of the
 question you're actually asking.
+
+**About you** lives in the sidebar, under Archive. Write a few lines about
+yourself once — your name, what you're working on, how you like answers —
+and every chat can use them. Nothing updates it for you; it only changes
+when you open it and edit it yourself.
 
 ---
 
