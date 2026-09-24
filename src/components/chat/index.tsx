@@ -6,7 +6,7 @@ import { DefaultChatTransport } from 'ai'
 import { AlertCircle } from 'lucide-react'
 import { AtPicker } from './AtPicker'
 import { CommandPicker } from './CommandPicker'
-import { modeLabel } from './commands'
+import { exactCommand, modeLabel, type HelpEntry } from './commands'
 import { HelpCard } from './HelpCard'
 import { ModelPicker } from './ModelPicker'
 import { classifyChatFailure } from '@/lib/chat-error'
@@ -290,9 +290,31 @@ export function NeuralChat({
     }
   }, [status, onChatsChanged])
 
+  /**
+   * Run a command instead of sending it. The one path for both the / menu and
+   * Send, so a command is never sent to the model and never saved (Q10).
+   */
+  function runCommand(entry: HelpEntry) {
+    if (entry.action?.kind === 'mode') setMode(entry.action.mode)
+    else if (entry.action?.kind === 'help') setShowHelp(true)
+    // The command is not part of the message, so it does not stay in the box
+    // once it has been run.
+    setInput('')
+    setSlashOff(false)
+  }
+
   const submit = async () => {
     const text = input.trim()
-    if (!text || status !== 'ready') return
+    if (!text) return
+    // Whole-branch review 2, finding 2: the / menu's Enter ran commands, but
+    // clicking Send (or Enter after dismissing the menu) sent "/help" to the
+    // model and saved it. A message that is exactly a command is run here.
+    const command = exactCommand(text)
+    if (command) {
+      runCommand(command)
+      return
+    }
+    if (status !== 'ready') return
     // A new attempt supersedes whatever the last one said.
     setFailure(null)
 
@@ -408,14 +430,7 @@ export function NeuralChat({
           <CommandPicker
             query={slashQuery ?? ''}
             mode={mode}
-            onPick={(entry) => {
-              if (entry.action?.kind === 'mode') setMode(entry.action.mode)
-              else if (entry.action?.kind === 'help') setShowHelp(true)
-              // The command is not part of the message, so it does not stay in
-              // the box once it has been run.
-              setInput('')
-              setSlashOff(false)
-            }}
+            onPick={runCommand}
             onDismiss={() => setSlashOff(true)}
           />
         )}

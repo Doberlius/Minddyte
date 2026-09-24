@@ -65,7 +65,7 @@ header. Type `/help` any time to show the list of commands below.
 | | What it means |
 |---|---|
 | **Explore** | Also look in related chats, and use general knowledge. This is the default. |
-| **Focus** | Answer only from the chats you add with @. If the answer is not there, it says so. |
+| **Focus** | Answer only from this chat and the chats you add with @. If the answer is not there, it says so. |
 | **@** | Add another chat to this one, so its conversation is used. |
 | **/help** | Show this list of commands. |
 

@@ -19,7 +19,7 @@ export const HELP_ENTRIES: HelpEntry[] = [
   },
   {
     name: 'mode focus', label: '/mode focus',
-    what: 'Answer only from the chats you add with @. If the answer is not there, it says so.',
+    what: 'Answer only from this chat and the chats you add with @. If the answer is not there, it says so.',
     example: '/mode focus, then: @Muse Code what does it do?',
     action: { kind: 'mode', mode: 'focus' },
   },
@@ -41,6 +41,17 @@ export const SLASH_ENTRIES = HELP_ENTRIES.filter((e) => e.action)
 export function matchCommands(query: string): HelpEntry[] {
   const q = query.toLowerCase()
   return SLASH_ENTRIES.filter((e) => e.name.startsWith(q) || e.name.includes(q))
+}
+
+/**
+ * The command a whole message IS, if any: `/help`, `/mode focus`, ignoring case
+ * and surrounding spaces. Send runs it instead of sending it, so a command is
+ * never sent to the model and never saved (ticket 08, Q10). "/help me with
+ * kafka" is a message, not a command.
+ */
+export function exactCommand(text: string): HelpEntry | undefined {
+  const t = text.trim().toLowerCase()
+  return SLASH_ENTRIES.find((e) => e.label.toLowerCase() === t)
 }
 
 /**

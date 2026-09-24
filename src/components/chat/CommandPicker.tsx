@@ -65,18 +65,11 @@ export function CommandPicker({
         onDismiss()
         return
       }
-      if (list.length === 0) {
-        if (event.key === 'Enter' && !event.shiftKey) {
-          // Nothing matches (e.g. "/xyz"), so there is nothing to run — but
-          // the box below still sends on Enter, and letting this fall
-          // through would send the half-typed command as a literal message
-          // instead of doing nothing. The empty state already points at
-          // /help.
-          event.preventDefault()
-          event.stopPropagation()
-        }
-        return
-      }
+      // Nothing matches (e.g. "/why is this slow"): Enter falls through to the
+      // box below and sends it as an ordinary message, as Send would. Doing
+      // nothing here trapped the person with no way to send what they typed
+      // (whole-branch review 2, finding 4).
+      if (list.length === 0) return
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault()
         event.stopPropagation()
@@ -104,7 +97,7 @@ export function CommandPicker({
       <div className="picker">
         <div className="picker-head">Commands</div>
         <p className="picker-empty">
-          No command matches “{query}”. Type <code>/help</code> to see all commands.
+          No command matches “{query}”. Type <code>/help</code> to see all commands, or press Enter to send it as a message.
         </p>
       </div>
     )
