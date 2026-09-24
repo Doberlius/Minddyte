@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { eq, sql } from 'drizzle-orm'
-import { getDb, sessions } from '../../db'
+import { and, eq, sql } from 'drizzle-orm'
+import { getDb, sessions, messages } from '../../db'
 import { strongPhrases } from '@/lib/tokens'
 import { FIXTURE_WORKSPACE_ID, newChat, truncateAll } from '../helpers/pglite'
 import { ingestUserMessage, persistMessage } from '@/services/graph'
@@ -304,6 +304,24 @@ describe('tagged chats (ticket 08, Q2)', () => {
     // Tagged chats rank by most recently referenced first: put Big first.
     const db = await getDb()
     await db.update(sessions).set({ updatedAt: new Date(Date.now() + 3_600_000) }).where(eq(sessions.id, big))
+    // Fix round 1: against draftText 'summary', every passage of Big scores
+    // ~0, so scoredPointers' picks are decided entirely by the tie-break
+    // (created_at, then message_id, then ordinal). Big's user and assistant
+    // messages are two separate inserts a moment apart, but `now()`'s
+    // resolution here is only a millisecond (proved with a 30-run loop: 6/30
+    // tied) — a tie then falls to message_id, a fresh random uuid each run,
+    // so which message's passages win the tie (Big's one-line user message,
+    // short enough to fit the ~300 chars left after Small; or Big's
+    // 18-passage assistant message, whose picks are ~1,000-char lines that
+    // never fit) was a coin flip, and on a loss Big never gets a slot in
+    // `chats` at all. The user message really was said first — pin that down
+    // instead of leaving it to clock resolution, so Big's short excerpt
+    // always wins the tie and this test's own premise (Big present, ranked
+    // first) always holds.
+    await db
+      .update(messages)
+      .set({ createdAt: sql`${messages.createdAt} - interval '1 second'` })
+      .where(and(eq(messages.sessionId, big), eq(messages.role, 'user')))
     const b = await newChat('B')
     const { chats, dropped } = await retrieveContext({
       workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'focus', taggedChatIds: [big, small], draftText: 'summary',
