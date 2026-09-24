@@ -202,3 +202,19 @@ describe('a very long draft', () => {
     expect(performance.now() - started).toBeLessThan(1500)
   }, 120_000)
 })
+
+describe('a huge tagged chat', () => {
+  it('answers in well under a second, and still finds the fact', async () => {
+    const big = await newChat('Big')
+    const filler = Array.from({ length: 3000 }, (_, i) => `Filler line ${i} mentions nothing useful at all.`).join(' ')
+    await turn(big, 'Here is a long log.', `${filler} The retention period for audit logs is ninety days.`)
+    const b = await newChat('B')
+    const t = performance.now()
+    const { chats } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'focus', taggedChatIds: [big],
+      draftText: 'what is the retention period for audit logs',
+    })
+    expect(performance.now() - t).toBeLessThan(1500)
+    expect(chats[0].excerpts.join(' ')).toContain('ninety days')
+  })
+})

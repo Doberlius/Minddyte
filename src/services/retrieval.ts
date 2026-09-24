@@ -105,6 +105,7 @@ async function scoredPointers(
   workspaceId: string,
   chats: { id: string; labels: string[] }[],
   draft: string,
+  picks: number = PROVISIONAL.windowsPerChat,
 ): Promise<Map<string, ScoredPointer[]>> {
   const out = new Map<string, ScoredPointer[]>()
   if (chats.length === 0) return out
@@ -119,24 +120,41 @@ async function scoredPointers(
   const draftScore = draft ? sql`word_similarity(${draft}, ${chatPointers.matchText})` : null
   const score =
     draftScore && labelScore ? sql`greatest(${draftScore}, ${labelScore})` : (draftScore ?? labelScore ?? sql`0`)
-  const chatIds = chats.map((c) => c.id)
 
-  const rows = await db
-    .select({
-      chatId: chatPointers.sessionId,
-      messageId: chatPointers.messageId,
-      ordinal: chatPointers.ordinal,
-      messageCreatedAt: messages.createdAt,
-      text: sql<string>`substring(${messages.content} from ${chatPointers.startChar} + 1 for ${chatPointers.endChar} - ${chatPointers.startChar})`,
-      score: sql<number>`${score}`.mapWith(Number),
-    })
-    .from(chatPointers)
-    .innerJoin(messages, eq(messages.id, chatPointers.messageId))
-    .where(and(eq(chatPointers.workspaceId, workspaceId), inArray(chatPointers.sessionId, chatIds)))
+  const ids = sql.join(chats.map((c) => sql`${c.id}::uuid`), sql`, `)
+  // Rank inside Postgres and read text back only for the picked passages and
+  // their neighbours. Loading every passage (with text cut from its message)
+  // into the app took 7.6 s for a 4,662-passage chat and blocked every visitor.
+  const res = (await db.execute(sql`
+    with scored0 as (
+      select ${chatPointers.sessionId} as session_id, ${chatPointers.messageId} as message_id,
+             ${chatPointers.ordinal} as ordinal, ${messages.createdAt} as created_at,
+             ${score} as score
+        from ${chatPointers} join ${messages} on ${messages.id} = ${chatPointers.messageId}
+       where ${chatPointers.workspaceId} = ${workspaceId} and ${chatPointers.sessionId} in (${ids})
+    ), picked as (
+      select * from (
+        select *, row_number() over (partition by session_id
+          order by score desc, created_at, message_id, ordinal) as rn
+        from scored0) r
+      where rn <= ${picks}
+    ), wanted as (
+      select distinct pk.session_id, pk.message_id, pk.ordinal + d.k as ordinal
+        from picked pk cross join (values (-1), (0), (1)) as d(k)
+    )
+    select w.session_id as "chatId", w.message_id as "messageId", w.ordinal as "ordinal",
+           extract(epoch from m.created_at) * 1000 as "createdMs",
+           substring(m.content from p2.start_char + 1 for p2.end_char - p2.start_char) as "text",
+           coalesce(pk.score, -1) as "score"
+      from wanted w
+      join chat_pointers p2 on p2.message_id = w.message_id and p2.ordinal = w.ordinal
+      join messages m on m.id = p2.message_id
+      left join picked pk on pk.message_id = w.message_id and pk.ordinal = w.ordinal
+  `)) as unknown as { rows: { chatId: string; messageId: string; ordinal: number; createdMs: number | string; text: string; score: number | string }[] }
 
-  for (const r of rows) {
+  for (const r of res.rows) {
     const list = out.get(r.chatId) ?? []
-    list.push({ messageId: r.messageId, messageCreatedAt: r.messageCreatedAt.getTime(), ordinal: r.ordinal, text: r.text, score: r.score })
+    list.push({ messageId: r.messageId, messageCreatedAt: Number(r.createdMs), ordinal: Number(r.ordinal), text: r.text, score: Number(r.score) })
     out.set(r.chatId, list)
   }
   return out
