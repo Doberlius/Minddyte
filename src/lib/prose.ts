@@ -9,8 +9,8 @@ import { splitSentences } from './text'
  *
  * The sentences of a message, with markdown parsed away first. Ticket 11.
  *
- * Replies arrive as markdown, and splitSentences alone stored heading hashes,
- * table pipes and bullet markers into Compactions as if they were memory.
+ * Replies arrive as markdown, and splitSentences alone would index heading
+ * hashes, table pipes and bullet markers as passages, as if they were memory.
  * The principle: markup is not content; words are. Removing `## ` changes no
  * proposition, so the verbatim rule — which exists to protect meaning — is
  * not broken by it.

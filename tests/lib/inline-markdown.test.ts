@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { splitInline } from '@/lib/inline-markdown'
 
 /**
- * A Compaction stores what was said, byte for byte, and a model says a lot of
+ * A memory passage is what was said, byte for byte, and a model says a lot of
  * it in markdown. Rendered raw, a memory reads `**parallelize** the writing`
  * and looks like a bug in the panel whose whole claim is that these are real
  * sentences.

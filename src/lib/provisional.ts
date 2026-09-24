@@ -18,4 +18,14 @@ export const PROVISIONAL = {
   windowsPerChat: 3,
   /** A code block or table longer than this (UTF-16 chars) is not indexed, and the skip is logged. */
   spanCharLimit: 4000,
+  /**
+   * Code points of the draft that text search reads: the word_similarity reach,
+   * the passage scoring and the strong-phrase scan. pg_trgm rebuilds the
+   * draft's trigrams for every candidate row, and a long draft shares trigrams
+   * with nearly every passage, so the cost grows linearly with draft length
+   * (whole-branch review: 5,000 chars took 6.6 s over 7,500 pointers). PGlite
+   * is one in-process connection, so every visitor waits for it. 500 is a
+   * paragraph — enough to say what the question is about.
+   */
+  queryCharLimit: 500,
 } as const

@@ -8,6 +8,7 @@ import { retrieveContext } from '@/services/retrieval'
 import { getDb, nodes, collections, rejectedPhrases, clusterOrigins } from '../../db'
 import { eq } from 'drizzle-orm'
 import { newWorkspaceId } from '@/lib/workspace'
+import { AUTO_REACH_CAP } from '@/lib/rank'
 
 beforeEach(truncateAll)
 
@@ -225,18 +226,42 @@ describe('retrieval', () => {
 })
 
 describe('text reach stays inside the workspace', () => {
+  async function exchange(workspaceId: string, sessionId: string, user: string, assistant: string) {
+    const m = await persistMessage({ workspaceId, sessionId, role: 'user', content: user })
+    const r = await persistMessage({ workspaceId, sessionId, role: 'assistant', content: assistant })
+    await ingestUserMessage({ workspaceId, sessionId, messageId: m, content: user, assistantContent: assistant, assistantMessageId: r })
+  }
+
   it("never reaches another workspace's passages", async () => {
+    // scoredPointers filters by workspace too, so "B never comes back" alone
+    // would stay green if textHits lost BOTH of its workspace filters: the
+    // leaked chat would be ranked, then dropped at the passage fetch. So A
+    // holds exactly AUTO_REACH_CAP chats that match the draft by wording only,
+    // and B holds the one strong exact-phrase match, which outranks them all.
+    // A leaked B takes a capped slot, and one of A's chats goes missing.
     const b1 = await createChat(B)
-    const mB = await persistMessage({ workspaceId: B, sessionId: b1.id, role: 'user', content: 'Defaults?' })
-    const aB = await persistMessage({ workspaceId: B, sessionId: b1.id, role: 'assistant', content: 'The retention period for audit logs is ninety days by default.' })
-    await ingestUserMessage({ workspaceId: B, sessionId: b1.id, messageId: mB, content: 'Defaults?', assistantContent: 'The retention period for audit logs is ninety days by default.', assistantMessageId: aB })
+    await exchange(B, b1.id, 'Defaults?', 'The retention period for audit logs is ninety days by default.')
+
+    const wordingOnly = [
+      'Our audit log retention lasts for a period.',
+      'Retention for the audit log period is short.',
+      'Our audit log retention lasts for a short period.',
+    ]
+    expect(wordingOnly).toHaveLength(AUTO_REACH_CAP)
+    const mine: string[] = []
+    for (const text of wordingOnly) {
+      const c = await createChat(A)
+      await exchange(A, c.id, 'Defaults?', text)
+      mine.push(c.id)
+    }
 
     const a1 = await createChat(A)
     const { chats } = await retrieveContext({
       workspaceId: A, sessionId: a1.id, mode: 'explore', taggedChatIds: [],
       draftText: 'What is our retention period for audit logs?',
     })
-    expect(chats).toEqual([])
+    expect(chats.map((c) => c.id).sort()).toEqual([...mine].sort())
+    expect(chats.map((c) => c.id)).not.toContain(b1.id)
   })
 })
 
@@ -264,8 +289,9 @@ describe('ownership guards on the write path', () => {
     // `upsertNodeAndLink` trusts the sessionId it is handed; nothing inside
     // ingestUserMessage's own transaction proved it belongs to workspaceId
     // before this guard existed. A mismatched pair here used to reach the
-    // title/headline update, the compaction read and the compaction write —
-    // three separately scoped `where` clauses, each individually deletable
+    // title/headline update, the compaction read and the compaction write
+    // (historical: the Compaction has since been removed; the pointer write
+    // took its place) — three separately scoped `where` clauses, each individually deletable
     // with the rest of the suite staying green, because nothing else put a
     // mismatched pair through this function. This guard, and this test,
     // close that off at the one place a caller could ever reach it from.

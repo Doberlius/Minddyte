@@ -5,7 +5,7 @@ import { extractConcepts } from "@/lib/extract"
 import { canonicalKey } from "@/lib/text"
 import { selectWindows, type ScoredPointer } from "@/lib/windows"
 import { PROVISIONAL } from "@/lib/provisional"
-import { strongPhrases } from "@/lib/tokens"
+import { queryText, strongPhrases } from "@/lib/tokens"
 
 /** Spec §6.2 — a QUALITY limit, not a capacity one. */
 export const CONTEXT_CHAR_BUDGET = 2000 * 4 // ~2000 tokens
@@ -91,19 +91,35 @@ async function candidateRows(
 /**
  * The passages of the chosen chats, scored against the question, text read
  * back from `messages` by offset (offsets are code points, as substring()
- * counts). Scored against the draft AND each shared concept label, so a chat
- * reached through a Node alone still has something to rank its passages by.
+ * counts). Spec Q10: each chat's passages are scored against the draft AND the
+ * labels of the Nodes THAT chat shares, so a chat reached through a Node alone
+ * still has something to rank its passages by — and another chat's concept
+ * never picks its passages.
+ *
+ * Still one query, however many chats: the per-chat labels travel as a VALUES
+ * list keyed by chat id, and each passage takes the best label of its own chat
+ * through a correlated subquery. Tagged chats are uncapped, so a query per chat
+ * would be unbounded. Every value is a bound parameter.
  */
 async function scoredPointers(
   workspaceId: string,
-  chatIds: string[],
-  queries: string[],
+  chats: { id: string; labels: string[] }[],
+  draft: string,
 ): Promise<Map<string, ScoredPointer[]>> {
   const out = new Map<string, ScoredPointer[]>()
-  if (chatIds.length === 0) return out
+  if (chats.length === 0) return out
   const db = await getDb()
-  const scores = queries.filter((q) => q.trim()).map((q) => sql`word_similarity(${q}, ${chatPointers.matchText})`)
-  const score = scores.length > 0 ? sql`greatest(${sql.join(scores, sql`, `)})` : sql`0`
+  const pairs = chats.flatMap((c) => [...new Set(c.labels)].filter((l) => l.trim()).map((l) => ({ id: c.id, label: l })))
+  const labelScore = pairs.length
+    ? sql`coalesce((select max(word_similarity(q.label, ${chatPointers.matchText})) from (values ${sql.join(
+        pairs.map((p) => sql`(${p.id}::uuid, ${p.label}::text)`),
+        sql`, `,
+      )}) as q(chat_id, label) where q.chat_id = ${chatPointers.sessionId}), 0)`
+    : null
+  const draftScore = draft ? sql`word_similarity(${draft}, ${chatPointers.matchText})` : null
+  const score =
+    draftScore && labelScore ? sql`greatest(${draftScore}, ${labelScore})` : (draftScore ?? labelScore ?? sql`0`)
+  const chatIds = chats.map((c) => c.id)
 
   const rows = await db
     .select({
@@ -148,7 +164,8 @@ type TextHit = {
  * the process.
  */
 async function textHits(workspaceId: string, sessionId: string, draft: string): Promise<TextHit[]> {
-  if (!draft.trim()) return []
+  // `draft` is already queryText(): bounded, trimmed. See retrieveContext.
+  if (!draft) return []
   const db = await getDb()
   const phrases = strongPhrases(draft)
 
@@ -212,6 +229,11 @@ export async function retrieveContext(input: {
 }) {
   const db = await getDb()
   const tagged = new Set(input.taggedChatIds)
+  // Text search reads a bounded prefix of the draft (PROVISIONAL.queryCharLimit):
+  // pg_trgm's cost grows with draft length, and on single-connection PGlite a
+  // slow search blocks every visitor. Node reach below still reads the whole
+  // draft, as it did before pointers existed.
+  const query = queryText(input.draftText)
 
   // In focus, automatic reach is ignored entirely — only what the user
   // tagged. Spec §6.1. The skip is the CALL, not an empty key list: the
@@ -253,7 +275,7 @@ export async function retrieveContext(input: {
 
   // Text reach — explore only, like Node reach (§6.1).
   const textWhy = new Map<string, string>()
-  const hits = input.mode === "explore" ? await textHits(input.workspaceId, input.sessionId, input.draftText) : []
+  const hits = input.mode === "explore" ? await textHits(input.workspaceId, input.sessionId, query) : []
   for (const h of hits) {
     if (tagged.has(h.chatId)) continue // tagged chats are handled below, uncapped
     const strong = h.strong >= PROVISIONAL.strongStrictSimilarity
@@ -339,8 +361,7 @@ export async function retrieveContext(input: {
   // Second query: §6.6's "one query" bends here, deliberately. Ranking runs in
   // TypeScript between reach and fetch, so the chats to fetch passages for are
   // not known until reach has returned. Measured cost in ticket 05: ~3 ms.
-  const labels = [...new Set(ordered.flatMap((c) => c.labels))]
-  const pointers = await scoredPointers(input.workspaceId, ordered.map((c) => c.id), [input.draftText, ...labels])
+  const pointers = await scoredPointers(input.workspaceId, ordered, query)
 
   // Over budget: send what fits, report what did not. Spec §6.5. A passage is
   // included whole or skipped whole — never cut. A chat that loses ANY window

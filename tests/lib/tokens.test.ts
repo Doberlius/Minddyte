@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { significantTokenCount, strongPhrases } from '@/lib/tokens'
+import { queryText, significantTokenCount, strongPhrases } from '@/lib/tokens'
+import { PROVISIONAL } from '@/lib/provisional'
 
 describe('significantTokenCount', () => {
   it.each([
@@ -55,5 +56,20 @@ describe('strongPhrases', () => {
   it('leaves a proper-noun possessive alone', () => {
     const phrases = strongPhrases("Kafka's partitions keep order.")
     expect(phrases.some((p) => p.toLowerCase().includes('kafka'))).toBe(true)
+  })
+})
+
+describe('queryText', () => {
+  it('keeps the first queryCharLimit code points and never splits a surrogate pair', () => {
+    expect(PROVISIONAL.queryCharLimit).toBe(500)
+    const out = queryText('🎉'.repeat(1000))
+    expect(Array.from(out)).toHaveLength(500)
+    expect(out).toBe('🎉'.repeat(500))
+    // No lone surrogate anywhere (String.prototype.isWellFormed, spelled out).
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(out)).toBe(false)
+  })
+
+  it('returns a short draft unchanged, trimmed', () => {
+    expect(queryText('  how long do we keep audit logs \n')).toBe('how long do we keep audit logs')
   })
 })

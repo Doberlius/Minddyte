@@ -1,5 +1,23 @@
 import nlp from 'compromise'
 import { extractConcepts } from './extract'
+import { PROVISIONAL } from './provisional'
+
+/**
+ * The part of a draft that text search reads: its first
+ * PROVISIONAL.queryCharLimit code points, trimmed. Code points, not UTF-16
+ * units — `.slice` could cut an emoji in half and hand Postgres a lone
+ * surrogate. Walks only the prefix, so an 824,000-char paste costs 500 steps.
+ */
+export function queryText(draft: string): string {
+  let end = 0
+  let points = 0
+  for (const ch of draft) {
+    if (points === PROVISIONAL.queryCharLimit) break
+    end += ch.length
+    points++
+  }
+  return draft.slice(0, end).trim()
+}
 
 /**
  * Closed word classes: English does not invent new determiners, pronouns,

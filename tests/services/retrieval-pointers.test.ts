@@ -31,6 +31,28 @@ describe('retrieval reads memory from pointers', () => {
     expect(chats[0].excerpts.join(' ')).toContain('guarantee order only within one partition')
   })
 
+  // Whole-branch review, finding 6 (spec Q10): each chat's passages are scored
+  // against the draft and the labels of the Nodes IT shares — not a label set
+  // pooled from every reached chat, which would let chat C's concept pick
+  // chat A's passages.
+  it("scores a chat's passages by its own shared concepts, not another chat's", async () => {
+    const a = await newChat('A')
+    const filler = Array.from({ length: 12 }, (_, i) => `Filler sentence number ${i} says little.`).join(' ')
+    await turn(a, 'Tell me about Kafka partitions.', `Kafka partitions keep order. ${filler} Redis caching belongs to another chat entirely.`)
+    const c = await newChat('C')
+    await turn(c, 'Tell me about Redis caching.', 'Redis caching keeps hot keys in memory.')
+    const b = await newChat('B')
+    await turn(b, 'How do Kafka partitions relate to Redis caching?', 'Sure.')
+    const { chats } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'explore', taggedChatIds: [], draftText: 'go on',
+    })
+    const found = chats.find((x) => x.id === a)!
+    expect(found.why).toMatch(/Kafka partitions/i)
+    expect(found.why).not.toMatch(/Redis caching/i)
+    expect(found.excerpts.join(' ')).toContain('Kafka partitions keep order.')
+    expect(found.excerpts.join(' ')).not.toContain('Redis caching belongs to another chat')
+  })
+
   it('sends the text that follows an emoji verbatim', async () => {
     const a = await newChat('A')
     await turn(a, '🎉 Kafka partitions keep order. Redis caches sessions.', 'Noted.')
@@ -137,4 +159,46 @@ describe('reach by text', () => {
     const strictValue = Object.values((strictRes as unknown as { rows: Record<string, string>[] }).rows[0])[0]
     expect(strictValue).toBe('0.5')
   })
+})
+
+// Whole-branch review, finding 1: pg_trgm rebuilds the draft's trigrams for
+// every candidate row, and a long draft shares trigrams with nearly every
+// passage, so the index narrows little and the cost grows with draft length.
+// PGlite is one in-process connection: while this runs, every visitor waits.
+// The chat route has seen a real 824,000-char paste.
+describe('a very long draft', () => {
+  const TOPICS = [
+    'Kafka partitions keep order within one partition and consumers commit offsets after processing.',
+    'Redis caches session tokens with a short expiry so a restart only logs people out.',
+    'PostgreSQL vacuum reclaims dead tuples and the autovacuum daemon tunes itself by table size.',
+    'The retention period for audit logs is ninety days unless the contract says otherwise.',
+    'Password hashing uses argon2id with a memory cost chosen to take about half a second.',
+    'The deploy pipeline builds a container, runs migrations, then shifts traffic gradually.',
+    'Feature flags are evaluated on the server so the client never sees an unreleased path.',
+    'Rate limiting counts requests per workspace in a sliding window of sixty seconds.',
+  ]
+  const WORDS = 'alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu'.split(' ')
+
+  function varied(seed: number, n: number): string {
+    return Array.from({ length: n }, (_, i) => {
+      const t = TOPICS[(seed + i) % TOPICS.length]
+      return `${t} Note ${WORDS[(seed * 7 + i) % WORDS.length]} ${WORDS[(seed + i * 3) % WORDS.length]} ${seed}-${i}.`
+    }).join(' ')
+  }
+
+  it('costs no more than a short one: the search reads a bounded prefix', async () => {
+    for (let c = 0; c < 40; c++) {
+      const id = await newChat(`Seed ${c}`)
+      await turn(id, `Question ${c} about ${TOPICS[c % TOPICS.length].split(' ').slice(0, 3).join(' ')}?`, varied(c, 8))
+    }
+    const b = await newChat('B')
+    let draft = ''
+    for (let i = 0; draft.length < 50_000; i++) draft += varied(i + 100, 1) + ' '
+    draft = draft.slice(0, 50_000)
+
+    const started = performance.now()
+    await retrieveContext({ workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'explore', taggedChatIds: [], draftText: draft })
+    // Measured at this scale: uncapped 9,944 ms; capped at 500 code points 450 ms.
+    expect(performance.now() - started).toBeLessThan(1500)
+  }, 120_000)
 })
