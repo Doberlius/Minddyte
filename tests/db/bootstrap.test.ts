@@ -65,6 +65,31 @@ describe('bootstrap', () => {
     await pg.close()
   })
 
+  // Whole-branch review, finding 2: a crash after the old marking step created
+  // the migrations table but before it recorded 0000 left "tracked, 0 rows".
+  // The migrator then re-ran 0000 on a database that already had it —
+  // "relation sessions already exists" — on every boot, forever.
+  it('treats a schema with an EMPTY migrations table as untracked, and keeps its rows', async () => {
+    const pg = await fresh()
+    for (const s of firstMigrationStatements()) await pg.exec(s)
+    await pg.exec(
+      `insert into sessions (workspace_id, title) values ('00000000-0000-4000-8000-000000000001', 'kept')`,
+    )
+    await pg.exec(`create schema drizzle`)
+    await pg.exec(
+      `create table drizzle.__drizzle_migrations (id serial primary key, hash text not null, created_at bigint)`,
+    )
+
+    const out = await ensureSchema(pg)
+    expect(out.start).toBe('untracked')
+
+    const { rows } = await pg.query<{ title: string }>(`select title from sessions`)
+    expect(rows.map((r) => r.title)).toEqual(['kept'])
+    // And the next boot is an ordinary tracked one.
+    expect(await ensureSchema(pg)).toEqual({ start: 'tracked', applied: 0 })
+    await pg.close()
+  })
+
   // Standing rule: never act on a database we do not understand. A database
   // from before workspace scoping has the tables but not this column, so it
   // is NOT 0000 and must not be marked as if it were.

@@ -76,7 +76,8 @@ export async function hasSchema(pg: PGlite): Promise<boolean> {
  * Three starting points:
  *   empty      a new database — every migration runs
  *   untracked  created by the OLD bootstrap, which ran 0000 and recorded
- *              nothing. Marked as having 0000, then the rest run.
+ *              nothing (or left an EMPTY migrations table behind). Marked
+ *              as having 0000, then the rest run.
  *   tracked    already managed by the migrator — only new migrations run
  */
 export async function ensureSchema(
@@ -88,7 +89,12 @@ export async function ensureSchema(
   migrationStatements()
 
   const hadSchema = await hasSchema(pg)
-  const tracked = await isTracked(pg)
+  // An EMPTY migrations table next to a real schema is untracked too: nothing
+  // has been recorded, so 0000 still has to be marked rather than re-run.
+  // markAsHaving0000 is one transaction now, so it cannot leave this state
+  // behind — but a database written by the earlier, non-transactional version
+  // could already be in it, and re-running 0000 would fail on every boot.
+  const tracked = (await isTracked(pg)) && (await recordedCount(pg)) > 0
   const start = !hadSchema ? 'empty' : tracked ? 'tracked' : 'untracked'
 
   if (start === 'untracked') await markAsHaving0000(pg)
@@ -139,13 +145,17 @@ async function markAsHaving0000(pg: PGlite): Promise<void> {
   }
 
   const [first] = readMigrationFiles({ migrationsFolder: MIGRATIONS_DIR })
-  await pg.exec(`create schema if not exists drizzle`)
-  await pg.exec(
-    `create table if not exists drizzle.__drizzle_migrations (
-       id serial primary key, hash text not null, created_at bigint)`,
-  )
-  await pg.query(
-    `insert into drizzle.__drizzle_migrations (hash, created_at) values ($1, $2)`,
-    [first.hash, first.folderMillis],
-  )
+  // One transaction: a crash between creating the table and recording 0000
+  // would otherwise leave a tracked-looking database with nothing recorded.
+  await pg.transaction(async (tx) => {
+    await tx.exec(`create schema if not exists drizzle`)
+    await tx.exec(
+      `create table if not exists drizzle.__drizzle_migrations (
+         id serial primary key, hash text not null, created_at bigint)`,
+    )
+    await tx.query(
+      `insert into drizzle.__drizzle_migrations (hash, created_at) values ($1, $2)`,
+      [first.hash, first.folderMillis],
+    )
+  })
 }

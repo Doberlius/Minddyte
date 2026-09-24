@@ -90,15 +90,39 @@ async function open() {
     )
   }
 
-  await ensureSchema(pg)
+  // A failure past this point has an OPEN engine and, on disk, a lock this
+  // process took. Both must go before the error leaves: conn() clears its
+  // cached promise and the next request calls open() again, and the lock
+  // judges that retry 'ours' — so without this, every failing retry would add
+  // another ~226 MB instance, with two engines writing one directory.
+  const db = drizzle(pg, { schema: { ...schema, ...relations } }) // no I/O
+  let stage = 'schema migration'
+  try {
+    await ensureSchema(pg)
+    // After the schema is current, before any request can read it: a chat
+    // whose messages have no pointers yet would retrieve as empty.
+    stage = 'pointer backfill'
+    await runDataMigrations(db)
+  } catch (err) {
+    await pg.close().catch(() => {})
+    // As a clean exit does: only on disk, and releaseLock itself refuses to
+    // remove a record that is no longer this process's.
+    if (!inMemory) releaseLock(lockPathFor(dataDir))
+    // Standing rule: DO NOT DELETE SOMEONE'S DATABASE — TELL THEM WHAT'S WRONG.
+    throw new Error(
+      `Minddyte could not bring its database up to date: ${stage} failed.\n` +
+        `NOTHING HAS BEEN DELETED. The database at ${dataDir} was closed; the next\n` +
+        'request will try again.\n' +
+        `Original error: ${(err as Error).message}`,
+    )
+  }
 
   // Release the lock on any CLEAN exit — Ctrl+C on `next dev`, or a script
   // like db-export/db-vacuum finishing and calling process.exit(0) — so the
   // next start sees a genuinely free directory instead of printing the
-  // stale-lock warning on every single restart. Registered only after both
-  // PGlite.create and ensureSchema succeeded: if either failed, this process
-  // never legitimately held a healthy connection, and leaving the lock behind
-  // for the NEXT start to flag as stale is the correct, honest outcome then.
+  // stale-lock warning on every single restart. Registered only after the
+  // database opened AND was brought up to date: a failure before this point
+  // has already closed the engine and released the lock itself (above).
   //
   // Must stay synchronous — 'exit' listeners cannot await anything — which is
   // exactly what releaseLock's rmSync already is.
@@ -134,10 +158,6 @@ async function open() {
     }
   }
 
-  const db = drizzle(pg, { schema: { ...schema, ...relations } })
-  // After the schema is current, before any request can read it: a chat whose
-  // messages have no pointers yet would retrieve as empty.
-  await runDataMigrations(db)
   return { pg, db }
 }
 
