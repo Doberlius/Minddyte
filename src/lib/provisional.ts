@@ -28,4 +28,14 @@ export const PROVISIONAL = {
    * paragraph — enough to say what the question is about.
    */
   queryCharLimit: 500,
+  /**
+   * Code points of raw message text a tagged chat may have and still be sent
+   * whole. Sending a chat whole reads every message's text by offset, and a
+   * message can be far bigger than its passages (whitespace, or a code block
+   * or table the indexer skipped): a ~1 MB message with ~1,900 short sentences
+   * took ~4.8 s to read (whole-branch review 2, finding 3), on the one
+   * connection every visitor shares. 32,000 is 4× the memory budget.
+   * Past it, the chat gets best passages instead.
+   */
+  wholeChatRawCharLimit: 32_000,
 } as const

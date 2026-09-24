@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { sql } from 'drizzle-orm'
-import { getDb } from '../../db'
+import { eq, sql } from 'drizzle-orm'
+import { getDb, sessions } from '../../db'
 import { strongPhrases } from '@/lib/tokens'
 import { FIXTURE_WORKSPACE_ID, newChat, truncateAll } from '../helpers/pglite'
 import { ingestUserMessage, persistMessage } from '@/services/graph'
@@ -289,6 +289,58 @@ describe('tagged chats (ticket 08, Q2)', () => {
     const used = chats.reduce((n, c) => n + c.excerpts.join('').length, 0)
     expect(used).toBeLessThanOrEqual(8000)
     expect(dropped.length).toBeGreaterThan(0)
+  })
+
+  // Whole-branch review 2, finding 1: the planner reserved budget only for the
+  // chats it sent whole, but the packer walked chats in ranked order — so a
+  // larger tagged chat ranked FIRST, falling back to best passages, spent the
+  // budget before the whole chat was packed, and the "whole" chat lost a message.
+  it('a chat planned whole arrives whole even when a larger tagged chat is ranked before it', async () => {
+    const small = await newChat('Small')
+    const para = (tag: string) => Array.from({ length: 5 }, (_, j) => `${tag} sentence ${j} ${'plain '.repeat(37)}done.`).join(' ')
+    for (let i = 0; i < 3; i++) await turn(small, para(`Small question ${i}`), para(`Small answer ${i}`))
+    const big = await newChat('Big')
+    await turn(big, 'Here is a long one.', Array.from({ length: 18 }, (_, j) => `Big line ${j} ${'detail '.repeat(140)}end.`).join(' '))
+    // Tagged chats rank by most recently referenced first: put Big first.
+    const db = await getDb()
+    await db.update(sessions).set({ updatedAt: new Date(Date.now() + 3_600_000) }).where(eq(sessions.id, big))
+    const b = await newChat('B')
+    const { chats, dropped } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'focus', taggedChatIds: [big, small], draftText: 'summary',
+    })
+    // Listed in ranked order, whatever order the budget was spent in.
+    expect(chats[0].id).toBe(big)
+    const got = chats.find((c) => c.id === small)!
+    const text = got.excerpts.join('\n')
+    // Every sentence of every one of Small's six messages is there.
+    for (let i = 0; i < 3; i++) {
+      for (const m of [para(`Small question ${i}`), para(`Small answer ${i}`)]) {
+        for (const sentence of m.split(/(?<=done\.) /)) expect(text).toContain(sentence)
+      }
+    }
+    expect(dropped).not.toContain(got.title)
+    const used = chats.reduce((n, c) => n + c.excerpts.join('').length, 0)
+    expect(used).toBeLessThanOrEqual(8000)
+  })
+
+  // Whole-branch review 2, finding 3: sending a chat whole reads its raw
+  // message text. A message padded to ~200k chars around a few short sentences
+  // has few passages, so it looked like it fitted — and reading it blocked
+  // every visitor. Past PROVISIONAL.wholeChatRawCharLimit it gets best passages.
+  it('a tagged chat with a huge raw message is not sent whole', async () => {
+    const padded = await newChat('Padded')
+    const pad = ' '.repeat(10_000)
+    const sentences = Array.from({ length: 20 }, (_, j) => `Short fact number ${j} is here.`)
+    await turn(padded, 'Here.', sentences.join(pad))
+    const b = await newChat('B')
+    const { chats } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'focus', taggedChatIds: [padded], draftText: 'what is fact number 7',
+    })
+    const lines = chats[0].excerpts.join('\n').split('\n')
+    // Whole would be all 20 facts plus the question; best passages are at most
+    // `windowsPerChat` picks, each widened by one neighbour either side.
+    expect(lines.length).toBeLessThanOrEqual(PROVISIONAL.windowsPerChat * 3)
+    expect(chats[0].excerpts.join('\n')).toContain('Short fact number 7 is here.')
   })
 
   it('a tagged chat with nothing said yet adds no memory and does not crash', async () => {

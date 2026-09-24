@@ -160,19 +160,25 @@ export async function scoredPointers(
   return out
 }
 
-/** Each chat's memory size: its passages' code points plus one separator each. */
-async function chatSizes(workspaceId: string, ids: string[]): Promise<Map<string, number>> {
+/**
+ * Each chat's raw message text, in code points. Sending a chat whole reads all
+ * of it by offset, so this — not the passage total — is what the read costs:
+ * a message can be far longer than its passages (whitespace, or a code block
+ * or table the indexer skipped). Scoped to the workspace through `sessions`.
+ */
+async function rawChatChars(workspaceId: string, ids: string[]): Promise<Map<string, number>> {
   if (ids.length === 0) return new Map()
   const db = await getDb()
   const rows = await db
-    .select({ id: chatPointers.sessionId, n: sql<number>`sum(${chatPointers.endChar} - ${chatPointers.startChar} + 1)`.mapWith(Number) })
-    .from(chatPointers)
-    .where(and(eq(chatPointers.workspaceId, workspaceId), inArray(chatPointers.sessionId, ids)))
-    .groupBy(chatPointers.sessionId)
+    .select({ id: messages.sessionId, n: sql<number>`sum(char_length(${messages.content}))`.mapWith(Number) })
+    .from(messages)
+    .innerJoin(sessions, eq(sessions.id, messages.sessionId))
+    .where(and(eq(sessions.workspaceId, workspaceId), inArray(messages.sessionId, ids)))
+    .groupBy(messages.sessionId)
   return new Map(rows.map((r) => [r.id, r.n]))
 }
 
-/** Every passage of these chats, in order, text read by offset. Only called for chats that fit. */
+/** Every passage of these chats, text read by offset. Only called for chats under PROVISIONAL.wholeChatRawCharLimit. */
 async function wholeChats(workspaceId: string, ids: string[]): Promise<Map<string, ScoredPointer[]>> {
   const out = new Map<string, ScoredPointer[]>()
   if (ids.length === 0) return out
@@ -420,42 +426,66 @@ export async function retrieveContext(input: {
   // not known until reach has returned. Measured cost in ticket 05: ~3 ms.
   //
   // Ticket 08, Q2: `@` means "read this conversation", so a tagged chat that
-  // fits the remaining budget is sent whole, in order. Tagged chats come first
-  // in `ordered`, so planning them in that order matches the budget loop below.
-  const taggedIds = new Set(taggedRanked.map((c) => c.chatId))
-  const sizes = await chatSizes(input.workspaceId, [...taggedIds])
+  // fits the remaining budget is sent whole, in order.
+  //
+  // Whole-branch review 2, findings 1 and 3. "Fits" is decided on the exact
+  // excerpts that would be sent, counted as the packer counts them (UTF-16
+  // .length), and whole chats are packed FIRST — so a larger tagged chat
+  // ranked earlier, falling back to best passages, can never spend budget a
+  // whole chat was promised. Only a chat whose raw text is under
+  // PROVISIONAL.wholeChatRawCharLimit is read whole at all: the read costs its
+  // raw size, and PGlite's one connection makes every visitor wait for it.
+  const taggedIds = taggedRanked.map((c) => c.chatId)
+  const raw = await rawChatChars(input.workspaceId, taggedIds)
+  const eligible = taggedIds.filter((id) => (raw.get(id) ?? Infinity) <= PROVISIONAL.wholeChatRawCharLimit)
+  const wholeRows = await wholeChats(input.workspaceId, eligible)
+  const excerpts = new Map<string, string[]>()
   const whole = new Set<string>()
   let planned = 0
   for (const c of ordered) {
-    if (!taggedIds.has(c.id)) continue
-    const size = sizes.get(c.id) ?? 0
-    if (size > 0 && planned + size <= CONTEXT_CHAR_BUDGET) { whole.add(c.id); planned += size }
+    const rows = wholeRows.get(c.id)
+    if (!rows?.length) continue
+    // A whole chat keeps every passage: picks = all of them, merged per message.
+    const all = selectWindows(rows, rows.length)
+    const size = all.reduce((n, e) => n + e.length, 0)
+    if (planned + size > CONTEXT_CHAR_BUDGET) continue // falls back to best passages
+    whole.add(c.id)
+    excerpts.set(c.id, all)
+    planned += size
   }
-  const [wholeRows, bestRows] = await Promise.all([
-    wholeChats(input.workspaceId, [...whole]),
-    scoredPointers(input.workspaceId, ordered.filter((c) => !whole.has(c.id)), query, picks),
-  ])
+  // Everything not sent whole — tagged chats that did not fit, and every
+  // auto-reached chat — gets its best passages, ranked inside Postgres.
+  const rest = ordered.filter((c) => !whole.has(c.id))
+  const bestRows = await scoredPointers(input.workspaceId, rest, query, picks)
+  for (const c of rest) excerpts.set(c.id, selectWindows(bestRows.get(c.id) ?? [], picks))
 
   // Over budget: send what fits, report what did not. Spec §6.5. A passage is
   // included whole or skipped whole — never cut. A chat that loses ANY window
   // is reported, not only one that loses all of them: otherwise a chat can be
-  // shrunk with nobody told.
-  const chats: { id: string; title: string; excerpts: string[]; why: string }[] = []
-  const dropped: string[] = []
+  // shrunk with nobody told. Budget is spent whole chats first (they were
+  // planned to fit, so they always do), then the rest in ranked order; the
+  // result still lists chats in ranked order.
+  const kept = new Map<string, string[]>()
+  const lost = new Set<string>()
   let used = 0
-  for (const c of ordered) {
-    const rows = whole.has(c.id) ? wholeRows.get(c.id) ?? [] : bestRows.get(c.id) ?? []
-    // A whole chat keeps every passage: picks = all of them, merged per message.
-    const all = whole.has(c.id) ? selectWindows(rows, rows.length) : selectWindows(rows, picks)
-    if (all.length === 0) continue // nothing said there yet — not a budget loss
-    const kept: string[] = []
+  for (const c of [...ordered.filter((c) => whole.has(c.id)), ...rest]) {
+    const all = excerpts.get(c.id) ?? []
+    const keep: string[] = []
     for (const e of all) {
       if (used + e.length > CONTEXT_CHAR_BUDGET) continue
-      kept.push(e)
+      keep.push(e)
       used += e.length
     }
-    if (kept.length < all.length) dropped.push(c.title)
-    if (kept.length > 0) chats.push({ id: c.id, title: c.title, excerpts: kept, why: c.why })
+    if (keep.length < all.length) lost.add(c.id)
+    kept.set(c.id, keep)
+  }
+  const chats: { id: string; title: string; excerpts: string[]; why: string }[] = []
+  const dropped: string[] = []
+  for (const c of ordered) {
+    // A chat with nothing said yet is not a budget loss.
+    if (lost.has(c.id)) dropped.push(c.title)
+    const keep = kept.get(c.id) ?? []
+    if (keep.length > 0) chats.push({ id: c.id, title: c.title, excerpts: keep, why: c.why })
   }
   return { chats, dropped }
 }
