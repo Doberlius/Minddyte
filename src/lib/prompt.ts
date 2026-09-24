@@ -45,7 +45,7 @@ export function buildCoreBlock(text: string): string | undefined {
  *             say plainly when the answer is not there.
  *   explore — also related chats found automatically; general knowledge allowed.
  * Slots, in a fixed order (Q12): mode rule → role → Core facts → memory. Role
- * and Core do not exist yet; empty slots render nothing.
+ * does not exist yet. Core (ticket 03) exists; empty slots render nothing.
  */
 export function buildSystemPrompt(
   mode: 'focus' | 'explore',
@@ -55,7 +55,9 @@ export function buildSystemPrompt(
   const memory = buildMemoryBlock(chats)
   const rule =
     mode === 'focus'
-      ? 'You are Minddyte. Answer using this conversation and ONLY the memory below. Answer in detail and precisely. If the answer is not in this conversation or the memory, say that it is not there — do not guess and do not fill in from general knowledge.'
+      ? extras.core
+        ? 'You are Minddyte. Answer using this conversation, the facts the user wrote about themselves, and ONLY the memory below. Answer in detail and precisely. If the answer is not in this conversation, those facts, or the memory, say that it is not there — do not guess and do not fill in from general knowledge.'
+        : 'You are Minddyte. Answer using this conversation and ONLY the memory below. Answer in detail and precisely. If the answer is not in this conversation or the memory, say that it is not there — do not guess and do not fill in from general knowledge.'
       : 'You are Minddyte, a context-aware assistant. Use the memory below where it helps; you may also draw on general knowledge.'
   const fallback =
     mode === 'focus' ? 'No memory loaded.' : 'No memory loaded — answering from this conversation alone.'

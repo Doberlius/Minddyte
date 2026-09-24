@@ -124,4 +124,26 @@ describe('Core in the prompt (ticket 03)', () => {
     const p = buildSystemPrompt('explore', [{ title: 'Setup', why: 'tagged', excerpts: [{ text: "I'm using Python for this.", at: Date.UTC(2026, 0, 12) }] }], { core: buildCoreBlock('Primary language: Rust (since June).') })
     expect(p.indexOf(CORE_AUTHORITY)).toBeLessThan(p.indexOf('(Jan 12, 2026) I\'m using Python'))
   })
+
+  it('focus mode WITH Core includes "the facts the user wrote about themselves" and still says ONLY the memory', () => {
+    const p = buildSystemPrompt('focus', [chat()], { core: buildCoreBlock('Primary language: Rust.') })
+    expect(p).toContain('the facts the user wrote about themselves')
+    expect(p).toContain('ONLY the memory below')
+  })
+
+  it('focus mode WITHOUT Core does not include "the facts the user wrote"', () => {
+    const p = buildSystemPrompt('focus', [chat()])
+    expect(p).not.toContain('the facts the user wrote about themselves')
+    expect(p).toContain('ONLY the memory below')
+  })
+
+  it('explore mode with Core is unchanged except for the Core block itself', () => {
+    const pWithCore = buildSystemPrompt('explore', [chat()], { core: buildCoreBlock('Primary language: Rust.') })
+    const pWithoutCore = buildSystemPrompt('explore', [chat()])
+    // Should contain the standard explore language
+    expect(pWithoutCore).toContain('general knowledge')
+    expect(pWithCore).toContain('general knowledge')
+    // The rule text should be identical
+    expect(pWithCore).toContain('You are Minddyte, a context-aware assistant')
+  })
 })
