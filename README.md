@@ -57,6 +57,24 @@ reply, and name the sentence that put it there.
 
 ---
 
+## Two modes, and how to use them
+
+Every chat is in one of two modes, shown by the message box and in the chat's
+header. Type `/help` any time to show the list of commands below.
+
+| | What it means |
+|---|---|
+| **Explore** | Also look in related chats, and use general knowledge. This is the default. |
+| **Focus** | Answer only from the chats you add with @. If the answer is not there, it says so. |
+| **@** | Add another chat to this one, so its conversation is used. |
+| **/help** | Show this list of commands. |
+
+A chat you add with @ is sent in full whenever it is short enough to fit —
+nothing summarized, nothing cut — so its details stay in reach of the
+question you're actually asking.
+
+---
+
 ## Tech stack, and what each part is responsible for
 
 | Layer | Choice | Why it is there |
