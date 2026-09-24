@@ -201,17 +201,6 @@ export function Sidebar({
         ))}
       </div>
 
-      {/*
-       * Unconditional, unlike `footer` below: `footer` is a prop a caller may
-       * or may not pass, so it cannot be where every visitor learns that a
-       * workspace is only a cookie. This has to render for every tab, every
-       * time, or someone will assume their chats are backed up somewhere.
-       */}
-      <p className="side-note">
-        Only this browser can reach them — no account, nothing synced.
-        Clearing your cookies starts you over.
-      </p>
-
       {footer && <div className="side-foot">{footer}</div>}
 
       {menu && onDeleteChat && (

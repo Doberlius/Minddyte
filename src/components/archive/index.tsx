@@ -41,8 +41,8 @@ export function MemoryArchives({
   if (graph.chats.length === 0) {
     return (
       <div className="view-empty">
-        <h2>No memories yet</h2>
-        <p>Each conversation is indexed as you talk, word for word.</p>
+        <h2>No chats yet</h2>
+        <p>Send a message and it shows up here.</p>
       </div>
     )
   }

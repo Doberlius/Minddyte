@@ -73,11 +73,11 @@ function Card({
       )}
 
       {chat.passageCount === 0 ? (
-        <p className="arc-none">Nothing yet. This conversation is indexed from its first message.</p>
+        <p className="arc-none">Nothing saved yet.</p>
       ) : (
         <p className="arc-count tnum">
-          {chat.passageCount} passage{chat.passageCount === 1 ? '' : 's'} indexed · {chat.messageCount} message
-          {chat.messageCount === 1 ? '' : 's'}
+          {chat.messageCount} message{chat.messageCount === 1 ? '' : 's'} ·{' '}
+          {chat.passageCount} sentence{chat.passageCount === 1 ? '' : 's'} saved
         </p>
       )}
     </article>
@@ -105,9 +105,7 @@ export function ArchiveView({
         <div className="arc-inner">
           <h1 className="arc-h1">Memory Archives</h1>
           <p className="arc-none" style={{ maxWidth: 460 }}>
-            Nothing is archived yet. Every conversation is indexed from its
-            first message, word for word, and it appears here as soon as you
-            send one.
+            No chats yet. Send a message and it shows up here.
           </p>
         </div>
       </div>
@@ -120,9 +118,8 @@ export function ArchiveView({
         <header className="arc-top">
           <h1 className="arc-h1">Memory Archives</h1>
           <p className="arc-lede">
-            What the assistant can draw on when a conversation is tagged into
-            another — the original sentences, word for word, chosen fresh for
-            whatever is asked rather than kept as one fixed summary.
+            All your chats and the topics in each. When you ask something, the
+            sentences that fit your question best are picked from these.
           </p>
           <p className="arc-count tnum">
             {graph.chats.length} conversation{graph.chats.length === 1 ? '' : 's'} ·{' '}

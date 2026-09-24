@@ -257,7 +257,6 @@ input:focus-visible, textarea:focus-visible {
    skimmed past on every later visit, not a warning that competes for
    attention. Sits outside .side-list so scrolling the chat list can never
    carry it out of view. */
-.side-note { flex-shrink: 0; margin: 0; padding: 8px 11px; font-size: 10.5px; line-height: 1.5; color: var(--ink3); }
 
 /* Pinned below the list rather than after it: the recents scroll, and anything
    that scrolls away with them stops being findable. */
