@@ -39,10 +39,11 @@ export const PROVISIONAL = {
    */
   wholeChatRawCharLimit: 32_000,
   /**
-   * Code points the "About you" Core block may hold before a save is
-   * refused. NOT CALIBRATED — ticket 03 picked 1,500 as a plausible cap for
-   * a hand-written block, not a measured one; the user's own real Core is
-   * what will test whether it is generous enough.
+   * UTF-16 code units (JS `.length`; an emoji can count as 2) the "About you"
+   * Core block may hold before a save is refused. NOT CALIBRATED — ticket 03
+   * picked 1,500 as a plausible cap for a hand-written block, not a measured
+   * one; the user's own real Core is what will test whether it is generous
+   * enough.
    */
   coreCharLimit: 1500,
   /**
