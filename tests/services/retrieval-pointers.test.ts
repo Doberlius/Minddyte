@@ -6,6 +6,7 @@ import { FIXTURE_WORKSPACE_ID, newChat, truncateAll } from '../helpers/pglite'
 import { ingestUserMessage, persistMessage } from '@/services/graph'
 import { retrieveContext, scoredPointers } from '@/services/retrieval'
 import { PROVISIONAL } from '@/lib/provisional'
+import { sentLength } from '@/lib/prompt'
 
 beforeEach(truncateAll)
 
@@ -79,7 +80,7 @@ describe('retrieval reads memory from pointers', () => {
     const { chats, dropped } = await retrieveContext({
       workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'focus', taggedChatIds: ids, draftText: 'summarise',
     })
-    const used = chats.reduce((n, c) => n + c.excerpts.map((e) => e.text).join('').length, 0)
+    const used = chats.reduce((n, c) => n + c.excerpts.reduce((m, e) => m + sentLength(e), 0), 0)
     expect(used).toBeLessThanOrEqual(8000)
     expect(dropped.length).toBeGreaterThan(0)
     // Every chat is accounted for: fully sent, or named in `dropped`.
@@ -286,7 +287,7 @@ describe('tagged chats (ticket 08, Q2)', () => {
     const { chats, dropped } = await retrieveContext({
       workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'focus', taggedChatIds: ids, draftText: 'summary',
     })
-    const used = chats.reduce((n, c) => n + c.excerpts.map((e) => e.text).join('').length, 0)
+    const used = chats.reduce((n, c) => n + c.excerpts.reduce((m, e) => m + sentLength(e), 0), 0)
     expect(used).toBeLessThanOrEqual(8000)
     expect(dropped.length).toBeGreaterThan(0)
   })
@@ -337,7 +338,7 @@ describe('tagged chats (ticket 08, Q2)', () => {
       }
     }
     expect(dropped).not.toContain(got.title)
-    const used = chats.reduce((n, c) => n + c.excerpts.map((e) => e.text).join('').length, 0)
+    const used = chats.reduce((n, c) => n + c.excerpts.reduce((m, e) => m + sentLength(e), 0), 0)
     expect(used).toBeLessThanOrEqual(8000)
   })
 
