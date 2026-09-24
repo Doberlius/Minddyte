@@ -101,7 +101,7 @@ async function candidateRows(
  * through a correlated subquery. Tagged chats are uncapped, so a query per chat
  * would be unbounded. Every value is a bound parameter.
  */
-async function scoredPointers(
+export async function scoredPointers(
   workspaceId: string,
   chats: { id: string; labels: string[] }[],
   draft: string,
@@ -147,7 +147,7 @@ async function scoredPointers(
            substring(m.content from p2.start_char + 1 for p2.end_char - p2.start_char) as "text",
            coalesce(pk.score, -1) as "score"
       from wanted w
-      join chat_pointers p2 on p2.message_id = w.message_id and p2.ordinal = w.ordinal
+      join chat_pointers p2 on p2.message_id = w.message_id and p2.ordinal = w.ordinal and p2.workspace_id = ${workspaceId}
       join messages m on m.id = p2.message_id
       left join picked pk on pk.message_id = w.message_id and pk.ordinal = w.ordinal
   `)) as unknown as { rows: { chatId: string; messageId: string; ordinal: number; createdMs: number | string; text: string; score: number | string }[] }
@@ -376,10 +376,15 @@ export async function retrieveContext(input: {
     })),
   ]
 
+  // Fix round 1, finding 4: scoredPointers' -1-for-neighbours trick only
+  // holds if it and selectWindows agree on how many passages are "picks" —
+  // pass ONE value to both, explicitly, so the two can never drift apart.
+  const picks = PROVISIONAL.windowsPerChat
+
   // Second query: §6.6's "one query" bends here, deliberately. Ranking runs in
   // TypeScript between reach and fetch, so the chats to fetch passages for are
   // not known until reach has returned. Measured cost in ticket 05: ~3 ms.
-  const pointers = await scoredPointers(input.workspaceId, ordered, query)
+  const pointers = await scoredPointers(input.workspaceId, ordered, query, picks)
 
   // Over budget: send what fits, report what did not. Spec §6.5. A passage is
   // included whole or skipped whole — never cut. A chat that loses ANY window
@@ -389,7 +394,7 @@ export async function retrieveContext(input: {
   const dropped: string[] = []
   let used = 0
   for (const c of ordered) {
-    const all = selectWindows(pointers.get(c.id) ?? [])
+    const all = selectWindows(pointers.get(c.id) ?? [], picks)
     if (all.length === 0) continue // nothing said there yet — not a budget loss
     const kept: string[] = []
     for (const e of all) {

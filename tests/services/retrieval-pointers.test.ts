@@ -4,7 +4,8 @@ import { getDb } from '../../db'
 import { strongPhrases } from '@/lib/tokens'
 import { FIXTURE_WORKSPACE_ID, newChat, truncateAll } from '../helpers/pglite'
 import { ingestUserMessage, persistMessage } from '@/services/graph'
-import { retrieveContext } from '@/services/retrieval'
+import { retrieveContext, scoredPointers } from '@/services/retrieval'
+import { PROVISIONAL } from '@/lib/provisional'
 
 beforeEach(truncateAll)
 
@@ -216,5 +217,30 @@ describe('a huge tagged chat', () => {
     })
     expect(performance.now() - t).toBeLessThan(1500)
     expect(chats[0].excerpts.join(' ')).toContain('ninety days')
+  })
+
+  // Fix round 1, finding 2: the timing assertion above passed even on the OLD
+  // code (1.3 s, under the 1.5 s bound) on a fast machine with this fixture's
+  // size — it guards nothing by itself. This is the structural guarantee the
+  // fix actually makes: scoredPointers reads back text for the picked
+  // passages and their neighbours ONLY, never every passage of the chat.
+  it('reads back only the picked passages and their neighbours, never every passage', async () => {
+    const big = await newChat('Big')
+    const filler = Array.from({ length: 3000 }, (_, i) => `Filler line ${i} mentions nothing useful at all.`).join(' ')
+    await turn(big, 'Here is a long log.', `${filler} The retention period for audit logs is ninety days.`)
+    const picks = PROVISIONAL.windowsPerChat
+    const pointers = await scoredPointers(
+      FIXTURE_WORKSPACE_ID,
+      [{ id: big, labels: [] }],
+      'what is the retention period for audit logs',
+      picks,
+    )
+    const rows = pointers.get(big) ?? []
+    // At most `picks` picked passages, each widened by up to 2 neighbours
+    // (one either side) in the same message: picks * 3 is the ceiling,
+    // whatever the neighbours' own messages turn out to be — never the
+    // 3,000+ passages the chat actually has.
+    expect(rows.length).toBeLessThanOrEqual(picks * 3)
+    expect(rows.map((r) => r.text).join(' ')).toContain('ninety days')
   })
 })

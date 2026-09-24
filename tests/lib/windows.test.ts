@@ -39,4 +39,23 @@ describe('selectWindows', () => {
   it('returns nothing for a chat with no pointers', () => {
     expect(selectWindows([], 3)).toEqual([])
   })
+
+  // Fix round 1, finding 1 (CRITICAL): scoredPointers' SQL now returns only
+  // the picks and their +-1 neighbours, not every passage — so `rows` is
+  // sparse, and two windows can sit next to each other in the ARRAY without
+  // being next to each other by ORDINAL. Merging on array position (the old
+  // bug) would splice non-adjacent windows into one excerpt with the gap
+  // silently dropped. selectWindows on the sparse set the SQL actually
+  // returns must equal selectWindows on the full, dense chat.
+  it('does not merge windows that are adjacent in the array but not in ordinal', () => {
+    const full: ScoredPointer[] = Array.from({ length: 11 }, (_, i) => p('m', i, i === 0 || i === 2 || i === 6 ? 0.9 : 0))
+    const picked = new Set([0, 2, 6])
+    const sparse: ScoredPointer[] = full
+      .filter((r) => picked.has(r.ordinal) || picked.has(r.ordinal - 1) || picked.has(r.ordinal + 1))
+      .map((r) => (picked.has(r.ordinal) ? r : { ...r, score: -1 }))
+    expect(selectWindows(sparse, 3)).toEqual(selectWindows(full, 3))
+    // Pin down what "correct" looks like, not just "equal to itself": the gap
+    // at ordinal 4 must produce two excerpts, never one merged excerpt.
+    expect(selectWindows(full, 3)).toEqual(['m#0\nm#1\nm#2\nm#3', 'm#5\nm#6\nm#7'])
+  })
 })

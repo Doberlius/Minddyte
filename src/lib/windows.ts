@@ -25,6 +25,10 @@ export type ScoredPointer = {
 export function selectWindows(rows: ScoredPointer[], picks: number = PROVISIONAL.windowsPerChat): string[] {
   const ordered = [...rows].sort(
     (a, b) =>
+      // scoredPointers now derives messageCreatedAt from extract(epoch from
+      // created_at) * 1000 in SQL, which keeps sub-millisecond precision —
+      // finer-grained than the old Date#getTime() (truncated to whole ms) —
+      // but it is still only a tiebreak ahead of messageId/ordinal below.
       a.messageCreatedAt - b.messageCreatedAt ||
       (a.messageId < b.messageId ? -1 : a.messageId > b.messageId ? 1 : 0) ||
       a.ordinal - b.ordinal,
@@ -45,7 +49,14 @@ export function selectWindows(rows: ScoredPointer[], picks: number = PROVISIONAL
   let run: string[] = []
   let prev = -2
   for (const i of [...keep].sort((a, b) => a - b)) {
-    const touching = i === prev + 1 && ordered[i].messageId === ordered[prev].messageId
+    // `rows` is now sparse — only picks and their +-1 neighbours, per
+    // scoredPointers' SQL — so two kept windows can be next to each other in
+    // this ARRAY without being next to each other by ORDINAL (e.g. picks at
+    // ordinal 2 and 6 leave a gap at ordinal 4 that is simply absent from
+    // `ordered`). "touching" must be decided by ordinal, never by array
+    // position, or non-adjacent passages splice into one excerpt with the
+    // gap silently dropped.
+    const touching = prev >= 0 && ordered[i].messageId === ordered[prev].messageId && ordered[i].ordinal === ordered[prev].ordinal + 1
     if (!touching && run.length > 0) {
       excerpts.push(run.join('\n'))
       run = []
