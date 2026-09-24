@@ -146,4 +146,10 @@ describe('Core in the prompt (ticket 03)', () => {
     // The rule text should be identical
     expect(pWithCore).toContain('You are Minddyte, a context-aware assistant')
   })
+
+  it('focus with whitespace-only Core does not promise facts it does not contain', () => {
+    const p = buildSystemPrompt('focus', [chat()], { core: '   ' })
+    expect(p).not.toContain('the facts the user wrote about themselves')
+    expect(p).not.toContain(CORE_AUTHORITY)
+  })
 })

@@ -53,9 +53,10 @@ export function buildSystemPrompt(
   extras: { role?: string; core?: string } = {},
 ): string {
   const memory = buildMemoryBlock(chats)
+  const hasCore = !!extras.core?.trim()
   const rule =
     mode === 'focus'
-      ? extras.core
+      ? hasCore
         ? 'You are Minddyte. Answer using this conversation, the facts the user wrote about themselves, and ONLY the memory below. Answer in detail and precisely. If the answer is not in this conversation, those facts, or the memory, say that it is not there — do not guess and do not fill in from general knowledge.'
         : 'You are Minddyte. Answer using this conversation and ONLY the memory below. Answer in detail and precisely. If the answer is not in this conversation or the memory, say that it is not there — do not guess and do not fill in from general knowledge.'
       : 'You are Minddyte, a context-aware assistant. Use the memory below where it helps; you may also draw on general knowledge.'
