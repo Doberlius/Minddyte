@@ -61,6 +61,19 @@ export function CoreEditor({
     if (confirming) keepEditing.current?.focus()
   }, [confirming])
 
+  // Whole-branch review, finding 4: closing the tab (not just this dialog)
+  // while there are unsaved changes used to lose them with no warning. The
+  // listener is only attached while `dirty`, so a clean box never prompts.
+  useEffect(() => {
+    if (!dirty) return
+    function onBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [dirty])
+
   /** Escape and a click outside both land here. */
   function requestClose() {
     if (saving) return

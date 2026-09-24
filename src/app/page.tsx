@@ -8,6 +8,8 @@ import { CoreEditor, type SavedCore } from '@/components/core/CoreEditor'
 import { NeuralChat } from '@/components/chat'
 import { NeuralBrain } from '@/components/brain'
 import { MemoryArchives } from '@/components/archive'
+import { Toast } from '@/components/ui/Toast'
+import { useToast } from '@/components/ui/useToast'
 
 /**
  * The app shell.
@@ -145,6 +147,8 @@ export default function Page() {
    */
   const [core, setCore] = useState<SavedCore | null>(null)
   const [coreOpen, setCoreOpen] = useState(false)
+  const [coreOpening, setCoreOpening] = useState(false)
+  const { message: toastMessage, showToast } = useToast()
 
   const loadCore = useCallback(async (): Promise<SavedCore | null> => {
     try {
@@ -166,9 +170,21 @@ export default function Page() {
     void loadCore()
   }, [loadCore])
 
+  /**
+   * Whole-branch review, finding 2: reusing the Core fetched at page load let
+   * tab A overwrite a newer save from tab B, because the editor opened with
+   * whatever text this tab happened to have in memory. So every open re-reads
+   * `GET /api/core` — the editor only ever shows what the server has right
+   * now. Finding 3: a failed re-fetch used to open nothing and say nothing;
+   * now it says so with the toast, in place of the silent no-op.
+   */
   async function openCore() {
-    // A failed first load gets one more try when someone actually asks for it.
-    if (core || (await loadCore())) setCoreOpen(true)
+    if (coreOpening) return
+    setCoreOpening(true)
+    const fresh = await loadCore()
+    setCoreOpening(false)
+    if (fresh) setCoreOpen(true)
+    else showToast("Couldn't open About you. Try again.")
   }
 
   const activeChat = chats.find((c) => c.id === activeId) ?? null
@@ -178,6 +194,7 @@ export default function Page() {
     // along the top, and a media query cannot reach a style attribute.
     <div className="app-shell">
       {tourOpen && <AppTour onClose={closeTour} />}
+      <Toast message={toastMessage} />
 
       {coreOpen && core && (
         <CoreEditor
