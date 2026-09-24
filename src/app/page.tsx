@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { HelpCircle } from 'lucide-react'
 import { Sidebar, type ChatSummary, type Tab } from '@/components/layout/Sidebar'
 import { AppTour } from '@/components/layout/AppTour'
+import { CoreEditor, type SavedCore } from '@/components/core/CoreEditor'
 import { NeuralChat } from '@/components/chat'
 import { NeuralBrain } from '@/components/brain'
 import { MemoryArchives } from '@/components/archive'
@@ -137,6 +138,39 @@ export default function Page() {
     [refreshChats],
   )
 
+  /**
+   * "About you": asked for once on load. `null` until the answer arrives —
+   * the editor pre-fills from this, and an editor opened on a note that
+   * never loaded would offer an empty box whose Save wipes the real one.
+   */
+  const [core, setCore] = useState<SavedCore | null>(null)
+  const [coreOpen, setCoreOpen] = useState(false)
+
+  const loadCore = useCallback(async (): Promise<SavedCore | null> => {
+    try {
+      const res = await fetch('/api/core')
+      if (!res.ok) return null
+      const data = await res.json()
+      const loaded = {
+        text: typeof data.text === 'string' ? data.text : '',
+        updatedAt: data.updatedAt ? new Date(data.updatedAt) : null,
+      }
+      setCore(loaded)
+      return loaded
+    } catch {
+      return null
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadCore()
+  }, [loadCore])
+
+  async function openCore() {
+    // A failed first load gets one more try when someone actually asks for it.
+    if (core || (await loadCore())) setCoreOpen(true)
+  }
+
   const activeChat = chats.find((c) => c.id === activeId) ?? null
 
   return (
@@ -144,6 +178,17 @@ export default function Page() {
     // along the top, and a media query cannot reach a style attribute.
     <div className="app-shell">
       {tourOpen && <AppTour onClose={closeTour} />}
+
+      {coreOpen && core && (
+        <CoreEditor
+          initialText={core.text}
+          onSaved={(saved) => {
+            setCore(saved)
+            setCoreOpen(false)
+          }}
+          onClose={() => setCoreOpen(false)}
+        />
+      )}
 
       <Sidebar
         activeTab={tab}
@@ -156,6 +201,9 @@ export default function Page() {
         }}
         onDeleteChat={deleteChat}
         onRenameChat={renameChat}
+        coreUpdatedAt={core?.updatedAt ?? null}
+        coreLoaded={core !== null}
+        onOpenCore={() => void openCore()}
         footer={
           // A labelled row, not an icon: the guide opens by itself only on the
           // first visit, so this is the one way back and it has to be found

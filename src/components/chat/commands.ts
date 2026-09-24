@@ -29,6 +29,11 @@ export const HELP_ENTRIES: HelpEntry[] = [
     example: '@Muse Code compare it with Copilot',
   },
   {
+    name: 'about you', label: 'About you',
+    what: 'A short note about you that every answer can use. Only you can change it.',
+    example: 'Main language: TypeScript. Project: Minddyte.',
+  },
+  {
     name: 'help', label: '/help',
     what: 'Show this list of commands.',
     example: '/help',

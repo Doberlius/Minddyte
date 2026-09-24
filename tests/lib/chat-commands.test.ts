@@ -3,7 +3,7 @@ import { HELP_ENTRIES, SLASH_ENTRIES, exactCommand, matchCommands, modeLabel } f
 
 describe('the one list of working commands', () => {
   it('holds exactly the commands that work', () => {
-    expect(HELP_ENTRIES.map((e) => e.label)).toEqual(['/mode explore', '/mode focus', '@', '/help'])
+    expect(HELP_ENTRIES.map((e) => e.label)).toEqual(['/mode explore', '/mode focus', '@', 'About you', '/help'])
   })
   it('gives every entry a plain description and an example', () => {
     for (const e of HELP_ENTRIES) {
@@ -14,6 +14,7 @@ describe('the one list of working commands', () => {
   it('only slash entries can be run from the / menu', () => {
     expect(SLASH_ENTRIES.every((e) => e.action)).toBe(true)
     expect(SLASH_ENTRIES.find((e) => e.label === '@')).toBeUndefined()
+    expect(SLASH_ENTRIES.find((e) => e.label === 'About you')).toBeUndefined()
   })
   it('matches what is typed after the slash', () => {
     expect(matchCommands('hel').map((e) => e.label)).toEqual(['/help'])

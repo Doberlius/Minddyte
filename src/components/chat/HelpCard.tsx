@@ -28,7 +28,9 @@ export function HelpCard({ onClose }: { onClose: () => void }) {
       <ul className="help-card-list">
         {HELP_ENTRIES.map((e) => (
           <li key={e.name} className="help-card-row">
-            <code>{e.label}</code>
+            {/* Something you type wears code styling; "About you" is a place
+                in the sidebar, not something to type, so it is plain text. */}
+            {/^[/@]/.test(e.label) ? <code>{e.label}</code> : <strong className="help-card-name">{e.label}</strong>}
             <p className="help-card-what">{e.what}</p>
             <p className="help-card-example">Example: {e.example}</p>
           </li>

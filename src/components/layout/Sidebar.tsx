@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { Brain, MessageSquare, BookOpen, MoreHorizontal, Plus, Search, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Brain, MessageSquare, BookOpen, MoreHorizontal, Plus, Search, UserRound, X } from 'lucide-react'
+import { lastEditedLabel } from '@/lib/core'
 import { ChatMenu, type MenuAt } from './ChatMenu'
 
 /**
@@ -43,6 +44,9 @@ export function Sidebar({
   onNewChat,
   onDeleteChat,
   onRenameChat,
+  coreUpdatedAt,
+  coreLoaded = true,
+  onOpenCore,
   footer,
 }: {
   activeTab: Tab
@@ -60,6 +64,15 @@ export function Sidebar({
   onDeleteChat?: (id: string) => void
   /** Rename a chat. Optional for the same reason as delete. */
   onRenameChat?: (id: string, title: string) => void
+  /** When "About you" was last saved; null if it never has been. */
+  coreUpdatedAt: Date | null
+  /**
+   * False until the saved note has been asked for. Until then the row says
+   * nothing rather than "Not written yet", which may not be true.
+   */
+  coreLoaded?: boolean
+  /** Open the "About you" editor. */
+  onOpenCore: () => void
   /**
    * Pinned under the list. The demo puts its standing "no database, no model"
    * mark and its Reset here; the app has nothing to put there yet.
@@ -68,6 +81,19 @@ export function Sidebar({
 }) {
   const [query, setQuery] = useState('')
   const [menu, setMenu] = useState<MenuAt | null>(null)
+
+  // "Edited just now" must not stay "just now" for the rest of the session,
+  // so the clock the label reads from moves once a minute.
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000)
+    return () => clearInterval(id)
+  }, [])
+  // A save lands between ticks; read the clock afresh so it says "just now"
+  // at once instead of up to a minute later.
+  useEffect(() => {
+    setNow(new Date())
+  }, [coreUpdatedAt])
 
   /**
    * Titles only, on the client.
@@ -110,6 +136,25 @@ export function Sidebar({
             </button>
           ))}
         </nav>
+
+        {/* Not a view: it opens an editor over whatever view you are in, so
+            it sits under the views rather than among them, and carries its
+            state on a second line instead of a highlight. */}
+        <button
+          className="side-row side-core"
+          aria-haspopup="dialog"
+          onClick={onOpenCore}
+          title="A short note about you that every answer can use"
+        >
+          <span className="side-ic">
+            <UserRound size={15} />
+          </span>
+          <span className="side-core-text">
+            <span className="side-core-t">About you</span>
+            <span className="sr-only">, </span>
+            <span className="side-core-m">{coreLoaded ? lastEditedLabel(coreUpdatedAt, now) : ' '}</span>
+          </span>
+        </button>
 
         <div className="side-rule" />
 
