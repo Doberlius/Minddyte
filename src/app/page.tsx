@@ -157,14 +157,18 @@ export default function Page() {
         onDeleteChat={deleteChat}
         onRenameChat={renameChat}
         footer={
+          // A labelled row, not an icon: the guide opens by itself only on the
+          // first visit, so this is the one way back and it has to be found
+          // without hunting. Same shape as the view rows above it on purpose.
           <button
             onClick={() => setTourOpen(true)}
-            className="btn-ghost"
-            aria-label="How this works"
-            title="How this works"
-            style={{ padding: 6, color: 'var(--ink2)' }}
+            className="side-row side-help"
+            title="Show the intro slides again"
           >
-            <HelpCircle size={14} />
+            <span className="side-ic">
+              <HelpCircle size={15} />
+            </span>
+            Help
           </button>
         }
         onNewChat={() => {

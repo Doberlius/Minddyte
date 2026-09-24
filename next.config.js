@@ -8,6 +8,9 @@ const nextConfig = {
   // paths, so the server can't even start. This tells Next to leave the
   // package to Node's own resolver instead of bundling it.
   serverExternalPackages: ['@electric-sql/pglite'],
+  // Next's dev-only badge defaults to the bottom-left corner, which is exactly
+  // where the sidebar's Help row sits. Production never shows it.
+  devIndicators: { position: 'bottom-right' },
 };
 
 module.exports = nextConfig;

@@ -253,17 +253,15 @@ input:focus-visible, textarea:focus-visible {
 .side-chat .m { font-size: 10px; color: var(--ink3); }
 .side-empty { margin: 0; padding: 2px 11px 0; font-size: 11.5px; line-height: 1.55; color: var(--ink3); }
 
-/* Same muted token as .side-empty: a fact meant to be read once and then
-   skimmed past on every later visit, not a warning that competes for
-   attention. Sits outside .side-list so scrolling the chat list can never
-   carry it out of view. */
-
 /* Pinned below the list rather than after it: the recents scroll, and anything
    that scrolls away with them stops being findable. */
 .side-foot {
   flex-shrink: 0; border-top: 1px solid var(--border2);
   padding: 9px 10px; display: flex; align-items: center; gap: 8px;
 }
+.side-help { color: var(--ink); font-weight: 500; }
+.side-help .side-ic { color: var(--violet); opacity: 1; }
+.side-help:hover { background: var(--violet-l); color: var(--violet); }
 
 /* The conversation's own header: the title you rename, and where the Headline
    pill will sit once it exists. */
@@ -326,6 +324,8 @@ input:focus-visible, textarea:focus-visible {
   .side-search { padding: 5px 10px; }
   .side-group { padding: 10px 21px 4px; }
   .side-chat { padding: 6px 11px; }
+  .side-foot { padding: 5px 10px; }
+  .side-help { justify-content: center; padding: 6px 11px; }
   /* The concept count is a desktop nicety; the title is the thing you pick by. */
   .side-chat .m { display: none; }
   .side-list { max-height: 116px; }
