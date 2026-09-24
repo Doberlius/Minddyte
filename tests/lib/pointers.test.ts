@@ -40,6 +40,23 @@ describe('pointerRows', () => {
   it('returns nothing for whitespace', () => {
     expect(pointerRows('  \n ')).toEqual({ rows: [], skipped: [] })
   })
+
+  it('indexes a 4,000-sentence paste in well under a second', () => {
+    // Measured before this fix: 6.7 s. toCodePoints re-counted from the start
+    // of the message for every sentence, O(length x sentences).
+    const content = Array.from({ length: 4000 }, (_, i) => `Sentence number ${i} talks about Kafka partitions and order.`).join(' ')
+    const t = performance.now()
+    const { rows } = pointerRows(content)
+    expect(rows).toHaveLength(4000)
+    expect(performance.now() - t).toBeLessThan(1000)
+  })
+
+  it('keeps code-point offsets exact across many emoji', () => {
+    const content = Array.from({ length: 50 }, (_, i) => `🎉 Item ${i} is here.`).join(' ')
+    const { rows } = pointerRows(content)
+    const cps = Array.from(content)
+    for (const r of rows) expect(cps.slice(r.startChar, r.endChar).join('')).toBe(r.matchText)
+  })
 })
 
 describe('describeSkip', () => {

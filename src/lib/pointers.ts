@@ -31,7 +31,20 @@ export function pointerRows(
 ): { rows: PointerRow[]; skipped: SkippedSpan[] } {
   const rows: PointerRow[] = []
   const skipped: SkippedSpan[] = []
-  const toCodePoints = (i: number) => Array.from(content.slice(0, i)).length
+  // Spans arrive in increasing order, so code points are counted in ONE
+  // forward pass: cu = UTF-16 index reached, cp = code points before it.
+  // Re-counting from 0 for every span was O(length x spans): 6.7 s for a
+  // 4,000-sentence paste, which froze the one-connection server on save.
+  let cu = 0
+  let cp = 0
+  const toCodePoints = (target: number) => {
+    while (cu < target) {
+      const code = content.charCodeAt(cu)
+      cu += code >= 0xd800 && code <= 0xdbff && cu + 1 < content.length ? 2 : 1
+      cp += 1
+    }
+    return cp
+  }
 
   for (const span of proseSpans(content)) {
     const length = span.end - span.start
