@@ -11,18 +11,25 @@ export function buildMemoryBlock(chats: MemoryChat[]): string {
 }
 
 /**
- * Spec §6.1. The two modes differ in ONE thing: whether the model may answer
- * from anything other than the memory it was handed. Both fallbacks matter —
- * a focus prompt with no memory must not invite speculation, and an explore
- * prompt with no memory must not imply memory failed.
+ * Spec §6.1 as reshaped by ticket 08. Each mode is ONE promise about where an
+ * answer may come from; neither mode changes tone (Q6).
+ *   focus   — only this conversation and the chats the user tagged; in detail;
+ *             say plainly when the answer is not there.
+ *   explore — also related chats found automatically; general knowledge allowed.
+ * Slots, in a fixed order (Q12): mode rule → role → Core facts → memory. Role
+ * and Core do not exist yet; empty slots render nothing.
  */
-export function buildSystemPrompt(mode: 'focus' | 'explore', chats: MemoryChat[]): string {
+export function buildSystemPrompt(
+  mode: 'focus' | 'explore',
+  chats: MemoryChat[],
+  extras: { role?: string; core?: string } = {},
+): string {
   const memory = buildMemoryBlock(chats)
-  return mode === 'focus'
-    ? `You are Minddyte. Answer using this conversation and ONLY the memory below.\n\n${
-        memory || 'No memory loaded.'
-      }`
-    : `You are Minddyte, a context-aware assistant. Use the memory below where it helps; you may also draw on general knowledge.\n\n${
-        memory || 'No memory loaded — answering from this conversation alone.'
-      }`
+  const rule =
+    mode === 'focus'
+      ? 'You are Minddyte. Answer using this conversation and ONLY the memory below. Answer in detail and precisely. If the answer is not in this conversation or the memory, say that it is not there — do not guess and do not fill in from general knowledge.'
+      : 'You are Minddyte, a context-aware assistant. Use the memory below where it helps; you may also draw on general knowledge.'
+  const fallback =
+    mode === 'focus' ? 'No memory loaded.' : 'No memory loaded — answering from this conversation alone.'
+  return [rule, extras.role, extras.core, memory || fallback].filter((s) => s && s.trim()).join('\n\n')
 }

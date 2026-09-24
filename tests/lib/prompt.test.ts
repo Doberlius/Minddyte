@@ -47,3 +47,22 @@ describe('buildSystemPrompt', () => {
     expect(buildSystemPrompt('explore', [])).toContain('answering from this conversation alone')
   })
 })
+
+describe('prompt slots (ticket 08)', () => {
+  it('orders mode rule, role, core facts, memory', () => {
+    const p = buildSystemPrompt('focus', [chat()], { role: 'ROLE-X', core: 'CORE-Y' })
+    const at = (s: string) => p.indexOf(s)
+    expect(at('ONLY')).toBeLessThan(at('ROLE-X'))
+    expect(at('ROLE-X')).toBeLessThan(at('CORE-Y'))
+    expect(at('CORE-Y')).toBeLessThan(at('## '))
+  })
+  it('renders nothing for empty slots', () => {
+    expect(buildSystemPrompt('explore', [chat()])).not.toMatch(/\n\n\n/)
+  })
+  it('focus asks for detail and for saying so when the answer is missing', () => {
+    const p = buildSystemPrompt('focus', [chat()])
+    expect(p).toMatch(/in detail/i)
+    expect(p).toMatch(/say (so|that it is not there)/i)
+    expect(p).not.toMatch(/brief/i)
+  })
+})
