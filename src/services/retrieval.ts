@@ -160,6 +160,40 @@ export async function scoredPointers(
   return out
 }
 
+/** Each chat's memory size: its passages' code points plus one separator each. */
+async function chatSizes(workspaceId: string, ids: string[]): Promise<Map<string, number>> {
+  if (ids.length === 0) return new Map()
+  const db = await getDb()
+  const rows = await db
+    .select({ id: chatPointers.sessionId, n: sql<number>`sum(${chatPointers.endChar} - ${chatPointers.startChar} + 1)`.mapWith(Number) })
+    .from(chatPointers)
+    .where(and(eq(chatPointers.workspaceId, workspaceId), inArray(chatPointers.sessionId, ids)))
+    .groupBy(chatPointers.sessionId)
+  return new Map(rows.map((r) => [r.id, r.n]))
+}
+
+/** Every passage of these chats, in order, text read by offset. Only called for chats that fit. */
+async function wholeChats(workspaceId: string, ids: string[]): Promise<Map<string, ScoredPointer[]>> {
+  const out = new Map<string, ScoredPointer[]>()
+  if (ids.length === 0) return out
+  const db = await getDb()
+  const rows = await db
+    .select({
+      chatId: chatPointers.sessionId, messageId: chatPointers.messageId, ordinal: chatPointers.ordinal,
+      createdMs: sql<number>`extract(epoch from ${messages.createdAt}) * 1000`.mapWith(Number),
+      text: sql<string>`substring(${messages.content} from ${chatPointers.startChar} + 1 for ${chatPointers.endChar} - ${chatPointers.startChar})`,
+    })
+    .from(chatPointers)
+    .innerJoin(messages, eq(messages.id, chatPointers.messageId))
+    .where(and(eq(chatPointers.workspaceId, workspaceId), inArray(chatPointers.sessionId, ids)))
+  for (const r of rows) {
+    const list = out.get(r.chatId) ?? []
+    list.push({ messageId: r.messageId, messageCreatedAt: r.createdMs, ordinal: r.ordinal, text: r.text, score: 0 })
+    out.set(r.chatId, list)
+  }
+  return out
+}
+
 type TextHit = {
   chatId: string
   title: string
@@ -384,7 +418,23 @@ export async function retrieveContext(input: {
   // Second query: §6.6's "one query" bends here, deliberately. Ranking runs in
   // TypeScript between reach and fetch, so the chats to fetch passages for are
   // not known until reach has returned. Measured cost in ticket 05: ~3 ms.
-  const pointers = await scoredPointers(input.workspaceId, ordered, query, picks)
+  //
+  // Ticket 08, Q2: `@` means "read this conversation", so a tagged chat that
+  // fits the remaining budget is sent whole, in order. Tagged chats come first
+  // in `ordered`, so planning them in that order matches the budget loop below.
+  const taggedIds = new Set(taggedRanked.map((c) => c.chatId))
+  const sizes = await chatSizes(input.workspaceId, [...taggedIds])
+  const whole = new Set<string>()
+  let planned = 0
+  for (const c of ordered) {
+    if (!taggedIds.has(c.id)) continue
+    const size = sizes.get(c.id) ?? 0
+    if (size > 0 && planned + size <= CONTEXT_CHAR_BUDGET) { whole.add(c.id); planned += size }
+  }
+  const [wholeRows, bestRows] = await Promise.all([
+    wholeChats(input.workspaceId, [...whole]),
+    scoredPointers(input.workspaceId, ordered.filter((c) => !whole.has(c.id)), query, picks),
+  ])
 
   // Over budget: send what fits, report what did not. Spec §6.5. A passage is
   // included whole or skipped whole — never cut. A chat that loses ANY window
@@ -394,7 +444,9 @@ export async function retrieveContext(input: {
   const dropped: string[] = []
   let used = 0
   for (const c of ordered) {
-    const all = selectWindows(pointers.get(c.id) ?? [], picks)
+    const rows = whole.has(c.id) ? wholeRows.get(c.id) ?? [] : bestRows.get(c.id) ?? []
+    // A whole chat keeps every passage: picks = all of them, merged per message.
+    const all = whole.has(c.id) ? selectWindows(rows, rows.length) : selectWindows(rows, picks)
     if (all.length === 0) continue // nothing said there yet — not a budget loss
     const kept: string[] = []
     for (const e of all) {

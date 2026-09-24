@@ -244,3 +244,59 @@ describe('a huge tagged chat', () => {
     expect(rows.map((r) => r.text).join(' ')).toContain('ninety days')
   })
 })
+
+describe('tagged chats (ticket 08, Q2)', () => {
+  const reply = [
+    'Muse Code is a coding assistant.', 'It writes code from prompts.', 'It completes lines as you type.',
+    'It suggests refactors.', 'It finds bugs.', 'It understands the whole project.',
+  ].join(' ')
+
+  it('sends a tagged chat whole when it fits — every sentence, in order', async () => {
+    const a = await newChat('Muse')
+    await turn(a, 'What is Muse Code?', reply)
+    const b = await newChat('B')
+    const { chats } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'focus', taggedChatIds: [a], draftText: 'what does it do',
+    })
+    const text = chats[0].excerpts.join('\n')
+    for (const s of reply.split(/(?<=\.) /)) expect(text).toContain(s)
+    expect(text.indexOf('writes code')).toBeLessThan(text.indexOf('finds bugs'))
+  })
+
+  it('an auto-reached chat still gets only its best passages', async () => {
+    const long = Array.from({ length: 30 }, (_, i) => `Kafka partitions note ${i} about ordering.`).join(' ')
+    const a = await newChat('A')
+    await turn(a, 'Kafka partitions keep order.', long)
+    const b = await newChat('B')
+    const { chats } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'explore', taggedChatIds: [], draftText: 'How do Kafka partitions keep order?',
+    })
+    const sent = chats.find((c) => c.id === a)!.excerpts.join('\n').split('\n').length
+    expect(sent).toBeLessThan(31)
+  })
+
+  it('fills whole chats first, falls back for the one that does not fit, and reports it', async () => {
+    const ids: string[] = []
+    for (let i = 0; i < 3; i++) {
+      const id = await newChat(`T${i}`)
+      await turn(id, `Chat ${i}.`, Array.from({ length: 12 }, (_, j) => `Chat ${i} line ${j} ${'word '.repeat(60)}end.`).join(' '))
+      ids.push(id)
+    }
+    const b = await newChat('B')
+    const { chats, dropped } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'focus', taggedChatIds: ids, draftText: 'summary',
+    })
+    const used = chats.reduce((n, c) => n + c.excerpts.join('').length, 0)
+    expect(used).toBeLessThanOrEqual(8000)
+    expect(dropped.length).toBeGreaterThan(0)
+  })
+
+  it('a tagged chat with nothing said yet adds no memory and does not crash', async () => {
+    const empty = await newChat('Empty')
+    const b = await newChat('B')
+    const { chats } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'focus', taggedChatIds: [empty], draftText: 'anything',
+    })
+    expect(chats).toEqual([])
+  })
+})
