@@ -11,6 +11,9 @@ export type ScoredPointer = {
   score: number
 }
 
+/** One merged passage of a reached chat, with the date of the message it belongs to. Ticket 03, Q5. */
+export type Excerpt = { text: string; at: number }
+
 /**
  * Which passages of one chat go into the prompt. Ticket 05, Q10.
  *
@@ -22,7 +25,7 @@ export type ScoredPointer = {
  *    excerpt opens on a dangling "it" or "therefore".
  * 4. Merge touching passages into one excerpt; return excerpts in order.
  */
-export function selectWindows(rows: ScoredPointer[], picks: number = PROVISIONAL.windowsPerChat): string[] {
+export function selectWindows(rows: ScoredPointer[], picks: number = PROVISIONAL.windowsPerChat): Excerpt[] {
   const ordered = [...rows].sort(
     (a, b) =>
       // scoredPointers now derives messageCreatedAt from extract(epoch from
@@ -45,8 +48,8 @@ export function selectWindows(rows: ScoredPointer[], picks: number = PROVISIONAL
     }
   }
 
-  const excerpts: string[] = []
-  let run: string[] = []
+  const excerpts: Excerpt[] = []
+  let run: ScoredPointer[] = []
   let prev = -2
   for (const i of [...keep].sort((a, b) => a - b)) {
     // `rows` is now sparse — only picks and their +-1 neighbours, per
@@ -58,12 +61,12 @@ export function selectWindows(rows: ScoredPointer[], picks: number = PROVISIONAL
     // gap silently dropped.
     const touching = prev >= 0 && ordered[i].messageId === ordered[prev].messageId && ordered[i].ordinal === ordered[prev].ordinal + 1
     if (!touching && run.length > 0) {
-      excerpts.push(run.join('\n'))
+      excerpts.push({ text: run.map((r) => r.text).join('\n'), at: run[0].messageCreatedAt })
       run = []
     }
-    run.push(ordered[i].text)
+    run.push(ordered[i])
     prev = i
   }
-  if (run.length > 0) excerpts.push(run.join('\n'))
+  if (run.length > 0) excerpts.push({ text: run.map((r) => r.text).join('\n'), at: run[0].messageCreatedAt })
   return excerpts
 }

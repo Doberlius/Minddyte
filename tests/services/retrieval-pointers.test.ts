@@ -29,7 +29,7 @@ describe('retrieval reads memory from pointers', () => {
       draftText: 'How do Kafka partitions guarantee order?',
     })
     expect(chats.map((c) => c.id)).toEqual([a])
-    expect(chats[0].excerpts.join(' ')).toContain('guarantee order only within one partition')
+    expect(chats[0].excerpts.map((e) => e.text).join(' ')).toContain('guarantee order only within one partition')
   })
 
   // Whole-branch review, finding 6 (spec Q10): each chat's passages are scored
@@ -50,8 +50,8 @@ describe('retrieval reads memory from pointers', () => {
     const found = chats.find((x) => x.id === a)!
     expect(found.why).toMatch(/Kafka partitions/i)
     expect(found.why).not.toMatch(/Redis caching/i)
-    expect(found.excerpts.join(' ')).toContain('Kafka partitions keep order.')
-    expect(found.excerpts.join(' ')).not.toContain('Redis caching belongs to another chat')
+    expect(found.excerpts.map((e) => e.text).join(' ')).toContain('Kafka partitions keep order.')
+    expect(found.excerpts.map((e) => e.text).join(' ')).not.toContain('Redis caching belongs to another chat')
   })
 
   it('sends the text that follows an emoji verbatim', async () => {
@@ -61,7 +61,7 @@ describe('retrieval reads memory from pointers', () => {
     const { chats } = await retrieveContext({
       workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'focus', taggedChatIds: [a], draftText: 'what about Redis?',
     })
-    expect(chats[0].excerpts.join('\n')).toContain('Redis caches sessions.')
+    expect(chats[0].excerpts.map((e) => e.text).join('\n')).toContain('Redis caches sessions.')
   })
 
   // Review Focus 5.
@@ -79,7 +79,7 @@ describe('retrieval reads memory from pointers', () => {
     const { chats, dropped } = await retrieveContext({
       workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'focus', taggedChatIds: ids, draftText: 'summarise',
     })
-    const used = chats.reduce((n, c) => n + c.excerpts.join('').length, 0)
+    const used = chats.reduce((n, c) => n + c.excerpts.map((e) => e.text).join('').length, 0)
     expect(used).toBeLessThanOrEqual(8000)
     expect(dropped.length).toBeGreaterThan(0)
     // Every chat is accounted for: fully sent, or named in `dropped`.
@@ -216,7 +216,7 @@ describe('a huge tagged chat', () => {
       draftText: 'what is the retention period for audit logs',
     })
     expect(performance.now() - t).toBeLessThan(1500)
-    expect(chats[0].excerpts.join(' ')).toContain('ninety days')
+    expect(chats[0].excerpts.map((e) => e.text).join(' ')).toContain('ninety days')
   })
 
   // Fix round 1, finding 2: the timing assertion above passed even on the OLD
@@ -258,7 +258,7 @@ describe('tagged chats (ticket 08, Q2)', () => {
     const { chats } = await retrieveContext({
       workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'focus', taggedChatIds: [a], draftText: 'what does it do',
     })
-    const text = chats[0].excerpts.join('\n')
+    const text = chats[0].excerpts.map((e) => e.text).join('\n')
     for (const s of reply.split(/(?<=\.) /)) expect(text).toContain(s)
     expect(text.indexOf('writes code')).toBeLessThan(text.indexOf('finds bugs'))
   })
@@ -271,7 +271,7 @@ describe('tagged chats (ticket 08, Q2)', () => {
     const { chats } = await retrieveContext({
       workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'explore', taggedChatIds: [], draftText: 'How do Kafka partitions keep order?',
     })
-    const sent = chats.find((c) => c.id === a)!.excerpts.join('\n').split('\n').length
+    const sent = chats.find((c) => c.id === a)!.excerpts.map((e) => e.text).join('\n').split('\n').length
     expect(sent).toBeLessThan(31)
   })
 
@@ -286,7 +286,7 @@ describe('tagged chats (ticket 08, Q2)', () => {
     const { chats, dropped } = await retrieveContext({
       workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'focus', taggedChatIds: ids, draftText: 'summary',
     })
-    const used = chats.reduce((n, c) => n + c.excerpts.join('').length, 0)
+    const used = chats.reduce((n, c) => n + c.excerpts.map((e) => e.text).join('').length, 0)
     expect(used).toBeLessThanOrEqual(8000)
     expect(dropped.length).toBeGreaterThan(0)
   })
@@ -311,7 +311,7 @@ describe('tagged chats (ticket 08, Q2)', () => {
     // Listed in ranked order, whatever order the budget was spent in.
     expect(chats[0].id).toBe(big)
     const got = chats.find((c) => c.id === small)!
-    const text = got.excerpts.join('\n')
+    const text = got.excerpts.map((e) => e.text).join('\n')
     // Every sentence of every one of Small's six messages is there.
     for (let i = 0; i < 3; i++) {
       for (const m of [para(`Small question ${i}`), para(`Small answer ${i}`)]) {
@@ -319,7 +319,7 @@ describe('tagged chats (ticket 08, Q2)', () => {
       }
     }
     expect(dropped).not.toContain(got.title)
-    const used = chats.reduce((n, c) => n + c.excerpts.join('').length, 0)
+    const used = chats.reduce((n, c) => n + c.excerpts.map((e) => e.text).join('').length, 0)
     expect(used).toBeLessThanOrEqual(8000)
   })
 
@@ -336,11 +336,11 @@ describe('tagged chats (ticket 08, Q2)', () => {
     const { chats } = await retrieveContext({
       workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'focus', taggedChatIds: [padded], draftText: 'what is fact number 7',
     })
-    const lines = chats[0].excerpts.join('\n').split('\n')
+    const lines = chats[0].excerpts.map((e) => e.text).join('\n').split('\n')
     // Whole would be all 20 facts plus the question; best passages are at most
     // `windowsPerChat` picks, each widened by one neighbour either side.
     expect(lines.length).toBeLessThanOrEqual(PROVISIONAL.windowsPerChat * 3)
-    expect(chats[0].excerpts.join('\n')).toContain('Short fact number 7 is here.')
+    expect(chats[0].excerpts.map((e) => e.text).join('\n')).toContain('Short fact number 7 is here.')
   })
 
   it('a tagged chat with nothing said yet adds no memory and does not crash', async () => {

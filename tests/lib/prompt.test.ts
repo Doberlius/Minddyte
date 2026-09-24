@@ -1,17 +1,44 @@
 import { describe, expect, it } from 'vitest'
-import { buildMemoryBlock, buildSystemPrompt, type MemoryChat } from '@/lib/prompt'
+import { buildMemoryBlock, buildSystemPrompt, formatExcerptDate, sentLength, type MemoryChat } from '@/lib/prompt'
 
 const chat = (over: Partial<MemoryChat> = {}): MemoryChat => ({
   title: 'Event streaming',
-  excerpts: ['First sentence.', 'Second sentence.'],
+  excerpts: [
+    { text: 'First sentence.', at: Date.UTC(2026, 0, 12) },
+    { text: 'Second sentence.', at: Date.UTC(2026, 0, 12) },
+  ],
   why: 'shares kafka',
   ...over,
 })
 
 describe('buildMemoryBlock', () => {
   it('lists each excerpt under its chat heading', () => {
-    const chat: MemoryChat = { title: 'Kafka', why: 'shares Kafka', excerpts: ['First passage.', 'Second passage.'] }
-    expect(buildMemoryBlock([chat])).toBe('## Kafka  (shares Kafka)\nFirst passage.\nSecond passage.')
+    const chat: MemoryChat = {
+      title: 'Kafka',
+      why: 'shares Kafka',
+      excerpts: [
+        { text: 'First passage.', at: Date.UTC(2026, 0, 12) },
+        { text: 'Second passage.', at: Date.UTC(2026, 0, 12) },
+      ],
+    }
+    expect(buildMemoryBlock([chat])).toBe(
+      `## Kafka  (shares Kafka)\n(${formatExcerptDate(Date.UTC(2026, 0, 12))}) First passage.\n(${formatExcerptDate(Date.UTC(2026, 0, 12))}) Second passage.`,
+    )
+  })
+
+  it('prints each excerpt with its date', () => {
+    const block = buildMemoryBlock([
+      { title: 'Kafka', why: 'tagged', excerpts: [{ text: 'We chose Kafka.', at: Date.UTC(2026, 0, 12, 23, 30) }] },
+    ])
+    expect(block).toContain('(Jan 12, 2026) We chose Kafka.')
+  })
+
+  it('formats dates the same everywhere (UTC)', () => {
+    expect(formatExcerptDate(Date.UTC(2026, 5, 3, 0, 5))).toBe('Jun 3, 2026')
+  })
+
+  it('sentLength counts the exact rendered line, label width included', () => {
+    expect(sentLength({ text: 'ab', at: Date.UTC(2026, 8, 3) })).toBe('(Sep 3, 2026) ab'.length)
   })
 
   it('heads each chat with its title and the reason it was reached', () => {

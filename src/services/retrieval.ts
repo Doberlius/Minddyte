@@ -3,7 +3,8 @@ import { and, eq, inArray, ne, or, sql } from "drizzle-orm"
 import { rankCandidates, AUTO_REACH_CAP, type Candidate } from "@/lib/rank"
 import { extractConcepts } from "@/lib/extract"
 import { canonicalKey } from "@/lib/text"
-import { selectWindows, type ScoredPointer } from "@/lib/windows"
+import { selectWindows, type ScoredPointer, type Excerpt } from "@/lib/windows"
+import { sentLength } from "@/lib/prompt"
 import { PROVISIONAL } from "@/lib/provisional"
 import { queryText, strongPhrases } from "@/lib/tokens"
 
@@ -429,17 +430,19 @@ export async function retrieveContext(input: {
   // fits the remaining budget is sent whole, in order.
   //
   // Whole-branch review 2, findings 1 and 3. "Fits" is decided on the exact
-  // excerpts that would be sent, counted as the packer counts them (UTF-16
-  // .length), and whole chats are packed FIRST — so a larger tagged chat
-  // ranked earlier, falling back to best passages, can never spend budget a
-  // whole chat was promised. Only a chat whose raw text is under
-  // PROVISIONAL.wholeChatRawCharLimit is read whole at all: the read costs its
-  // raw size, and PGlite's one connection makes every visitor wait for it.
+  // excerpts that would be sent, counted as the packer counts them — the
+  // length of the dated line each excerpt actually renders as (sentLength,
+  // shared with prompt.ts so the two can never disagree) — and whole chats
+  // are packed FIRST — so a larger tagged chat ranked earlier, falling back
+  // to best passages, can never spend budget a whole chat was promised. Only
+  // a chat whose raw text is under PROVISIONAL.wholeChatRawCharLimit is read
+  // whole at all: the read costs its raw size, and PGlite's one connection
+  // makes every visitor wait for it.
   const taggedIds = taggedRanked.map((c) => c.chatId)
   const raw = await rawChatChars(input.workspaceId, taggedIds)
   const eligible = taggedIds.filter((id) => (raw.get(id) ?? Infinity) <= PROVISIONAL.wholeChatRawCharLimit)
   const wholeRows = await wholeChats(input.workspaceId, eligible)
-  const excerpts = new Map<string, string[]>()
+  const excerpts = new Map<string, Excerpt[]>()
   const whole = new Set<string>()
   let planned = 0
   for (const c of ordered) {
@@ -447,7 +450,7 @@ export async function retrieveContext(input: {
     if (!rows?.length) continue
     // A whole chat keeps every passage: picks = all of them, merged per message.
     const all = selectWindows(rows, rows.length)
-    const size = all.reduce((n, e) => n + e.length, 0)
+    const size = all.reduce((n, e) => n + sentLength(e), 0)
     if (planned + size > CONTEXT_CHAR_BUDGET) continue // falls back to best passages
     whole.add(c.id)
     excerpts.set(c.id, all)
@@ -465,21 +468,22 @@ export async function retrieveContext(input: {
   // shrunk with nobody told. Budget is spent whole chats first (they were
   // planned to fit, so they always do), then the rest in ranked order; the
   // result still lists chats in ranked order.
-  const kept = new Map<string, string[]>()
+  const kept = new Map<string, Excerpt[]>()
   const lost = new Set<string>()
   let used = 0
   for (const c of [...ordered.filter((c) => whole.has(c.id)), ...rest]) {
     const all = excerpts.get(c.id) ?? []
-    const keep: string[] = []
+    const keep: Excerpt[] = []
     for (const e of all) {
-      if (used + e.length > CONTEXT_CHAR_BUDGET) continue
+      const size = sentLength(e)
+      if (used + size > CONTEXT_CHAR_BUDGET) continue
       keep.push(e)
-      used += e.length
+      used += size
     }
     if (keep.length < all.length) lost.add(c.id)
     kept.set(c.id, keep)
   }
-  const chats: { id: string; title: string; excerpts: string[]; why: string }[] = []
+  const chats: { id: string; title: string; excerpts: Excerpt[]; why: string }[] = []
   const dropped: string[] = []
   for (const c of ordered) {
     // A chat with nothing said yet is not a budget loss.

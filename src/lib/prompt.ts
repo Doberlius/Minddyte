@@ -1,13 +1,32 @@
+import type { Excerpt } from './windows'
+
 /**
  * The shape retrieveContext returns for each reached Chat. Declared here rather
  * than imported from the service, because `src/lib/` never depends on anything
  * that touches the database — that boundary is what keeps these tests pure.
+ * `Excerpt` is imported from `windows.ts`, itself pure, so this stays true.
  */
-export type MemoryChat = { title: string; excerpts: string[]; why: string }
+export type MemoryChat = { title: string; excerpts: Excerpt[]; why: string }
 
-/** Each reached chat as a heading, then its verbatim excerpts in conversation order. */
+const DATE = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+/** Ticket 03, Q5: the exact date an excerpt was said, the same on every machine. */
+export function formatExcerptDate(ms: number): string {
+  return DATE.format(new Date(ms))
+}
+
+/** The exact line an excerpt renders as, once — planner and packer both call this so they cannot disagree. */
+function excerptLine(e: Excerpt): string {
+  return `(${formatExcerptDate(e.at)}) ${e.text}`
+}
+
+/** The size of an excerpt as it will actually be sent: the length of `excerptLine`, counted once, shared by planner and packer. */
+export function sentLength(e: Excerpt): number {
+  return excerptLine(e).length
+}
+
+/** Each reached chat as a heading, then its verbatim excerpts, each dated, in conversation order. */
 export function buildMemoryBlock(chats: MemoryChat[]): string {
-  return chats.map((c) => `## ${c.title}  (${c.why})\n${c.excerpts.join('\n')}`).join('\n\n')
+  return chats.map((c) => `## ${c.title}  (${c.why})\n${c.excerpts.map(excerptLine).join('\n')}`).join('\n\n')
 }
 
 /**
