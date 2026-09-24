@@ -40,7 +40,10 @@ export function pointerRows(
   const toCodePoints = (target: number) => {
     while (cu < target) {
       const code = content.charCodeAt(cu)
-      cu += code >= 0xd800 && code <= 0xdbff && cu + 1 < content.length ? 2 : 1
+      // Count a UTF-16 pair (surrogate pair) only if both units are present
+      // and form a valid pair: high surrogate (0xD800-0xDBFF) + low surrogate (0xDC00-0xDFFF).
+      // Unpaired surrogates count as 1 code point, matching Array.from() behavior.
+      cu += code >= 0xd800 && code <= 0xdbff && cu + 1 < content.length && (content.charCodeAt(cu + 1) & 0xfc00) === 0xdc00 ? 2 : 1
       cp += 1
     }
     return cp

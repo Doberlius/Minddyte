@@ -57,6 +57,27 @@ describe('pointerRows', () => {
     const cps = Array.from(content)
     for (const r of rows) expect(cps.slice(r.startChar, r.endChar).join('')).toBe(r.matchText)
   })
+
+  it('counts a stray high surrogate as one character, matching Array.from', () => {
+    // Unpaired high surrogate \uD800 should count as 1 code point, not 2.
+    // This reproduces the bug where offsets become misaligned.
+    const content = 'First sentence has a stray unit\uD800 in it. Second sentence follows after that.'
+    const { rows } = pointerRows(content)
+    const cps = Array.from(content)
+    for (const r of rows) {
+      expect(cps.slice(r.startChar, r.endChar).join('')).toBe(r.matchText)
+    }
+  })
+
+  it('counts a lone low surrogate as one character, matching Array.from', () => {
+    // Unpaired low surrogate \uDC00 should also count as 1 code point.
+    const content = 'a\uDC00b. Next one here.'
+    const { rows } = pointerRows(content)
+    const cps = Array.from(content)
+    for (const r of rows) {
+      expect(cps.slice(r.startChar, r.endChar).join('')).toBe(r.matchText)
+    }
+  })
 })
 
 describe('describeSkip', () => {
