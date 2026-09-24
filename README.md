@@ -165,6 +165,12 @@ The database is created on first run at `./.data/minddyte`. Override with
 `MINDDYTE_DATA_DIR`; `bun run db:reset` starts over and `bun run db:export`
 takes a copy.
 
+**Deploying a schema upgrade (e.g. to Render).** Snapshot or copy the disk
+(`/var/data`) first. Upgrades are one-way: this version drops the old
+`sessions.compaction` column, so rolling back means restoring that copy, not
+redeploying the old build. `db:export` run with the new code migrates before it
+dumps — take the pre-upgrade export with the OLD build, or copy the directory.
+
 ## Testing
 
 ```bash
