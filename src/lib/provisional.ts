@@ -38,4 +38,11 @@ export const PROVISIONAL = {
    * Past it, the chat gets best passages instead.
    */
   wholeChatRawCharLimit: 32_000,
+  /**
+   * Code points the "About you" Core block may hold before a save is
+   * refused. NOT CALIBRATED — ticket 03 picked 1,500 as a plausible cap for
+   * a hand-written block, not a measured one; the user's own real Core is
+   * what will test whether it is generous enough.
+   */
+  coreCharLimit: 1500,
 } as const

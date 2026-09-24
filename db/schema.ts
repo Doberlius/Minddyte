@@ -176,3 +176,13 @@ export const dataMigrations = pgTable("data_migrations", {
   name: text("name").primaryKey(),
   appliedAt: timestamp("applied_at", { withTimezone: true }).notNull().defaultNow(),
 })
+
+/**
+ * Core — the "About you" text, ticket 03. ONE hand-written block per
+ * workspace, never updated automatically: only the user's Save writes it.
+ */
+export const userCore = pgTable("user_core", {
+  workspaceId: uuid("workspace_id").primaryKey(),
+  text: text("text").notNull().default(""),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})

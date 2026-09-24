@@ -43,7 +43,7 @@ describe('bootstrap', () => {
       `select count(*)::int as n from information_schema.tables
         where table_schema = 'public' and table_type = 'BASE TABLE'`,
     )
-    expect(tables[0].n).toBe(13)
+    expect(tables[0].n).toBe(14)
     await pg.close()
   })
 

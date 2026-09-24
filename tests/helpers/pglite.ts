@@ -23,6 +23,7 @@ const TABLES = [
   'rejected_phrases',
   'session_nodes',
   'sessions',
+  'user_core',
 ] as const
 
 /**

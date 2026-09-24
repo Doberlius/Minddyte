@@ -9,6 +9,7 @@ import { getDb, nodes, collections, rejectedPhrases, clusterOrigins } from '../.
 import { eq } from 'drizzle-orm'
 import { newWorkspaceId } from '@/lib/workspace'
 import { AUTO_REACH_CAP } from '@/lib/rank'
+import { getCore, saveCore } from '@/services/core'
 
 beforeEach(truncateAll)
 
@@ -141,6 +142,12 @@ describe('one workspace cannot see another', () => {
 
     expect(await deleteChat(B, a.id)).toBe(false)
     expect(await listChats(A)).toHaveLength(1)
+  })
+
+  it("will not read another workspace's Core", async () => {
+    await saveCore(A, 'A secret')
+
+    expect((await getCore(B)).text).toBe('')
   })
 
   it("will not rename another workspace's chat", async () => {
