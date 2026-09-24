@@ -8,6 +8,8 @@ import type { Excerpt } from './windows'
  */
 export type MemoryChat = { title: string; excerpts: Excerpt[]; why: string }
 
+export const CORE_AUTHORITY = 'Facts the user wrote about themselves. These are current. If an older chat excerpt disagrees, trust these facts; the older excerpt is history, and may still be useful as history.'
+
 const DATE = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
 /** Ticket 03, Q5: the exact date an excerpt was said, the same on every machine. */
 export function formatExcerptDate(ms: number): string {
@@ -27,6 +29,13 @@ export function sentLength(e: Excerpt): number {
 /** Each reached chat as a heading, then its verbatim excerpts, each dated, in conversation order. */
 export function buildMemoryBlock(chats: MemoryChat[]): string {
   return chats.map((c) => `## ${c.title}  (${c.why})\n${c.excerpts.map(excerptLine).join('\n')}`).join('\n\n')
+}
+
+/** The "About you" block, ticket 03. Returns undefined for empty or whitespace text. */
+export function buildCoreBlock(text: string): string | undefined {
+  const trimmed = text.trim()
+  if (!trimmed) return undefined
+  return `${CORE_AUTHORITY}\n\n${trimmed}`
 }
 
 /**

@@ -45,4 +45,10 @@ export const PROVISIONAL = {
    * what will test whether it is generous enough.
    */
   coreCharLimit: 1500,
+  /**
+   * Whether to include the Core ("About you" text) in the system prompt for
+   * each mode. Measured by the ticket-03 benchmark; see the ticket's
+   * "Q6 measured" section.
+   */
+  coreInModes: { focus: true, explore: true },
 } as const

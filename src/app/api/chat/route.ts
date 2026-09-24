@@ -4,9 +4,11 @@ import { chooseProvider } from "@/lib/provider"
 import { retrieveContext } from "@/services/retrieval"
 import { persistMessage, ingestUserMessage } from "@/services/graph"
 import { sessionExists } from "@/services/dbApi"
-import { buildSystemPrompt } from "@/lib/prompt"
+import { buildSystemPrompt, buildCoreBlock } from "@/lib/prompt"
 import { requireWorkspace } from "@/server/workspace"
 import { describeSkip } from "@/lib/pointers"
+import { getCore } from "@/services/core"
+import { PROVISIONAL } from "@/lib/provisional"
 
 /**
  * A runaway guard, NOT a budget.
@@ -160,7 +162,14 @@ export async function POST(req: Request) {
     console.error("[chat] retrieval failed, continuing without memory", err)
   }
 
-  const systemPrompt = buildSystemPrompt(mode, chats)
+  // Ticket 03: Core reaches the model through its own slot, never through
+  // retrieval — so focus mode skipping retrieval does not skip Core.
+  let core: string | undefined
+  if (PROVISIONAL.coreInModes[mode]) {
+    try { core = buildCoreBlock((await getCore(workspaceId)).text) }
+    catch (err) { console.error('[chat] could not read About you, continuing without it', err) }
+  }
+  const systemPrompt = buildSystemPrompt(mode, chats, { core })
 
   const result = streamText({
     model: clientFor(choice)(modelId),

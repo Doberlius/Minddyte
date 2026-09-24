@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildMemoryBlock, buildSystemPrompt, formatExcerptDate, sentLength, type MemoryChat } from '@/lib/prompt'
+import { buildMemoryBlock, buildSystemPrompt, formatExcerptDate, sentLength, buildCoreBlock, CORE_AUTHORITY, type MemoryChat } from '@/lib/prompt'
 
 const chat = (over: Partial<MemoryChat> = {}): MemoryChat => ({
   title: 'Event streaming',
@@ -109,5 +109,19 @@ describe('memory is marked as reference text', () => {
   it('is absent when there is no memory', () => {
     expect(buildSystemPrompt('focus', [])).not.toContain(NOTE)
     expect(buildSystemPrompt('explore', [])).not.toContain(NOTE)
+  })
+})
+
+describe('Core in the prompt (ticket 03)', () => {
+  it('opens with the authority sentence, then the user text', () => {
+    expect(buildCoreBlock('Primary language: Rust (since June).')).toBe(`${CORE_AUTHORITY}\n\nPrimary language: Rust (since June).`)
+  })
+  it('sends nothing for an empty Core', () => {
+    expect(buildCoreBlock('  \n ')).toBeUndefined()
+    expect(buildSystemPrompt('focus', [chat()], { core: buildCoreBlock('') })).not.toContain(CORE_AUTHORITY)
+  })
+  it('the worked example: Core above a dated January excerpt', () => {
+    const p = buildSystemPrompt('explore', [{ title: 'Setup', why: 'tagged', excerpts: [{ text: "I'm using Python for this.", at: Date.UTC(2026, 0, 12) }] }], { core: buildCoreBlock('Primary language: Rust (since June).') })
+    expect(p.indexOf(CORE_AUTHORITY)).toBeLessThan(p.indexOf('(Jan 12, 2026) I\'m using Python'))
   })
 })
