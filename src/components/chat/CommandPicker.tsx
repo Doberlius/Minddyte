@@ -56,7 +56,27 @@ export function CommandPicker({
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (list.length === 0) return
+      // Escape dismisses the picker even with no match on screen — the panel
+      // is still open, and Escape closing it is true regardless of what it
+      // holds.
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        onDismiss()
+        return
+      }
+      if (list.length === 0) {
+        if (event.key === 'Enter' && !event.shiftKey) {
+          // Nothing matches (e.g. "/xyz"), so there is nothing to run — but
+          // the box below still sends on Enter, and letting this fall
+          // through would send the half-typed command as a literal message
+          // instead of doing nothing. The empty state already points at
+          // /help.
+          event.preventDefault()
+          event.stopPropagation()
+        }
+        return
+      }
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault()
         event.stopPropagation()
@@ -73,12 +93,6 @@ export function CommandPicker({
         event.preventDefault()
         event.stopPropagation()
         onPick(list[index])
-        return
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopPropagation()
-        onDismiss()
       }
     }
     window.addEventListener('keydown', onKey, true)

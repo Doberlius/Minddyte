@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HELP_ENTRIES, SLASH_ENTRIES, matchCommands } from '@/components/chat/commands'
+import { HELP_ENTRIES, SLASH_ENTRIES, matchCommands, modeLabel } from '@/components/chat/commands'
 
 describe('the one list of working commands', () => {
   it('holds exactly the commands that work', () => {
@@ -23,5 +23,12 @@ describe('the one list of working commands', () => {
   })
   it('/help resolves to the help action, never to a mode', () => {
     expect(matchCommands('help')[0].action).toEqual({ kind: 'help' })
+  })
+})
+
+describe('modeLabel', () => {
+  it('is the one place that spells out a mode for a person to read', () => {
+    expect(modeLabel('focus')).toBe('Focus')
+    expect(modeLabel('explore')).toBe('Explore')
   })
 })

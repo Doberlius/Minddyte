@@ -42,3 +42,13 @@ export function matchCommands(query: string): HelpEntry[] {
   const q = query.toLowerCase()
   return SLASH_ENTRIES.filter((e) => e.name.startsWith(q) || e.name.includes(q))
 }
+
+/**
+ * The one place that spells out a mode for a person to read (Q9): every spot
+ * that shows the current mode — the composer's button and its aria-label,
+ * the chat header — calls this instead of showing the raw `'focus'` /
+ * `'explore'` value, so they can never drift apart.
+ */
+export function modeLabel(mode: ChatMode): string {
+  return mode === 'focus' ? 'Focus' : 'Explore'
+}

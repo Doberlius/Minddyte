@@ -6,6 +6,7 @@ import { DefaultChatTransport } from 'ai'
 import { AlertCircle } from 'lucide-react'
 import { AtPicker } from './AtPicker'
 import { CommandPicker } from './CommandPicker'
+import { modeLabel } from './commands'
 import { HelpCard } from './HelpCard'
 import { ModelPicker } from './ModelPicker'
 import { classifyChatFailure } from '@/lib/chat-error'
@@ -186,10 +187,11 @@ export function NeuralChat({
     if (loadedFor.current === sessionId) return
     loadedFor.current = sessionId
 
-    // Tags and any failure belong to the chat you were in, not the one you
-    // just opened.
+    // Tags, any failure, and an open /help card all belong to the chat you
+    // were in, not the one you just opened.
     setTagged([])
     setFailure(null)
+    setShowHelp(false)
 
     /**
      * Decided HERE, once, for every path out of this effect — not left to the
@@ -339,7 +341,7 @@ export function NeuralChat({
       <header className="chat-head">
         <span className="t">{activeChat?.title ?? 'New chat'}</span>
         <span className="meta tnum">
-          {mode}
+          {modeLabel(mode)}
           {activeChat ? ` · ${activeChat.nodeCount} concept${activeChat.nodeCount === 1 ? '' : 's'}` : ''}
         </span>
       </header>
@@ -452,10 +454,10 @@ export function NeuralChat({
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
           <button onClick={() => setMode(mode === 'focus' ? 'explore' : 'focus')}
-            aria-label={`Mode: ${mode === 'focus' ? 'Focus' : 'Explore'}. Click to switch.`}
+            aria-label={`Mode: ${modeLabel(mode)}. Click to switch.`}
             style={{ fontSize: 11, padding: '5px 10px', border: '1px solid var(--border)', borderRadius: 7,
               background: 'none', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
-            {mode === 'focus' ? 'Focus' : 'Explore'}
+            {modeLabel(mode)}
           </button>
           <ModelPicker value={model} onChange={chooseModel} />
           <span className="composer-note">
