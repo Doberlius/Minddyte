@@ -1,15 +1,17 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Crosshair, Waypoints } from 'lucide-react'
+import { Crosshair, HelpCircle, Waypoints } from 'lucide-react'
+import { matchCommands, type ChatMode, type HelpEntry } from './commands'
 
 /**
  * The `/` command list.
  *
- * `@` brings a conversation in; `/` changes how this message is sent. Both are
- * typed into the same box and both open a panel above it, because a control
- * you reach by typing should not send you hunting for a button — the pill by
- * the Send button stays, and this is the same setting by the other route.
+ * `@` brings a conversation in; `/` changes how this message is sent, or
+ * (for `/help`) opens the full list. Both are typed into the same box and
+ * both open a panel above it, because a control you reach by typing should
+ * not send you hunting for a button — the pill by the Send button stays, and
+ * this is the same setting by the other route.
  *
  * Anchored to the START of the message. `@` can appear anywhere in a sentence
  * because it names a thing inside what you are saying; a command is not part
@@ -19,35 +21,16 @@ import { Crosshair, Waypoints } from 'lucide-react'
  * the keyboard and must then reach for the mouse to use is worse than no list.
  * `.cmd-row` and its `.hi` state were already in the design system waiting for
  * exactly this.
+ *
+ * The rows themselves come from `./commands` — the one list shared with the
+ * /help card (ticket 08, Q10), so this menu and that card can never disagree.
  */
 
-export type Mode = 'focus' | 'explore'
-
-type Command = {
-  /** What you type, without the slash. */
-  name: string
-  mode: Mode
-  label: string
-  hint: string
-  icon: React.ReactNode
+const ICONS: Record<string, React.ReactNode> = {
+  'mode explore': <Waypoints size={14} />,
+  'mode focus': <Crosshair size={14} />,
+  help: <HelpCircle size={14} />,
 }
-
-const COMMANDS: Command[] = [
-  {
-    name: 'mode explore',
-    mode: 'explore',
-    label: '/mode explore',
-    hint: 'Also reach conversations that share a concept with this one',
-    icon: <Waypoints size={14} />,
-  },
-  {
-    name: 'mode focus',
-    mode: 'focus',
-    label: '/mode focus',
-    hint: 'Reach nothing you did not bring in yourself with @',
-    icon: <Crosshair size={14} />,
-  },
-]
 
 export function CommandPicker({
   query,
@@ -57,12 +40,11 @@ export function CommandPicker({
 }: {
   /** What follows the slash, which may be empty. */
   query: string
-  mode: Mode
-  onPick: (mode: Mode) => void
+  mode: ChatMode
+  onPick: (entry: HelpEntry) => void
   onDismiss: () => void
 }) {
-  const q = query.toLowerCase()
-  const list = COMMANDS.filter((c) => c.name.startsWith(q) || c.name.includes(q))
+  const list = matchCommands(query)
   const [at, setAt] = useState(0)
 
   // A filter that shortens the list can leave the highlight past its end.
@@ -90,7 +72,7 @@ export function CommandPicker({
         // the command is worse than not offering the list.
         event.preventDefault()
         event.stopPropagation()
-        onPick(list[index].mode)
+        onPick(list[index])
         return
       }
       if (event.key === 'Escape') {
@@ -108,8 +90,7 @@ export function CommandPicker({
       <div className="picker">
         <div className="picker-head">Commands</div>
         <p className="picker-empty">
-          No command matches “{query}”. The only one so far is{' '}
-          <code>/mode</code>.
+          No command matches “{query}”. Type <code>/help</code> to see all commands.
         </p>
       </div>
     )
@@ -117,7 +98,7 @@ export function CommandPicker({
 
   return (
     <div className="picker" role="listbox" aria-label="Commands">
-      <div className="picker-head">Commands — changes how this message is sent</div>
+      <div className="picker-head">Commands</div>
       {list.map((c, i) => (
         <div
           key={c.name}
@@ -125,14 +106,15 @@ export function CommandPicker({
           role="option"
           aria-selected={i === index}
           onMouseEnter={() => setAt(i)}
-          onClick={() => onPick(c.mode)}
+          onClick={() => onPick(c)}
         >
-          <span className="cmd-ic">{c.icon}</span>
+          <span className="cmd-ic">{ICONS[c.name]}</span>
           <span className="cmd-text">
             <span className="cmd-name">{c.label}</span>
-            <span className="cmd-hint">{c.hint}</span>
+            <span className="cmd-hint">{c.what}</span>
+            <span className="cmd-example">{c.example}</span>
           </span>
-          {c.mode === mode && <span className="cmd-now">now</span>}
+          {c.action?.kind === 'mode' && c.action.mode === mode && <span className="cmd-now">now</span>}
         </div>
       ))}
     </div>

@@ -6,6 +6,7 @@ import { DefaultChatTransport } from 'ai'
 import { AlertCircle } from 'lucide-react'
 import { AtPicker } from './AtPicker'
 import { CommandPicker } from './CommandPicker'
+import { HelpCard } from './HelpCard'
 import { ModelPicker } from './ModelPicker'
 import { classifyChatFailure } from '@/lib/chat-error'
 import type { ChatSummary } from '@/components/layout/Sidebar'
@@ -43,6 +44,8 @@ export function NeuralChat({
   const [tagged, setTagged] = useState<ChatSummary[]>([])
   const [mode, setMode] = useState<'focus' | 'explore'>('explore')
   const [opening, setOpening] = useState(false)
+  /** Whether the `/help` card is open. Set from the / menu; closed by hand. */
+  const [showHelp, setShowHelp] = useState(false)
   /**
    * Why the last send did not go through.
    *
@@ -382,6 +385,8 @@ export function NeuralChat({
             <span className="dot" />
           </div>
         )}
+
+        {showHelp && <HelpCard onClose={() => setShowHelp(false)} />}
         </div>
       </div>
 
@@ -401,8 +406,9 @@ export function NeuralChat({
           <CommandPicker
             query={slashQuery ?? ''}
             mode={mode}
-            onPick={(next) => {
-              setMode(next)
+            onPick={(entry) => {
+              if (entry.action?.kind === 'mode') setMode(entry.action.mode)
+              else if (entry.action?.kind === 'help') setShowHelp(true)
               // The command is not part of the message, so it does not stay in
               // the box once it has been run.
               setInput('')
@@ -446,14 +452,14 @@ export function NeuralChat({
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
           <button onClick={() => setMode(mode === 'focus' ? 'explore' : 'focus')}
-            aria-label={`Mode: ${mode}. Switch to ${mode === 'focus' ? 'explore' : 'focus'}`}
+            aria-label={`Mode: ${mode === 'focus' ? 'Focus' : 'Explore'}. Click to switch.`}
             style={{ fontSize: 11, padding: '5px 10px', border: '1px solid var(--border)', borderRadius: 7,
               background: 'none', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
-            /mode {mode}
+            {mode === 'focus' ? 'Focus' : 'Explore'}
           </button>
           <ModelPicker value={model} onChange={chooseModel} />
           <span className="composer-note">
-            Nothing is saved to your graph unless you use @ or a command.
+            {mode === 'focus' && tagged.length === 0 ? 'Focus uses only chats you tag. Type @ to add one.' : ''}
           </span>
           <button className="btn-send" onClick={submit} disabled={status !== 'ready' || !input.trim()}>
             Send

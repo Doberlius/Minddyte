@@ -1,5 +1,10 @@
 import type { SlashCommand } from '@/types/index'
 
+/**
+ * NOT BUILT. Ideas for future commands, kept as a to-do list (ticket 08, Q11).
+ * None of these work, and /help does not read this file. The commands that
+ * DO work live in src/components/chat/commands.ts.
+ */
 export const SLASH_COMMANDS: SlashCommand[] = [
   { cmd: '/help',      desc: 'Show all available commands'       },
   { cmd: '/memory',    desc: 'Show active nodes this session'    },

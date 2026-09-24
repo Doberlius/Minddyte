@@ -704,12 +704,44 @@ input:focus-visible, textarea:focus-visible {
 .cmd-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .cmd-name { font-size: 12.5px; font-weight: 600; color: var(--ink); }
 .cmd-hint { font-size: 11px; line-height: 1.45; color: var(--ink3); }
+.cmd-example { font-size: 10.5px; line-height: 1.4; color: var(--ink3); font-style: italic; }
 .cmd-now {
   margin-left: auto; flex-shrink: 0; align-self: center;
   font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
   padding: 2px 7px; border-radius: 999px;
   background: var(--violet-l); color: var(--violet);
 }
+
+/* The /help card — the full list of working commands, opened from the /
+   menu and read from the same list, so the two never disagree. Sits in the
+   transcript column rather than floating over it: it is content you asked
+   for, not a transient menu. */
+.help-card {
+  background: var(--white);
+  border: 1px solid var(--border); border-radius: 11px;
+  padding: 4px 0 6px;
+  animation: pop .12s ease;
+}
+.help-card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 15px; border-bottom: 1px solid var(--border2);
+  font-size: 11px; font-weight: 600; color: var(--ink2);
+}
+.help-card-close {
+  display: grid; place-items: center;
+  border: none; background: none; color: var(--ink3); cursor: pointer;
+  padding: 3px; border-radius: 6px;
+}
+.help-card-close:hover { background: var(--violet-l); color: var(--violet); }
+.help-card-list { list-style: none; margin: 0; padding: 0; }
+.help-card-row { padding: 10px 15px; border-bottom: 1px solid var(--border2); }
+.help-card-row:last-child { border-bottom: none; }
+.help-card-row code {
+  font-size: 12.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px;
+  background: var(--violet-l); color: var(--violet);
+}
+.help-card-what { margin: 5px 0 0; font-size: 12px; line-height: 1.5; color: var(--ink2); }
+.help-card-example { margin: 4px 0 0; font-size: 11px; line-height: 1.45; color: var(--ink3); font-style: italic; }
 
 /* ─────────────────────────────────────────────────────────────
    Memory Archives.
