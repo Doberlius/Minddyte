@@ -1,19 +1,14 @@
 import {create} from 'zustand'
 import {persist} from 'zustand/middleware'
-import type { DbNode } from '@/types/db'
 
 interface ChatStore{
     activeSessionId: string | null,
-    activeNodes: DbNode[]
     mode: 'focus' | 'explore'
     /** null until the user picks one; the server resolves it against the daemon. */
     activeModel: string | null
     pullingModels: Record<string, number>
     setActiveSession: (id: string | null) => void
-    addNode: (node: DbNode) => void
-    removeNode: (id: string) => void
     setMode: (mode: 'focus' | 'explore') => void
-    clearNodes: () => void
     setActiveModel: (modelId: string | null) => void
     setPullProgress: (modelId: string, progress: number) => void
     clearPulling: (modelId: string) => void
@@ -23,28 +18,12 @@ export const useChatStore = create<ChatStore>()(
     persist(  // zustand keeps store logic and auto save state to (local storage)
         (set) => ({
             activeSessionId: null,
-            activeNodes: [],
             mode: 'explore',
             activeModel: null,
             pullingModels: {},
 
-            setActiveSession: (id) => set(
-                {activeSessionId: id, activeNodes: []}
-            ),
-            addNode: (node) =>
-                set((s) => ({
-                activeNodes: s.activeNodes
-                .find((n) => n.id === node.id)
-                    ? s.activeNodes
-                    : [...s.activeNodes, node],
-                })
-            ),
-            removeNode: (id) =>
-                set((s) => ({activeNodes: s.activeNodes
-                    .filter((n)=> n.id !== id)})
-            ),
+            setActiveSession: (id) => set({activeSessionId: id}),
             setMode: (mode) => set({mode}),
-            clearNodes: () => set({activeNodes: []}),
             setActiveModel: (activeModel) => set({activeModel}),
             setPullProgress: (modelId, progress) =>
                 set((s)=> (
