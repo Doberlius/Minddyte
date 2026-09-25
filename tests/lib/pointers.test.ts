@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pointerRows, describeSkip } from '@/lib/pointers'
+import { pointerRows, describeSkip, chunkSpan } from '@/lib/pointers'
 
 describe('pointerRows', () => {
   it('numbers kept spans consecutively from 0', () => {
@@ -30,11 +30,51 @@ describe('pointerRows', () => {
     expect(skipped).toEqual([{ kind: 'code', length: big.length }])
   })
 
-  it('never skips a sentence for length — the limit is for blocks only', () => {
+  it('never skips a sentence for length — it is split instead', () => {
     const long = 'A' + 'a'.repeat(60) + ' long sentence.'
     const { rows, skipped } = pointerRows(long, 40)
-    expect(rows).toHaveLength(1)
     expect(skipped).toEqual([])
+    expect(rows.map((r) => r.matchText.length)).toEqual([40, 36])
+    expect(rows.map((r) => r.matchText).join('')).toBe(long)
+    expect(rows.map((r) => r.ordinal)).toEqual([0, 1])
+    expect(rows.every((r) => r.kind === 'sentence')).toBe(true)
+  })
+
+  it('cuts a long sentence just after whitespace', () => {
+    const s = 'one two three four five six seven eight nine ten'
+    expect(chunkSpan(s, 0, s.length, 20).map(([a, b]) => s.slice(a, b))).toEqual([
+      'one two three four ',
+      'five six seven ',
+      'eight nine ten',
+    ])
+  })
+
+  // Review Focus 1: no whitespace at all, and never inside an emoji.
+  it('cuts hard when there is no whitespace, never inside an emoji', () => {
+    const s = '😀'.repeat(30) // 60 UTF-16 units
+    const chunks = chunkSpan(s, 0, s.length, 41).map(([a, b]) => s.slice(a, b))
+    expect(chunks.map((c) => Array.from(c).length)).toEqual([20, 10])
+    expect(chunks.join('')).toBe(s)
+  })
+
+  // Review Focus 5: offsets are code points, so a chunk after an emoji still reads back right.
+  it('stores code-point offsets for chunks', () => {
+    const content = '😀'.repeat(30)
+    const { rows } = pointerRows(content, 41)
+    const cps = Array.from(content)
+    expect(rows.map((r) => cps.slice(r.startChar, r.endChar).join(''))).toEqual(rows.map((r) => r.matchText))
+    expect(rows[1].startChar).toBe(20)
+  })
+
+  // Ticket 15: the 824,000-character message that froze retrieval, at a quarter of its size.
+  it('splits a 200,000-character unpunctuated message into chunks of at most the limit, fast', () => {
+    const big = 'x '.repeat(100_000).trim()
+    const t = Date.now()
+    const { rows } = pointerRows(big)
+    expect(Date.now() - t).toBeLessThan(1000)
+    expect(rows).toHaveLength(50)
+    expect(Math.max(...rows.map((r) => r.matchText.length))).toBe(4000)
+    expect(rows.map((r) => r.matchText).join('')).toBe(big)
   })
 
   it('returns nothing for whitespace', () => {

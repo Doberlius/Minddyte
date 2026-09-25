@@ -19,11 +19,46 @@ export type PointerRow = {
 export type SkippedSpan = { kind: ProseSpan['kind']; length: number }
 
 /**
+ * Ticket 15: a sentence longer than `limit` is cut into consecutive chunks of
+ * at most `limit` UTF-16 units. Each chunk ends just after a whitespace
+ * character when one is in reach, else it is cut hard — never inside a
+ * surrogate pair. The chunks together are exactly the sentence: nothing is lost.
+ *
+ * Why at all: pg_trgm's strict_word_similarity is QUADRATIC in a passage's
+ * length (18 ms at 5k chars, 2.5 s at 80k), and one unpunctuated 824k-char
+ * message became one passage that froze retrieval for 28 minutes on the
+ * single PGlite connection. A sentence over the 8,000-char memory budget could
+ * never be sent anyway. Revisits ticket 05's Q11/Q13.
+ */
+export function chunkSpan(content: string, start: number, end: number, limit: number): [number, number][] {
+  const out: [number, number][] = []
+  let pos = start
+  while (end - pos > limit) {
+    let cut = -1
+    for (let i = pos + limit - 1; i > pos; i--) {
+      if (/\s/.test(content[i])) {
+        cut = i + 1
+        break
+      }
+    }
+    if (cut < 0) {
+      cut = pos + limit
+      const unit = content.charCodeAt(cut - 1)
+      if (unit >= 0xd800 && unit <= 0xdbff) cut -= 1 // do not split an emoji
+    }
+    out.push([pos, cut])
+    pos = cut
+  }
+  out.push([pos, end])
+  return out
+}
+
+/**
  * The pointers for one message, and what was too big to index.
  *
- * The limit applies to code blocks and tables only (ticket 05, Q11/Q13). A
- * long sentence is still a sentence, and the read-time budget decides whether
- * it fits. Ordinals count KEPT spans, so a ±1 neighbour is always a real row.
+ * The limit skips code blocks and tables over it (ticket 05, Q11/Q13), and
+ * splits a sentence over it into chunks (ticket 15). Ordinals count KEPT rows,
+ * so a ±1 neighbour is always a real row.
  */
 export function pointerRows(
   content: string,
@@ -55,13 +90,17 @@ export function pointerRows(
       skipped.push({ kind: span.kind, length })
       continue
     }
-    rows.push({
-      ordinal: rows.length,
-      kind: span.kind,
-      startChar: toCodePoints(span.start),
-      endChar: toCodePoints(span.end),
-      matchText: content.slice(span.start, span.end),
-    })
+    const pieces: [number, number][] =
+      span.kind === 'sentence' && length > limit ? chunkSpan(content, span.start, span.end, limit) : [[span.start, span.end]]
+    for (const [start, end] of pieces) {
+      rows.push({
+        ordinal: rows.length,
+        kind: span.kind,
+        startChar: toCodePoints(start),
+        endChar: toCodePoints(end),
+        matchText: content.slice(start, end),
+      })
+    }
   }
   return { rows, skipped }
 }
