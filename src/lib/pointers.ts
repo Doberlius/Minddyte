@@ -31,6 +31,7 @@ export type SkippedSpan = { kind: ProseSpan['kind']; length: number }
  * never be sent anyway. Revisits ticket 05's Q11/Q13.
  */
 export function chunkSpan(content: string, start: number, end: number, limit: number): [number, number][] {
+  if (limit < 2) throw new Error(`chunkSpan: limit must be at least 2, got ${limit}`)
   const out: [number, number][] = []
   let pos = start
   while (end - pos > limit) {

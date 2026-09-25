@@ -236,8 +236,11 @@ async function textHits(workspaceId: string, sessionId: string, draft: string): 
     // and this query runs as a sequential scan (EXPLAIN), so it used to run on
     // every passage. Strict similarity only considers whole-word extents, a
     // subset of word_similarity's, so it can never be higher: a passage whose
-    // cheap, linear word_similarity is under the strict threshold can never
-    // match strictly. CASE (unlike AND/OR) guarantees the cheap check runs
+    // word_similarity is under the strict threshold can never match strictly.
+    // word_similarity is linear and cheap on passages that share few trigrams
+    // with the phrase (the common case, and the giant "x x x" case), and
+    // per-passage cost is bounded anyway because passages are split at
+    // spanCharLimit. CASE (unlike AND/OR) guarantees the cheap check runs
     // first. Exact, not an approximation. Measured on an 824k-char message
     // split into 206 chunks: 4,559 ms -> 415 ms per question.
     const cheapFirst = (p: string, strict: SQL) =>

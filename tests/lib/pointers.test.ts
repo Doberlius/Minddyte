@@ -118,6 +118,10 @@ describe('pointerRows', () => {
       expect(cps.slice(r.startChar, r.endChar).join('')).toBe(r.matchText)
     }
   })
+
+  it('refuses a limit below 2', () => {
+    expect(() => chunkSpan('abc', 0, 3, 1)).toThrow('at least 2')
+  })
 })
 
 describe('describeSkip', () => {

@@ -48,7 +48,7 @@ export function extractConcepts(text: string): { auto: string[]; suggested: stri
   // Ticket 15, Q7: read at most extractCharLimit characters, cut at whitespace.
   const head =
     text.length > PROVISIONAL.extractCharLimit
-      ? text.slice(0, chunkSpan(text, 0, text.length, PROVISIONAL.extractCharLimit)[0][1])
+      ? text.slice(0, chunkSpan(text, 0, Math.min(text.length, PROVISIONAL.extractCharLimit + 1), PROVISIONAL.extractCharLimit)[0][1])
       : text
   const doc = nlp(head)
   // compromise tags pronouns as nouns, so `#Noun+` swallows "I", "me" and

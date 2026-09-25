@@ -16,7 +16,7 @@ export const PROVISIONAL = {
   strongStrictSimilarity: 0.9,
   /** Passages taken from each reached chat, before ±1 neighbours are added. */
   windowsPerChat: 3,
-  /** A code block or table longer than this (UTF-16 chars) is not indexed, and the skip is logged. */
+  /** A code block or table longer than this (UTF-16 chars) is not indexed, and the skip is logged. A sentence over it is split into chunks (ticket 15). */
   spanCharLimit: 4000,
   /**
    * Code points of the draft that text search reads: the word_similarity reach,
