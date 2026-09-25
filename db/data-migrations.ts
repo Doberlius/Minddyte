@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import type { Db } from './index'
 import { chatPointers, dataMigrations, messages, sessions } from './schema'
 import { describeSkip, pointerRows } from '../src/lib/pointers'
+import { PROVISIONAL } from '../src/lib/provisional'
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0]
 
@@ -14,6 +15,7 @@ export type DataMigration = { name: string; run: (tx: Tx) => Promise<void> }
  */
 export const DATA_MIGRATIONS: DataMigration[] = [
   { name: '0001_backfill_chat_pointers', run: backfillChatPointers },
+  { name: '0002_split_long_passages', run: splitLongPassages },
 ]
 
 /**
@@ -55,5 +57,30 @@ async function backfillChatPointers(tx: Tx): Promise<void> {
         .onConflictDoNothing()
     }
     for (const s of skipped) console.warn(`[migrate] ${describeSkip(m.sessionId, m.id, s)}`)
+  }
+}
+
+/**
+ * Ticket 15: passages stored before sentences were split. One unpunctuated
+ * 824k-char message was one passage and froze retrieval for 28 minutes.
+ * Re-derives the pointers of every message holding a passage over the limit,
+ * from messages.content, so nothing is lost; every other message is untouched.
+ */
+async function splitLongPassages(tx: Tx): Promise<void> {
+  const long = await tx
+    .selectDistinct({ id: messages.id, sessionId: messages.sessionId, workspaceId: chatPointers.workspaceId, content: messages.content })
+    .from(chatPointers)
+    .innerJoin(messages, eq(messages.id, chatPointers.messageId))
+    .where(sql`char_length(${chatPointers.matchText}) > ${PROVISIONAL.spanCharLimit}`)
+
+  for (const m of long) {
+    await tx.delete(chatPointers).where(eq(chatPointers.messageId, m.id))
+    const { rows } = pointerRows(m.content)
+    if (rows.length > 0) {
+      await tx
+        .insert(chatPointers)
+        .values(rows.map((r) => ({ ...r, workspaceId: m.workspaceId, sessionId: m.sessionId, messageId: m.id })))
+    }
+    console.warn(`[migrate] re-cut message ${m.id} in chat ${m.sessionId}: a passage was over ${PROVISIONAL.spanCharLimit} chars`)
   }
 }
