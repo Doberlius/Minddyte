@@ -12,6 +12,36 @@ import { classifyShape } from './text'
  */
 const PATTERN = '#Adjective? #Noun+ #Gerund?'
 
+// The plain View compromise hands to forEach, not the full document type.
+type Match = Parameters<Parameters<ReturnType<typeof nlp>['forEach']>[0]>[0]
+
+/**
+ * "Set max.poll.records carefully." matched as ONE phrase: capitalised and
+ * sentence-initial, "Set" is tagged Noun, so `#Noun+` runs straight into its
+ * object and the key `setmaxpollrecords` can never match anything. Measured
+ * (ticket 12): the swallowed word is tagged Noun, never Verb, so `.not('#Verb')`
+ * cannot catch it, and which verbs get swallowed is unpredictable ("Refactor"
+ * is, "Deploy" is not), so a blocklist cannot either.
+ *
+ * The first word is dropped only when ALL of these hold:
+ *  - it opens its sentence, the only position where the bug occurs;
+ *  - the phrase has another word to keep;
+ *  - read alone and lowercased, compromise calls it a base verb ("set" yes,
+ *    "kafka" no, "streaming" is a Gerund so "event streaming" is safe);
+ *  - the sentence has no other real verb. An imperative's verb IS the first
+ *    word, while a statement has its own verb elsewhere: this keeps
+ *    "Index size grows fast." and "Set theory is fun." intact. Gerunds do not
+ *    count; they never make a sentence a statement.
+ */
+function withoutLeadingVerb(m: Match): Match {
+  const opensSentence = m.pointer?.[0]?.[1] === 0
+  if (!opensSentence || m.terms().length < 2) return m
+  const first = m.terms().first()
+  if (!nlp(first.text('normal')).has('#Infinitive')) return m
+  if (m.fullSentences().match('#Verb').not('#Gerund').found) return m
+  return m.not(first)
+}
+
 export function extractConcepts(text: string): { auto: string[]; suggested: string[] } {
   const doc = nlp(text)
   // compromise tags pronouns as nouns, so `#Noun+` swallows "I", "me" and
@@ -22,7 +52,10 @@ export function extractConcepts(text: string): { auto: string[]; suggested: stri
   // "I". Dropping pronoun tokens leaves every real concept untouched and
   // reduces "chat I" to "chat", which then falls to `bare` and is only
   // suggested. Spec §4.2.
-  const raw: string[] = doc.match(PATTERN).not('#Pronoun').out('array')
+  const raw: string[] = []
+  doc.match(PATTERN).forEach((m: Match) => {
+    raw.push(...withoutLeadingVerb(m).not('#Pronoun').out('array'))
+  })
 
   const auto: string[] = []
   const suggested: string[] = []

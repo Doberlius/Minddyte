@@ -79,3 +79,52 @@ describe('a comma inside a matched phrase', () => {
     expect(r.auto).toContain('retrieval query')
   })
 })
+
+describe('a sentence-initial verb before its object', () => {
+  // "Set max.poll.records carefully." matched as ONE phrase, "Set max.poll.records",
+  // because compromise tags a capitalised sentence-initial "Set" as a Noun. Its
+  // key `setmaxpollrecords` can never match the identifier written any other way.
+  it('drops the leading verb and keeps the identifier', () => {
+    const r = extractConcepts('Set max.poll.records carefully.')
+    expect([...r.auto, ...r.suggested]).toContain('max.poll.records')
+    expect([...r.auto, ...r.suggested]).not.toContain('Set max.poll.records')
+  })
+
+  it('drops a leading verb that is not also a noun', () => {
+    // "Refactor" is not a noun, yet it is swallowed; "Deploy" is not. Which
+    // words trigger it is unpredictable, so this is not a blocklist.
+    const r = extractConcepts('Refactor retrieval.ts today.')
+    expect([...r.auto, ...r.suggested]).toContain('retrieval.ts')
+    expect([...r.auto, ...r.suggested]).not.toContain('Refactor retrieval.ts')
+  })
+
+  it('keeps a gerund inside the phrase', () => {
+    // PATTERN ends in #Gerund?, and gerunds are verb-tagged. A blanket verb
+    // filter would cut "event streaming" down to "event".
+    const r = extractConcepts('The event streaming pipeline handles backpressure.')
+    expect(r.auto).toContain('event streaming')
+  })
+
+  it('leaves imperatives with a determiner, and verbs compromise already tags, clean', () => {
+    const verbs = [
+      'Set', 'Run', 'Check', 'Order', 'Plan', 'Report', 'Record', 'Match', 'Use',
+      'Explain', 'Describe', 'Refactor', 'Investigate', 'Summarize',
+    ]
+    for (const v of verbs) {
+      expect(extractConcepts(`${v} the retrieval query.`).auto).toEqual(['retrieval query'])
+    }
+  })
+
+  it('keeps a statement whose first word could be a verb', () => {
+    // A statement has its own verb ("grows", "is"), so its first word is the
+    // subject, not a command. Only a sentence with no other verb is imperative.
+    expect(extractConcepts('Index size grows fast.').auto).toContain('Index size')
+    expect(extractConcepts('Set theory is fun.').auto).toContain('Set theory')
+  })
+
+  it('gives byte-identical output on a re-run', () => {
+    const input = 'Set max.poll.records carefully. Refactor retrieval.ts today.'
+    expect(JSON.stringify(extractConcepts(input)))
+      .toBe(JSON.stringify(extractConcepts(input)))
+  })
+})
