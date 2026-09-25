@@ -1,5 +1,5 @@
 import { getDb, sessions, nodes, sessionNodes, chatPointers, messages } from "../../db"
-import { and, eq, inArray, ne, or, sql } from "drizzle-orm"
+import { and, eq, inArray, ne, or, sql, type SQL } from "drizzle-orm"
 import { rankCandidates, AUTO_REACH_CAP, type Candidate } from "@/lib/rank"
 import { extractConcepts } from "@/lib/extract"
 import { canonicalKey } from "@/lib/text"
@@ -232,8 +232,18 @@ async function textHits(workspaceId: string, sessionId: string, draft: string): 
     await tx.execute(sql.raw(`set local pg_trgm.word_similarity_threshold = ${PROVISIONAL.reachWordSimilarity}`))
     await tx.execute(sql.raw(`set local pg_trgm.strict_word_similarity_threshold = ${PROVISIONAL.strongStrictSimilarity}`))
 
+    // Ticket 15: strict_word_similarity is QUADRATIC in the passage's length,
+    // and this query runs as a sequential scan (EXPLAIN), so it used to run on
+    // every passage. Strict similarity only considers whole-word extents, a
+    // subset of word_similarity's, so it can never be higher: a passage whose
+    // cheap, linear word_similarity is under the strict threshold can never
+    // match strictly. CASE (unlike AND/OR) guarantees the cheap check runs
+    // first. Exact, not an approximation. Measured on an 824k-char message
+    // split into 206 chunks: 4,559 ms -> 415 ms per question.
+    const cheapFirst = (p: string, strict: SQL) =>
+      sql`(case when word_similarity(${p}, ${chatPointers.matchText}) >= ${PROVISIONAL.strongStrictSimilarity} then ${strict} end)`
     const phraseMatch = phrases.length
-      ? sql.join(phrases.map((p) => sql`${p} <<% ${chatPointers.matchText}`), sql` or `)
+      ? sql.join(phrases.map((p) => sql`coalesce(${cheapFirst(p, sql`${p} <<% ${chatPointers.matchText}`)}, false)`), sql` or `)
       : sql`false`
     // Per-phrase strict_word_similarity maxima, as separate named columns:
     // dynamic column keys (`...perPhrase` spread into `.select({...})`) do not
@@ -242,7 +252,11 @@ async function textHits(workspaceId: string, sessionId: string, draft: string): 
     // aggregate expressions, unpacked into named columns below, keeps the
     // same one-query, one-transaction shape the brief calls for.
     const perPhrase = phrases.map(
-      (p, i) => [`s${i}`, sql<number>`max(strict_word_similarity(${p}, ${chatPointers.matchText}))`.mapWith(Number)] as const,
+      (p, i) =>
+        [
+          `s${i}`,
+          sql<number>`coalesce(max(${cheapFirst(p, sql`strict_word_similarity(${p}, ${chatPointers.matchText})`)}), 0)`.mapWith(Number),
+        ] as const,
     )
 
     const rows = await tx
