@@ -128,3 +128,46 @@ describe('a sentence-initial verb before its object', () => {
       .toBe(JSON.stringify(extractConcepts(input)))
   })
 })
+
+describe('a giant message never freezes extraction (ticket 15)', () => {
+  // extractConcepts is superlinear and runs in the one Node process:
+  // 200k chars took 39,231 ms and blocked every visitor.
+  it('reads only the first 20,000 characters', () => {
+    const text = 'Kafka partitions keep order. ' + 'x '.repeat(10_000) + 'Redis caching matters.'
+    const r = extractConcepts(text)
+    expect(r.auto).toContain('Kafka partitions')
+    expect(r.auto).not.toContain('Redis caching')
+  })
+
+  it('does not cut a word in half at the limit', () => {
+    const text = 'The retention period for audit logs matters. '.repeat(500) + 'Kubernetes clusters scale.'
+    expect(extractConcepts(text).auto).toEqual(['retention period'])
+  })
+
+  it('handles a 200,000-character message in well under a second', () => {
+    const t = Date.now()
+    extractConcepts('x '.repeat(100_000).trim())
+    expect(Date.now() - t).toBeLessThan(1000)
+  })
+})
+
+describe('a phrase longer than a sentence is not a concept (ticket 15)', () => {
+  it('drops a run of more than 6 words', () => {
+    expect(extractConcepts('x x x x x x x.').auto).toEqual([])
+  })
+
+  it('keeps a run of exactly 6 words', () => {
+    expect(extractConcepts('x x x x x x.').auto).toEqual(['x x x x x x'])
+  })
+
+  it('keeps a long identifier (48 characters, one word)', () => {
+    expect(extractConcepts('We tuned org.apache.kafka.clients.consumer.ConsumerConfig today.').auto).toEqual([
+      'org.apache.kafka.clients.consumer.ConsumerConfig',
+    ])
+  })
+
+  it('never returns the giant run as a concept, in auto or suggested', () => {
+    const r = extractConcepts('Kafka partitions keep order. ' + 'x '.repeat(10_000))
+    expect([...r.auto, ...r.suggested].every((l) => l.length <= 80)).toBe(true)
+  })
+})

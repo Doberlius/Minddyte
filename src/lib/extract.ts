@@ -1,5 +1,7 @@
 import nlp from 'compromise'
 import { classifyShape } from './text'
+import { PROVISIONAL } from './provisional'
+import { chunkSpan } from './pointers'
 
 /**
  * Deterministic concept extraction. Spec §4.2.
@@ -43,7 +45,12 @@ function withoutLeadingVerb(m: Match): Match {
 }
 
 export function extractConcepts(text: string): { auto: string[]; suggested: string[] } {
-  const doc = nlp(text)
+  // Ticket 15, Q7: read at most extractCharLimit characters, cut at whitespace.
+  const head =
+    text.length > PROVISIONAL.extractCharLimit
+      ? text.slice(0, chunkSpan(text, 0, text.length, PROVISIONAL.extractCharLimit)[0][1])
+      : text
+  const doc = nlp(head)
   // compromise tags pronouns as nouns, so `#Noun+` swallows "I", "me" and
   // "We". They are never concepts, and the shape gate cannot catch them:
   // "I" and "We" carry an uppercase letter, so classifyShape reads them as
@@ -73,6 +80,8 @@ export function extractConcepts(text: string): { auto: string[]; suggested: stri
     for (const part of phraseRaw.split(',')) {
       const phrase = part.trim().replace(/[.,;:!?]+$/, '')
       if (!phrase) continue
+      // Ticket 15, Q8: a phrase longer than a sentence is never a concept.
+      if (phrase.length > PROVISIONAL.conceptMaxChars || phrase.split(/\s+/).length > PROVISIONAL.conceptMaxWords) continue
       const dedupe = phrase.toLowerCase()
       if (seen.has(dedupe)) continue
       seen.add(dedupe)

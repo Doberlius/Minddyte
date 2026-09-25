@@ -52,4 +52,19 @@ export const PROVISIONAL = {
    * "Q6 measured" section.
    */
   coreInModes: { focus: true, explore: true },
+  /**
+   * Ticket 15, Q7: concept extraction reads at most this many characters.
+   * extractConcepts (compromise) is superlinear and runs synchronously in the
+   * one Node process: 25k chars 258 ms, 50k 1,997 ms, 100k 11,462 ms, 200k
+   * 39,231 ms — every visitor waits. Capped, 200k takes 175 ms. Text past the
+   * cap is still stored and searchable through pointers.
+   */
+  extractCharLimit: 20_000,
+  /**
+   * Ticket 15, Q8: a phrase longer than this is not a concept. "x x x..." had
+   * become one 20,000-char concept. Real concepts measured: at most 3 words,
+   * 30 chars; a 48-char identifier must still pass.
+   */
+  conceptMaxWords: 6,
+  conceptMaxChars: 80,
 } as const
