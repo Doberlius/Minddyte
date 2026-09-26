@@ -227,7 +227,7 @@ describe('parts of a name (ticket 10, F9–F12)', () => {
 
     expect(p?.total).toBe(2)
     // Review Focus 4: "Steve" appears only inside "Steve Jobs", so it is not offered.
-    expect(p?.parts).toEqual([{ word: 'Jobs', total: 1, sentences: ['Jobs’s vision shaped it.'], alsoConcept: false, partOf: [] }])
+    expect(p?.parts).toEqual([{ word: 'Jobs', total: 1, sentences: ['Jobs’s vision shaped it.'], alsoConcept: false, partOf: [], titleMentions: true }])
   })
 
   it('forgets the ticked parts in that chat, and nothing else', async () => {
@@ -258,7 +258,7 @@ describe('parts of a name (ticket 10, F9–F12)', () => {
     expect(await keysOf(a)).toEqual(['kafka', 'kafkapartitions'])
 
     const p = await forgetPreview(WS, a, 'kafkapartitions')
-    expect(p?.parts).toEqual([{ word: 'Kafka', total: 1, sentences: ['Kafka is fast.'], alsoConcept: true, partOf: [] }])
+    expect(p?.parts).toEqual([{ word: 'Kafka', total: 1, sentences: ['Kafka is fast.'], alsoConcept: true, partOf: [], titleMentions: true }])
 
     // Even a request that sends it anyway: refused, and nothing changes (final review, item 3).
     const headline = await headlineKey(a)
@@ -284,8 +284,9 @@ describe('parts of a name (ticket 10, F9–F12)', () => {
         sentences: ['Steve Wozniak designed the board.', 'Steve kept it simple.'],
         alsoConcept: false,
         partOf: ['Steve Wozniak'],
+        titleMentions: true,
       },
-      { word: 'Jobs', total: 1, sentences: ['Jobs sold it.'], alsoConcept: false, partOf: [] },
+      { word: 'Jobs', total: 1, sentences: ['Jobs sold it.'], alsoConcept: false, partOf: [], titleMentions: true },
     ])
 
     // A request that ticks it anyway is refused whole: nothing is forgotten.
@@ -350,6 +351,22 @@ async function seed(sessionId: string, label: string, key: string, passages: str
   const [n] = await db.insert(nodes).values({ workspaceId: WS, label, canonicalKey: key, chatCount: 1 }).returning({ id: nodes.id })
   await db.insert(sessionNodes).values({ sessionId, nodeId: n.id })
 }
+
+describe('a part in the chat’s title (final review, item 4)', () => {
+  it('says whether the title mentions each part', async () => {
+    const a = (await createChat(WS)).id
+    await (await getDb()).update(sessions).set({ title: 'What Jobs said' }).where(eq(sessions.id, a))
+    await seed(a, 'Steve Jobs', 'stevejobs', ['Steve Jobs spoke.', 'Jobs waved.', 'Steve smiled.'])
+
+    const p = await forgetPreview(WS, a, 'stevejobs')
+
+    expect(p?.titleMentions).toBe(false)
+    expect(p?.parts.map((x) => [x.word, x.titleMentions])).toEqual([
+      ['Steve', false],
+      ['Jobs', true],
+    ])
+  })
+})
 
 describe('the preview in one pass (final review, item 2)', () => {
   it('caps each list at PREVIEW_CAP, in the order said, and still counts them all', async () => {

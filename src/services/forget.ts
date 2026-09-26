@@ -20,6 +20,8 @@ export type ForgetPart = {
   alsoConcept: boolean
   /** F15: the other concepts of this chat whose names contain the word, A to Z. */
   partOf: string[]
+  /** Whether this chat's title mentions the word (F6, for a ticked word). */
+  titleMentions: boolean
 }
 
 export type ForgetPreview = {
@@ -127,6 +129,16 @@ async function previewPassages(db: Db, workspaceId: string, sessionId: string, n
   }))
 }
 
+/** For each word, whether this chat's title mentions it, by the same rule as sentences (F5). */
+async function titleMentions(db: Db, sessionId: string, words: string[]): Promise<boolean[]> {
+  if (words.length === 0) return []
+  const [row] = await db
+    .select(Object.fromEntries(words.map((word, i) => [`w${i}`, sql<boolean>`${mentionsSql(sessions.title, sql`${word}::text`)}`])))
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+  return words.map((_, i) => row?.[`w${i}`] === true)
+}
+
 /** What forgetting `key` in this chat would hide. Null when the chat does not hold it. */
 export async function forgetPreview(workspaceId: string, sessionId: string, key: string): Promise<ForgetPreview | null> {
   const db = await getDb()
@@ -145,9 +157,17 @@ export async function forgetPreview(workspaceId: string, sessionId: string, key:
   const words = classifyParts(node.label, key, await linkedConcepts(db, workspaceId, sessionId))
   const [main, ...found] = await previewPassages(db, workspaceId, sessionId, [node.label, ...words.map((w) => w.word)])
 
+  const inTitle = await titleMentions(db, sessionId, words.map((w) => w.word))
+
   // F9–F10: a word is shown only if some sentence mentions it without the whole name.
   const parts: ForgetPart[] = words
-    .map(({ word, kind, partOf }, i) => ({ word, ...found[i], alsoConcept: kind === 'own-concept', partOf }))
+    .map(({ word, kind, partOf }, i) => ({
+      word,
+      ...found[i],
+      alsoConcept: kind === 'own-concept',
+      partOf,
+      titleMentions: inTitle[i],
+    }))
     .filter((part) => part.total > 0)
 
   return { label: node.label, total: main.total, sentences: main.sentences, otherChats: node.chatCount - 1, titleMentions: node.titleMentions, parts }

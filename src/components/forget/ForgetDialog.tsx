@@ -220,6 +220,11 @@ export function ForgetDialog({
   }
 
   const ready = state.kind === 'ready' ? state.preview : null
+  // F6: the title line shows when the title mentions the name, or any word
+  // ticked to forget with it. It comes and goes as boxes are ticked.
+  const titleHidden =
+    ready !== null &&
+    (ready.titleMentions || ready.parts.some((part) => canPick(part) && picked.includes(part.word) && part.titleMentions))
   // Only a loaded preview can be forgotten; "gone" and "broken" offer Close alone.
   const closeOnly = state.kind === 'gone' || state.kind === 'broken'
 
@@ -305,7 +310,7 @@ export function ForgetDialog({
             <ul className="forget-notes">
               <li>The messages stay in this chat, and you can still read them.</li>
               <li>While you are in this chat, the conversation itself is still used.</li>
-              {ready.titleMentions && (
+              {titleHidden && (
                 <li>This chat’s name mentions it too. The name stays on your screen, but it won’t be sent as memory.</li>
               )}
               {ready.otherChats > 0 && (
