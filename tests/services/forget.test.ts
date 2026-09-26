@@ -169,3 +169,28 @@ describe('forgetPreview', () => {
     expect(await forgetPreview(WS, a, 'redis')).toBeNull()
   })
 })
+
+describe('after forgetting', () => {
+  it('a later message in the same chat never re-links the concept', async () => {
+    const a = (await createChat(WS)).id
+    await say(a, 'We run Kafka and PostgreSQL in production.')
+    await forgetConcept(WS, a, 'kafka')
+
+    await say(a, 'Kafka again, with PostgreSQL.')
+
+    expect(await keysOf(a)).toEqual(['postgresql'])
+    expect(await node('kafka')).toBeUndefined()
+  })
+
+  it('another chat can still hold the concept', async () => {
+    const a = (await createChat(WS)).id
+    await say(a, 'We run Kafka and PostgreSQL in production.')
+    await forgetConcept(WS, a, 'kafka')
+
+    const b = (await createChat(WS)).id
+    await say(b, 'Tell me about Kafka.')
+
+    expect(await keysOf(b)).toEqual(['kafka'])
+    expect((await node('kafka'))?.chatCount).toBe(1)
+  })
+})

@@ -1,9 +1,9 @@
 import { getDb, messages, sessions, messageNodes, chatPointers } from "../../db"
 import { eq, and, sql } from "drizzle-orm"
 import { extractConcepts } from "@/lib/extract"
-import { deriveTitle } from "@/lib/text"
+import { deriveTitle, canonicalKey } from "@/lib/text"
 import { pointerRows, type SkippedSpan } from "@/lib/pointers"
-import { linkNode, type Tx } from "./links"
+import { linkNode, forgottenKeys, headlineCandidates, type Tx } from "./links"
 
 export type Skip = SkippedSpan & { messageId: string }
 
@@ -112,7 +112,12 @@ export async function ingestUserMessage(input: {
       throw new Error(`No chat ${input.sessionId} in this workspace.`)
     }
 
+    // Ticket 10, Q4: a concept forgotten in this chat stays forgotten. Later
+    // mentions are still said and still readable; they never re-link it.
+    const skip = await forgottenKeys(tx, input.sessionId)
+
     for (const label of auto) {
+      if (skip.has(canonicalKey(label))) continue
       const nodeId = await linkNode(tx, input.workspaceId, input.sessionId, label)
       if (!nodeId) continue
 
@@ -136,7 +141,9 @@ export async function ingestUserMessage(input: {
     // Renaming the Chat later never re-runs this.
     if (isFirstMessage) {
       const title = deriveTitle(input.content)
-      const headlineLabel = extractConcepts(title).auto[0] ?? auto[0] ?? null
+      // headlineCandidates(content)[0] is exactly extractConcepts(title).auto[0] ?? auto[0]:
+      // the title IS deriveTitle(content). Shared with rederiveHeadline (Q13).
+      const headlineLabel = headlineCandidates(input.content).find((l) => !skip.has(canonicalKey(l))) ?? null
 
       const headlineNodeId = headlineLabel
         ? await linkNode(tx, input.workspaceId, input.sessionId, headlineLabel)
