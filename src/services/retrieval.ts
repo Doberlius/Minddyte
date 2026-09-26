@@ -4,7 +4,7 @@ import { rankCandidates, AUTO_REACH_CAP, type Candidate } from "@/lib/rank"
 import { extractConcepts } from "@/lib/extract"
 import { canonicalKey } from "@/lib/text"
 import { selectWindows, type ScoredPointer, type Excerpt } from "@/lib/windows"
-import { sentLength } from "@/lib/prompt"
+import { sentLength, HIDDEN_TITLE } from "@/lib/prompt"
 import { PROVISIONAL } from "@/lib/provisional"
 import { queryText, strongPhrases } from "@/lib/tokens"
 import { notForgottenSql } from "@/lib/mentions"
@@ -428,7 +428,7 @@ export async function retrieveContext(input: {
   }))
   const taggedRanked = rankCandidates(taggedCandidates)
 
-  const ordered = [
+  const ordered: { id: string; title: string; labels: string[]; why: string }[] = [
     ...taggedRanked.map((c) => ({
       id: c.chatId,
       title: meta.get(c.chatId)!.title,
@@ -445,6 +445,24 @@ export async function retrieveContext(input: {
       ].filter(Boolean).join(" · "),
     })),
   ]
+
+  // Ticket 10, F2/F5: a title that mentions a concept forgotten in ITS chat is
+  // memory too. It is replaced here, before anything is sent, by the same
+  // read-time rule the chat's sentences follow. One query for all chats.
+  if (ordered.length > 0) {
+    const hidden = await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.workspaceId, input.workspaceId),
+          inArray(sessions.id, ordered.map((o) => o.id)),
+          sql`not ${notForgottenSql(sessions.id, sessions.title)}`,
+        ),
+      )
+    const hiddenIds = new Set(hidden.map((h) => h.id))
+    for (const o of ordered) if (hiddenIds.has(o.id)) o.title = HIDDEN_TITLE
+  }
 
   // Fix round 1, finding 4: scoredPointers' -1-for-neighbours trick only
   // holds if it and selectWindows agree on how many passages are "picks" —

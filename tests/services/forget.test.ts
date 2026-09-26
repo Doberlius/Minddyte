@@ -141,7 +141,17 @@ describe('forgetPreview', () => {
       total: 2,
       sentences: ['We run Kafka and PostgreSQL in production.', "KAFKA's partitions carry the events."],
       otherChats: 0,
+      titleMentions: true,
     })
+  })
+
+  it('says whether the chat’s title mentions the concept', async () => {
+    const a = (await createChat(WS)).id
+    await say(a, 'PostgreSQL handles our storage.') // becomes the title
+    await say(a, 'We also run Kafka.')
+
+    expect((await forgetPreview(WS, a, 'postgresql'))?.titleMentions).toBe(true)
+    expect((await forgetPreview(WS, a, 'kafka'))?.titleMentions).toBe(false)
   })
 
   // Review Focus 2: dots are not wildcards, and a label with punctuation still matches.

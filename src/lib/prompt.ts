@@ -26,6 +26,12 @@ export function sentLength(e: Excerpt): number {
   return excerptLine(e).length
 }
 
+/**
+ * Ticket 10, F2/F4: the heading sent instead of a chat's title when that title
+ * mentions a concept forgotten in that chat. The bracket after it is unchanged.
+ */
+export const HIDDEN_TITLE = 'An earlier chat'
+
 /** Each reached chat as a heading, then its verbatim excerpts, each dated, in conversation order. */
 export function buildMemoryBlock(chats: MemoryChat[]): string {
   return chats.map((c) => `## ${c.title}  (${c.why})\n${c.excerpts.map(excerptLine).join('\n')}`).join('\n\n')

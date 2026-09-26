@@ -14,6 +14,8 @@ export type ForgetPreview = {
   sentences: string[]
   /** How many OTHER chats keep this concept after it is forgotten here. */
   otherChats: number
+  /** Whether this chat's title mentions it (ticket 10, F6). */
+  titleMentions: boolean
 }
 
 /**
@@ -34,7 +36,11 @@ function linkedConcept(sessionId: string, workspaceId: string, key: string) {
 export async function forgetPreview(workspaceId: string, sessionId: string, key: string): Promise<ForgetPreview | null> {
   const db = await getDb()
   const [node] = await db
-    .select({ label: nodes.label, chatCount: nodes.chatCount })
+    .select({
+      label: nodes.label,
+      chatCount: nodes.chatCount,
+      titleMentions: sql<boolean>`${mentionsSql(sessions.title, nodes.label)}`,
+    })
     .from(sessionNodes)
     .innerJoin(nodes, eq(nodes.id, sessionNodes.nodeId))
     .innerJoin(sessions, eq(sessions.id, sessionNodes.sessionId))
@@ -61,7 +67,13 @@ export async function forgetPreview(workspaceId: string, sessionId: string, key:
     .orderBy(asc(messages.createdAt), asc(chatPointers.messageId), asc(chatPointers.ordinal))
     .limit(PREVIEW_CAP)
 
-  return { label: node.label, total: n, sentences: rows.map((r) => r.text), otherChats: node.chatCount - 1 }
+  return {
+    label: node.label,
+    total: n,
+    sentences: rows.map((r) => r.text),
+    otherChats: node.chatCount - 1,
+    titleMentions: node.titleMentions,
+  }
 }
 
 /**

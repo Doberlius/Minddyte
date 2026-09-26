@@ -5,6 +5,7 @@ import { ingestUserMessage, persistMessage } from '@/services/graph'
 import { retrieveContext } from '@/services/retrieval'
 import { forgetConcept } from '@/services/forget'
 import { loadGraph } from '@/services/dbApi'
+import { HIDDEN_TITLE } from '@/lib/prompt'
 
 beforeEach(truncateAll)
 
@@ -116,4 +117,43 @@ describe('forgetting never freezes a read (final review, fix 1)', () => {
     expect(graph.chats.find((c) => c.id === a)?.passageCount).toBe(205) // the kafka chunk is hidden
     expect(ms).toBeLessThan(1000)
   }, 120_000)
+})
+
+describe('a title that mentions a forgotten concept (ticket 10, F2/F4/F5)', () => {
+  it('is replaced by a neutral heading for the model', async () => {
+    const a = await newChat('A')
+    await turn(a, 'We run Kafka and PostgreSQL in production.', 'PostgreSQL handles the writes. Kafka carries the events.')
+    const b = await newChat('B')
+    // Control: before forgetting, the real title is sent.
+    expect((await ask(b, 'what did we decide?', [a])).chats.map((c) => c.title)).toEqual(['We run Kafka and PostgreSQL in production'])
+
+    await forgetConcept(WS, a, 'kafka')
+
+    expect((await ask(b, 'what did we decide?', [a])).chats.map((c) => c.title)).toEqual([HIDDEN_TITLE])
+  })
+
+  // A chat's first message always becomes its title (deriveTitle, in
+  // ingestUserMessage), whatever newChat() was given. So these tests choose
+  // their titles through the first message.
+  it('stays when the title does not mention the forgotten concept', async () => {
+    const a = await newChat('A')
+    await turn(a, 'PostgreSQL handles our storage.', 'Good choice.')
+    await turn(a, 'We also run Kafka.', 'Kafka carries the events.')
+    const b = await newChat('B')
+    await forgetConcept(WS, a, 'kafka')
+
+    expect((await ask(b, 'what did we decide?', [a])).chats.map((c) => c.title)).toEqual(['PostgreSQL handles our storage'])
+  })
+
+  // Review Focus 3.
+  it("another chat's forgotten concept leaves this title alone", async () => {
+    const a = await newChat('A')
+    await turn(a, 'Tell me about Kafka.', 'Kafka carries the events.')
+    const c = await newChat('C')
+    await turn(c, 'Tell me about Kafka.', 'Kafka carries the events.')
+    await forgetConcept(WS, c, 'kafka')
+    const b = await newChat('B')
+
+    expect((await ask(b, 'what about it?', [a])).chats.map((x) => x.title)).toEqual(['Tell me about Kafka'])
+  })
 })
