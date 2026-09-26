@@ -36,15 +36,29 @@ export function MemoryArchives({
    * effect below and should not cause a render of its own.
    */
   const refocus = useRef<{ chatId: string; graph: typeof graph } | null>(null)
+  /** The error screen's heading, so focus has somewhere to land (see below). */
+  const errorHeading = useRef<HTMLHeadingElement>(null)
 
   // Put keyboard focus back somewhere sensible after a forget. The × that
   // opened the dialog is removed when the reloaded graph draws the card
   // without that chip, and the browser then drops focus to the page. So wait
   // until the dialog is closed AND a new graph has been drawn, and only step
   // in if focus really was lost: on the card's title button, or else the card.
+  //
+  // One exception comes first. If the forget worked but the reload after it
+  // failed, the graph never changes and the whole Archive (every card, and
+  // the dialog) is swapped for the error screen, which takes focus with it.
+  // Then focus goes to that screen's heading, so the keyboard is not left
+  // stranded at the top of the page.
   useEffect(() => {
     const pending = refocus.current
-    if (!pending || forgetting || graph === pending.graph) return
+    if (!pending) return
+    if (error) {
+      refocus.current = null
+      errorHeading.current?.focus()
+      return
+    }
+    if (forgetting || graph === pending.graph) return
     refocus.current = null
     const active = document.activeElement
     if (active && active !== document.body) return
@@ -54,7 +68,7 @@ export function MemoryArchives({
     // If the card itself is gone there is nothing better to offer; leave it.
     if (!card) return
     ;(card.querySelector<HTMLElement>('button.arc-title') ?? card).focus()
-  }, [graph, forgetting])
+  }, [graph, forgetting, error])
 
   if (loading) {
     return (
@@ -67,7 +81,10 @@ export function MemoryArchives({
   if (error) {
     return (
       <div className="view-empty">
-        <h2>The archives could not be read</h2>
+        {/* tabIndex -1: code can focus it (after a failed reload), Tab cannot. */}
+        <h2 ref={errorHeading} tabIndex={-1}>
+          The archives could not be read
+        </h2>
         <p>Your conversations are unaffected. Reload to try again.</p>
       </div>
     )
