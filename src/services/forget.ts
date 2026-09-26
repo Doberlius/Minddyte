@@ -1,6 +1,6 @@
-import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { getDb, chatPointers, forgotten, messageNodes, messages, nodes, sessionNodes, sessions } from '../../db'
-import { mentionsSql, notForgottenSql } from '@/lib/mentions'
+import { mentionsPaddedSql, mentionsSql, notForgottenPaddedSql, paddedWordsSql } from '@/lib/mentions'
 import { classifyParts } from '@/lib/label-parts'
 import { recountNodes, rederiveHeadline, type Tx } from './links'
 
@@ -61,19 +61,70 @@ async function linkedConcepts(db: Db | Tx, workspaceId: string, sessionId: strin
     .where(and(eq(sessionNodes.sessionId, sessionId), eq(nodes.workspaceId, workspaceId)))
 }
 
-/** How many passages match, and up to PREVIEW_CAP of their texts in the order they were said. */
-async function passages(db: Db, where: SQL | undefined): Promise<{ total: number; sentences: string[] }> {
-  const [{ n }] = await db.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(chatPointers).where(where)
-  const rows = await db
-    .select({
-      text: sql<string>`substring(${messages.content} from ${chatPointers.startChar} + 1 for ${chatPointers.endChar} - ${chatPointers.startChar})`,
-    })
-    .from(chatPointers)
-    .innerJoin(messages, eq(messages.id, chatPointers.messageId))
-    .where(where)
-    .orderBy(asc(messages.createdAt), asc(chatPointers.messageId), asc(chatPointers.ordinal))
-    .limit(PREVIEW_CAP)
-  return { total: n, sentences: rows.map((r) => r.text) }
+type Found = { total: number; sentences: string[] }
+
+/**
+ * Every passage of this chat that some forget would newly hide, found in
+ * ONE pass: `names[0]` is the concept's whole name, the rest are its words.
+ * For each, how many passages match and up to PREVIEW_CAP of their texts,
+ * in the order they were said.
+ *
+ *   - The whole name's list: passages that mention it.
+ *   - A word's list: passages that mention the word but NOT the whole name
+ *     (those are in the whole name's list already). F9–F10.
+ *   - Neither lists a passage an earlier forget in this chat already hides:
+ *     the same read-time rule retrieval and the Archive count use.
+ *
+ * Final review, item 2: this used to be two scans per name (a count, then
+ * the texts), each reducing every passage to words again. Ticket 15's giant
+ * message with a four-word name took 6.5 s on the connection every visitor
+ * shares. Now each passage is reduced to words once (`pw`, kept apart by
+ * `offset 0`, as in src/lib/mentions.ts), every name is checked against
+ * that, and window functions count and rank each list in the same pass:
+ * 1.1 s, whatever the number of words. Only the rows some list keeps have
+ * their text cut out of the message, once each; that cut (substring()
+ * walking a long message to the offset) is most of what is left.
+ */
+async function previewPassages(db: Db, workspaceId: string, sessionId: string, names: string[]): Promise<Found[]> {
+  const col = (prefix: string, i: number) => sql.raw(`${prefix}${i}`)
+  // m<i>: the passage mentions names[i]. k<i>: it belongs in names[i]'s list.
+  const mentions = names.map((name, i) => sql`${mentionsPaddedSql(sql`pw.padded`, sql`${name}::text`)} as ${col('m', i)}`)
+  const inList = (i: number) => (i === 0 ? sql`m0` : sql`(${col('m', i)} and not m0)`)
+  // t<i>: the list's full length. r<i>: this passage's place in it, in the order said.
+  const counts = names.map(
+    (_, i) => sql`count(*) filter (where ${inList(i)}) over () as ${col('t', i)},
+      count(*) filter (where ${inList(i)}) over said as ${col('r', i)}`,
+  )
+  const kept = (i: number) => sql`(${inList(i)} and ${col('r', i)} <= ${PREVIEW_CAP})`
+
+  const result = await db.execute(sql`
+    select ${sql.join(names.map((_, i) => sql`${col('t', i)}::int as ${col('t', i)}, ${kept(i)} as ${col('s', i)}`), sql`, `)},
+      substring(${messages.content} from x.start_char + 1 for x.end_char - x.start_char) as text
+    from (
+      select x.*, ${sql.join(counts, sql`, `)}
+      from (
+        select ${chatPointers.messageId} as message_id, ${messages.createdAt} as said_at, ${chatPointers.ordinal} as ordinal,
+          ${chatPointers.startChar} as start_char, ${chatPointers.endChar} as end_char,
+          ${sql.join(mentions, sql`, `)}
+        from ${chatPointers}
+        inner join ${messages} on ${messages.id} = ${chatPointers.messageId}
+        cross join lateral (select ${paddedWordsSql(chatPointers.matchText)} as padded offset 0) pw
+        where ${chatPointers.workspaceId} = ${workspaceId} and ${chatPointers.sessionId} = ${sessionId}
+          and ${notForgottenPaddedSql(chatPointers.sessionId, sql`pw.padded`)}
+      ) x
+      where ${sql.join(names.map((_, i) => inList(i)), sql` or `)}
+      window said as (order by said_at, message_id, ordinal rows between unbounded preceding and current row)
+    ) x
+    inner join ${messages} on ${messages.id} = x.message_id
+    where ${sql.join(names.map((_, i) => kept(i)), sql` or `)}
+    order by x.said_at, x.message_id, x.ordinal`)
+
+  const rows = (result as unknown as { rows: Record<string, unknown>[] }).rows
+  return names.map((_, i) => ({
+    // Every row carries the totals; no row means no list has anything.
+    total: rows.length > 0 ? Number(rows[0][`t${i}`]) : 0,
+    sentences: rows.filter((row) => row[`s${i}`] === true).map((row) => row.text as string),
+  }))
 }
 
 /** What forgetting `key` in this chat would hide. Null when the chat does not hold it. */
@@ -91,27 +142,13 @@ export async function forgetPreview(workspaceId: string, sessionId: string, key:
     .where(linkedConcept(sessionId, workspaceId, key))
   if (!node) return null
 
-  // Only what THIS forget newly hides: a sentence that also mentions a
-  // concept forgotten earlier in this chat is hidden already, by the same
-  // read-time rule retrieval and the Archive count use.
-  const inChat = and(
-    eq(chatPointers.workspaceId, workspaceId),
-    eq(chatPointers.sessionId, sessionId),
-    notForgottenSql(chatPointers.sessionId, chatPointers.matchText),
-  )
-  const label = sql`${node.label}::text`
-  const main = await passages(db, and(inChat, mentionsSql(chatPointers.matchText, label)))
+  const words = classifyParts(node.label, key, await linkedConcepts(db, workspaceId, sessionId))
+  const [main, ...found] = await previewPassages(db, workspaceId, sessionId, [node.label, ...words.map((w) => w.word)])
 
-  // F9–F10: each word of the name that some sentence mentions WITHOUT the
-  // whole name. Those with the whole name are in the main list already.
-  const parts: ForgetPart[] = []
-  for (const { word, kind, partOf } of classifyParts(node.label, key, await linkedConcepts(db, workspaceId, sessionId))) {
-    const found = await passages(
-      db,
-      and(inChat, mentionsSql(chatPointers.matchText, sql`${word}::text`), sql`not ${mentionsSql(chatPointers.matchText, label)}`),
-    )
-    if (found.total > 0) parts.push({ word, ...found, alsoConcept: kind === 'own-concept', partOf })
-  }
+  // F9–F10: a word is shown only if some sentence mentions it without the whole name.
+  const parts: ForgetPart[] = words
+    .map(({ word, kind, partOf }, i) => ({ word, ...found[i], alsoConcept: kind === 'own-concept', partOf }))
+    .filter((part) => part.total > 0)
 
   return { label: node.label, total: main.total, sentences: main.sentences, otherChats: node.chatCount - 1, titleMentions: node.titleMentions, parts }
 }

@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
-import { getDb, nodes, sessions, sessionNodes, forgotten } from '../../db'
+import { getDb, chatPointers, messages, nodes, sessions, sessionNodes, forgotten } from '../../db'
 import { countRows, truncateAll } from '../helpers/pglite'
 import { createChat } from '@/services/dbApi'
 import { ingestUserMessage, persistMessage } from '@/services/graph'
-import { PartsChangedError, forgetConcept, forgetPreview } from '@/services/forget'
+import { PREVIEW_CAP, PartsChangedError, forgetConcept, forgetPreview } from '@/services/forget'
 import { newWorkspaceId } from '@/lib/workspace'
 
 beforeEach(truncateAll)
@@ -332,4 +332,70 @@ describe('parts of a name (ticket 10, F9–F12)', () => {
       ['Streams', false, []],
     ])
   })
+})
+
+/** A concept linked to the chat directly, and passages written directly, for the tests below. */
+async function seed(sessionId: string, label: string, key: string, passages: string[]) {
+  const db = await getDb()
+  const content = passages.join(' ')
+  const [m] = await db.insert(messages).values({ sessionId, role: 'user', content }).returning({ id: messages.id })
+  let at = 0
+  await db.insert(chatPointers).values(
+    passages.map((text, ordinal) => {
+      const row = { workspaceId: WS, sessionId, messageId: m.id, ordinal, kind: 'sentence' as const, startChar: at, endChar: at + text.length, matchText: text }
+      at += text.length + 1
+      return row
+    }),
+  )
+  const [n] = await db.insert(nodes).values({ workspaceId: WS, label, canonicalKey: key, chatCount: 1 }).returning({ id: nodes.id })
+  await db.insert(sessionNodes).values({ sessionId, nodeId: n.id })
+}
+
+describe('the preview in one pass (final review, item 2)', () => {
+  it('caps each list at PREVIEW_CAP, in the order said, and still counts them all', async () => {
+    const a = (await createChat(WS)).id
+    const said = [
+      ...Array.from({ length: PREVIEW_CAP + 1 }, (_, i) => `Jobs said thing ${i}.`),
+      'Steve Jobs spoke.',
+      'Steve waved.',
+    ]
+    await seed(a, 'Steve Jobs', 'stevejobs', said)
+
+    const p = await forgetPreview(WS, a, 'stevejobs')
+
+    expect(p?.total).toBe(1)
+    expect(p?.sentences).toEqual(['Steve Jobs spoke.'])
+    expect(p?.parts.map((x) => [x.word, x.total, x.sentences.length])).toEqual([
+      ['Steve', 1, 1],
+      ['Jobs', PREVIEW_CAP + 1, PREVIEW_CAP],
+    ])
+    expect(p?.parts[1].sentences.slice(0, 2)).toEqual(['Jobs said thing 0.', 'Jobs said thing 1.'])
+    expect(p?.parts[1].sentences.at(-1)).toBe(`Jobs said thing ${PREVIEW_CAP - 1}.`)
+  })
+
+  // Each part used to scan the chat twice on its own, reducing every
+  // passage to words and cutting its text out of the message each time, on
+  // the one connection every visitor shares. Ticket 15's giant message (206
+  // chunks of 4,000 chars) with a four-word name: about 6,500 ms before,
+  // about 1,100 ms after (most of it substring() walking the 800 KB message
+  // to each offset, once per passage now instead of once per part).
+  it('a giant chat with a four-word name is previewed quickly', async () => {
+    const a = (await createChat(WS)).id
+    const vocab = ['queue', 'topic', 'broker', 'offset', 'replica', 'leader', 'segment', 'commit', 'kafka', 'streams', 'connect', 'sink']
+    const chunk = (k: number) => Array.from({ length: 700 }, (_, i) => vocab[(i * 7 + k) % vocab.length]).join(' ').slice(0, 3990) + ' .....'
+    await seed(a, 'Kafka Streams Connect Sink', 'kafkastreamsconnectsink', Array.from({ length: 206 }, (_, k) => chunk(k)))
+
+    const t = Date.now()
+    const p = await forgetPreview(WS, a, 'kafkastreamsconnectsink')
+    const ms = Date.now() - t
+
+    expect(p?.total).toBe(0)
+    expect(p?.parts.map((x) => [x.word, x.total])).toEqual([
+      ['Kafka', 206],
+      ['Streams', 206],
+      ['Connect', 206],
+      ['Sink', 206],
+    ])
+    expect(ms).toBeLessThan(3000)
+  }, 120_000)
 })

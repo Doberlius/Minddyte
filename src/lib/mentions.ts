@@ -55,6 +55,35 @@ export function mentionsSql(text: SQLWrapper, label: SQLWrapper): SQL {
  */
 export function notForgottenSql(sessionId: SQLWrapper, matchText: SQLWrapper): SQL {
   return sql`(case when not exists (select 1 from ${forgotten} where ${forgotten.sessionId} = ${sessionId}) then true
-    else (select not exists (select 1 from ${forgotten} where ${forgotten.sessionId} = ${sessionId} and ${hasLabel(sql`pw.padded`, forgotten.nodeLabel)})
+    else (select ${notForgottenInPadded(sessionId, sql`pw.padded`)}
             from (select ${paddedWords(matchText)} as padded offset 0) pw) end)`
+}
+
+function notForgottenInPadded(sessionId: SQLWrapper, padded: SQLWrapper): SQL {
+  return sql`not exists (select 1 from ${forgotten} where ${forgotten.sessionId} = ${sessionId} and ${hasLabel(padded, forgotten.nodeLabel)})`
+}
+
+/*
+ * The same rule, for a query that checks ONE passage against SEVERAL labels
+ * (the forget preview: the whole name and each of its words). Reducing the
+ * passage to words is the expensive step, so it is done once: put
+ * `paddedWordsSql(text)` in a one-row `offset 0` subquery, as
+ * notForgottenSql does, and hand its column to the two checks below. A
+ * giant message's 206 chunks with a four-word name took 6,500 ms when each
+ * word scanned the chat on its own (src/services/forget.ts).
+ */
+
+/** The text's words, lowercase, with a space on each side. The input `mentionsPaddedSql` and `notForgottenPaddedSql` expect. */
+export function paddedWordsSql(text: SQLWrapper): SQL {
+  return paddedWords(text)
+}
+
+/** `mentionsSql`, on text already reduced by `paddedWordsSql`. */
+export function mentionsPaddedSql(padded: SQLWrapper, label: SQLWrapper): SQL {
+  return hasLabel(padded, label)
+}
+
+/** `notForgottenSql`, on text already reduced by `paddedWordsSql`. */
+export function notForgottenPaddedSql(sessionId: SQLWrapper, padded: SQLWrapper): SQL {
+  return notForgottenInPadded(sessionId, padded)
 }
