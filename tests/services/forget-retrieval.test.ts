@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { getDb, chatPointers, forgotten, messages } from '../../db'
 import { FIXTURE_WORKSPACE_ID as WS, newChat, truncateAll } from '../helpers/pglite'
 import { ingestUserMessage, persistMessage } from '@/services/graph'
 import { retrieveContext } from '@/services/retrieval'
@@ -83,4 +84,36 @@ describe('the Archive passage count', () => {
 
     expect((await loadGraph(WS)).chats.find((c) => c.id === a)?.passageCount).toBe(1)
   })
+})
+
+describe('forgetting never freezes a read (final review, fix 1)', () => {
+  // A passage used to be reduced to words once per (passage, forgotten label)
+  // pair. Ticket 15's giant message, split into 206 chunks of 4,000 chars,
+  // with 20 labels forgotten: 1,600 ms per read before, about 125 ms after.
+  it('a giant chat with many forgotten concepts is counted quickly', async () => {
+    const a = await newChat('A')
+    const vocab = ['queue', 'topic', 'broker', 'offset', 'replica', 'leader', 'segment', 'commit']
+    const chunk = (k: number) => Array.from({ length: 700 }, (_, i) => vocab[(i + k) % vocab.length]).join(' ').slice(0, 3990) + (k === 0 ? ' kafka' : ' .....')
+    const chunks = Array.from({ length: 206 }, (_, k) => chunk(k))
+    const content = chunks.join(' ')
+    const [m] = await (await getDb()).insert(messages).values({ sessionId: a, role: 'user', content }).returning({ id: messages.id })
+    let at = 0
+    await (await getDb()).insert(chatPointers).values(
+      chunks.map((c, ordinal) => {
+        const row = { workspaceId: WS, sessionId: a, messageId: m.id, ordinal, kind: 'sentence' as const, startChar: at, endChar: at + c.length, matchText: c }
+        at += c.length + 1
+        return row
+      }),
+    )
+    await (await getDb()).insert(forgotten).values(
+      ['Kafka', ...Array.from({ length: 19 }, (_, k) => `Unrelated Concept ${k}`)].map((nodeLabel) => ({ sessionId: a, nodeLabel })),
+    )
+
+    const t = Date.now()
+    const graph = await loadGraph(WS)
+    const ms = Date.now() - t
+
+    expect(graph.chats.find((c) => c.id === a)?.passageCount).toBe(205) // the kafka chunk is hidden
+    expect(ms).toBeLessThan(1000)
+  }, 120_000)
 })
