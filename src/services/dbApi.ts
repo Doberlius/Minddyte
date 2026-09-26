@@ -1,6 +1,7 @@
 import { getDb, sessions, messages, nodes, sessionNodes, chatPointers } from "../../db"
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import type { GraphNode, ViewGraph } from "@/types/graph"
+import { recountNodes } from "./links"
 
 /**
  * The whole graph, shaped for the Brain and the Archive.
@@ -193,58 +194,29 @@ export async function createChat(workspaceId: string): Promise<{ id: string }> {
  *
  * Returns whether a chat was there to delete, so a caller can tell "done" from
  * "that had already gone".
+ *
+ * One transaction, so a crash can never leave a link removed and its count
+ * unchanged (ticket 10, Q5).
  */
 export async function deleteChat(workspaceId: string, sessionId: string): Promise<boolean> {
   const db = await getDb()
+  return db.transaction(async (tx) => {
+    // Which concepts this chat touched, read BEFORE the cascade takes the links
+    // away — afterwards there is nothing left to point at them.
+    const held = await tx
+      .select({ nodeId: sessionNodes.nodeId })
+      .from(sessionNodes)
+      .where(eq(sessionNodes.sessionId, sessionId))
 
-  // Which concepts this chat touched, read BEFORE the cascade takes the links
-  // away — afterwards there is nothing left to point at them.
-  const held = await db
-    .select({ nodeId: sessionNodes.nodeId })
-    .from(sessionNodes)
-    .where(eq(sessionNodes.sessionId, sessionId))
+    const deleted = await tx
+      .delete(sessions)
+      .where(and(eq(sessions.id, sessionId), eq(sessions.workspaceId, workspaceId)))
+      .returning({ id: sessions.id })
 
-  const deleted = await db
-    .delete(sessions)
-    .where(and(eq(sessions.id, sessionId), eq(sessions.workspaceId, workspaceId)))
-    .returning({ id: sessions.id })
-
-  if (deleted.length === 0) return false
-  if (held.length === 0) return true
-
-  const touched = held.map((h) => h.nodeId)
-
-  // Recomputed from the links that survive rather than decremented, so a
-  // counter that had already drifted is corrected instead of drifting further.
-  //
-  // `touched` node ids were read via session_nodes BEFORE we knew whether the
-  // delete above would even touch this workspace's own session — but the
-  // delete only succeeded (deleted.length > 0) when sessionId belonged to
-  // workspaceId, so every id in `touched` is a node this workspace's own
-  // link table pointed at. The workspace filter here is not for that: it is
-  // what stops the recompute from REWRITING a stranger's node row even in the
-  // (impossible under correct writes) case that `touched` ever held a
-  // foreign node id — this repair is the one place in the file that WRITES
-  // rows it did not look up by sessionId, so it gets its own explicit guard
-  // rather than trusting the read above.
-  await db
-    .update(nodes)
-    .set({
-      chatCount: sql<number>`(
-        select count(*) from ${sessionNodes} where ${sessionNodes.nodeId} = ${nodes.id}
-      )`,
-    })
-    .where(and(inArray(nodes.id, touched), eq(nodes.workspaceId, workspaceId)))
-
-  // A concept nothing holds any more is unreachable from every view. Left in
-  // place it would sit in the mention picker as a name that opens nothing.
-  // Same reasoning as the update above: scoped explicitly rather than trusted
-  // from `touched`, because this DELETEs rows.
-  await db
-    .delete(nodes)
-    .where(and(inArray(nodes.id, touched), eq(nodes.chatCount, 0), eq(nodes.workspaceId, workspaceId)))
-
-  return true
+    if (deleted.length === 0) return false
+    await recountNodes(tx, workspaceId, held.map((h) => h.nodeId))
+    return true
+  })
 }
 
 /** A title long enough for any real name and short enough for the row. */

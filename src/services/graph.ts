@@ -1,11 +1,9 @@
-import { getDb, type Db, messages, nodes, sessions, sessionNodes, messageNodes, chatPointers } from "../../db"
+import { getDb, messages, sessions, messageNodes, chatPointers } from "../../db"
 import { eq, and, sql } from "drizzle-orm"
 import { extractConcepts } from "@/lib/extract"
-import { canonicalKey, deriveTitle } from "@/lib/text"
+import { deriveTitle } from "@/lib/text"
 import { pointerRows, type SkippedSpan } from "@/lib/pointers"
-
-/** The type of the `tx` argument `db.transaction(async (tx) => ...)` hands us. */
-type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0]
+import { linkNode, type Tx } from "./links"
 
 export type Skip = SkippedSpan & { messageId: string }
 
@@ -67,61 +65,6 @@ export async function persistMessage(input: {
 }
 
 /**
- * Upsert a Node for `label` and make sure it is linked to this Chat.
- *
- * This is the single place that implements the dedup + linking + rarity
- * bookkeeping shared by both callers in `ingestUserMessage` (the per-message
- * concept loop and the once-only Headline derivation): find-or-create the
- * Node by its canonical key (the unique constraint IS the dedup, spec §4.3),
- * link it to the session, and bump `chat_count` ONLY when that link is new
- * (spec §3.1) — never on every message, or rarity weighting in Task 7 would
- * be corrupted.
- *
- * Returns the Node's id, or null when `label` canonicalizes to an empty
- * string (e.g. a label like "..." with no alphanumeric characters) — such a
- * label must never become a Node.
- */
-async function upsertNodeAndLink(
-  tx: Tx,
-  workspaceId: string,
-  sessionId: string,
-  label: string
-): Promise<string | null> {
-  const key = canonicalKey(label)
-  if (!key) return null
-
-  // The unique constraint IS the dedup, and it is now composite — so the
-  // conflict target has to name both columns. Naming only canonicalKey here
-  // would fail at runtime against a constraint that no longer exists, which
-  // is the better of the two failures available: the alternative is that it
-  // silently matches some other workspace's row.
-  const [node] = await tx
-    .insert(nodes)
-    .values({ workspaceId, label, canonicalKey: key })
-    .onConflictDoUpdate({
-      target: [nodes.workspaceId, nodes.canonicalKey],
-      set: { lastReferencedAt: new Date() },
-    })
-    .returning({ id: nodes.id })
-
-  const linked = await tx
-    .insert(sessionNodes)
-    .values({ sessionId, nodeId: node.id })
-    .onConflictDoNothing()
-    .returning({ nodeId: sessionNodes.nodeId })
-
-  // chat_count only moves when the link is NEW. Spec §3.1.
-  if (linked.length > 0) {
-    await tx
-      .update(nodes)
-      .set({ chatCount: sql`${nodes.chatCount} + 1` })
-      .where(eq(nodes.id, node.id))
-  }
-
-  return node.id
-}
-
-/**
  * The graph write path. Spec §4.5 — this runs AFTER the response has streamed.
  * Nothing the model needs depends on it, and running it first would add
  * 300-500ms to time-to-first-token.
@@ -149,7 +92,7 @@ export async function ingestUserMessage(input: {
 
   const db = await getDb()
   return db.transaction(async (tx) => {
-    // `upsertNodeAndLink` inserts into `session_nodes` with `input.sessionId`
+    // `linkNode` inserts into `session_nodes` with `input.sessionId`
     // and never proves it belongs to `input.workspaceId` itself — it trusts
     // its caller. Today the chat route proves that upstream (it only ever
     // calls in with a session it already loaded for this workspace), so
@@ -170,7 +113,7 @@ export async function ingestUserMessage(input: {
     }
 
     for (const label of auto) {
-      const nodeId = await upsertNodeAndLink(tx, input.workspaceId, input.sessionId, label)
+      const nodeId = await linkNode(tx, input.workspaceId, input.sessionId, label)
       if (!nodeId) continue
 
       await tx
@@ -196,7 +139,7 @@ export async function ingestUserMessage(input: {
       const headlineLabel = extractConcepts(title).auto[0] ?? auto[0] ?? null
 
       const headlineNodeId = headlineLabel
-        ? await upsertNodeAndLink(tx, input.workspaceId, input.sessionId, headlineLabel)
+        ? await linkNode(tx, input.workspaceId, input.sessionId, headlineLabel)
         : null
 
       await tx
