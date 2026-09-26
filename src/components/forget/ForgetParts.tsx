@@ -15,13 +15,27 @@ import type { ForgetPart } from '@/services/forget'
  * sentences that word would take with it, so the choice is made on what
  * the person can read, not on a guess.
  *
- * A word that is a concept of its own in this chat ("alsoConcept") gets no
- * box (F14): forgetting it belongs in its own dialog. Its row says so and
- * still lets the person look at its sentences.
+ * Two kinds of word get no box, only a note, and still let the person look
+ * at their sentences (ticking either would silence another concept):
+ *   - F14: a word that is a concept of its own in this chat ("alsoConcept").
+ *     Forgetting it belongs in its own dialog.
+ *   - F15: a word inside another concept's name in this chat ("partOf"):
+ *     "Steve" while forgetting "Steve Jobs" when "Steve Wozniak" is linked.
  *
  * This component only draws the choices. Which words are ticked lives in
  * ForgetDialog, because the Forget button there is what sends them.
  */
+/** Whether a part gets a checkbox: it is neither its own concept (F14) nor part of another's name (F15). */
+export function canPick(part: ForgetPart): boolean {
+  return !part.alsoConcept && part.partOf.length === 0
+}
+
+/** “A”, “A” and “B”, “A”, “B” and “C”. */
+function quotedList(labels: string[]): string {
+  const quoted = labels.map((label) => `“${label}”`)
+  return quoted.length < 2 ? quoted.join('') : `${quoted.slice(0, -1).join(', ')} and ${quoted[quoted.length - 1]}`
+}
+
 export function ForgetParts({
   parts,
   picked,
@@ -74,6 +88,10 @@ export function ForgetParts({
                 {part.alsoConcept ? (
                   <p className="forget-part-own">
                     “{part.word}” is its own concept in this chat. Forget it separately.
+                  </p>
+                ) : part.partOf.length > 0 ? (
+                  <p className="forget-part-own">
+                    “{part.word}” is part of {quotedList(part.partOf)} in this chat.
                   </p>
                 ) : (
                   // The label wraps the box, so a click on the words ticks it too.

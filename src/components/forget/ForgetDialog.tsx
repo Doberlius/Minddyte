@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertCircle } from 'lucide-react'
 import type { ForgetPreview } from '@/services/forget'
-import { ForgetParts } from './ForgetParts'
+import { ForgetParts, canPick } from './ForgetParts'
 
 /**
  * The confirmation for forgetting one concept in one chat (ticket 10,
@@ -143,9 +143,10 @@ export function ForgetDialog({
   async function forget() {
     if (forgetting || state.kind !== 'ready') return
     // Only the ticked words that could be ticked: a word that is its own
-    // concept has no box (F14), so it is never sent.
+    // concept (F14) or part of another concept's name (F15) has no box, so
+    // it is never sent.
     const parts = state.preview.parts
-      .filter((part) => !part.alsoConcept && picked.includes(part.word))
+      .filter((part) => canPick(part) && picked.includes(part.word))
       .map((part) => part.word)
     setForgetting(true)
     setFailed(false)

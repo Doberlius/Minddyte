@@ -1,15 +1,26 @@
 import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { getDb, chatPointers, forgotten, messageNodes, messages, nodes, sessionNodes, sessions } from '../../db'
 import { mentionsSql, notForgottenSql } from '@/lib/mentions'
-import { labelParts } from '@/lib/label-parts'
-import { canonicalKey } from '@/lib/text'
-import { recountNodes, rederiveHeadline } from './links'
+import { classifyParts } from '@/lib/label-parts'
+import { recountNodes, rederiveHeadline, type Tx } from './links'
 
 /** A runaway guard for a huge chat, not a design limit: the modal shows 3 and "and N more". */
 export const PREVIEW_CAP = 500
 
-/** A word of a multi-word name that some sentences mention on their own. F9–F12. */
-export type ForgetPart = { word: string; total: number; sentences: string[]; alsoConcept: boolean }
+/**
+ * A word of a multi-word name that some sentences mention on their own.
+ * F9–F12. Only a word with `alsoConcept` false and `partOf` empty can be
+ * ticked (classifyParts, F14/F15).
+ */
+export type ForgetPart = {
+  word: string
+  total: number
+  sentences: string[]
+  /** F14: the word is itself another concept of this chat. */
+  alsoConcept: boolean
+  /** F15: the other concepts of this chat whose names contain the word, A to Z. */
+  partOf: string[]
+}
 
 export type ForgetPreview = {
   label: string
@@ -40,6 +51,15 @@ function linkedConcept(sessionId: string, workspaceId: string, key: string) {
 }
 
 type Db = Awaited<ReturnType<typeof getDb>>
+
+/** Every concept linked to this chat, for classifyParts. Workspace-filtered like linkedConcept. */
+async function linkedConcepts(db: Db | Tx, workspaceId: string, sessionId: string) {
+  return db
+    .select({ key: nodes.canonicalKey, label: nodes.label })
+    .from(sessionNodes)
+    .innerJoin(nodes, eq(nodes.id, sessionNodes.nodeId))
+    .where(and(eq(sessionNodes.sessionId, sessionId), eq(nodes.workspaceId, workspaceId)))
+}
 
 /** How many passages match, and up to PREVIEW_CAP of their texts in the order they were said. */
 async function passages(db: Db, where: SQL | undefined): Promise<{ total: number; sentences: string[] }> {
@@ -84,22 +104,13 @@ export async function forgetPreview(workspaceId: string, sessionId: string, key:
 
   // F9–F10: each word of the name that some sentence mentions WITHOUT the
   // whole name. Those with the whole name are in the main list already.
-  const linkedKeys = new Set(
-    (
-      await db
-        .select({ key: nodes.canonicalKey })
-        .from(sessionNodes)
-        .innerJoin(nodes, eq(nodes.id, sessionNodes.nodeId))
-        .where(and(eq(sessionNodes.sessionId, sessionId), eq(nodes.workspaceId, workspaceId)))
-    ).map((r) => r.key),
-  )
   const parts: ForgetPart[] = []
-  for (const word of labelParts(node.label)) {
+  for (const { word, kind, partOf } of classifyParts(node.label, key, await linkedConcepts(db, workspaceId, sessionId))) {
     const found = await passages(
       db,
       and(inChat, mentionsSql(chatPointers.matchText, sql`${word}::text`), sql`not ${mentionsSql(chatPointers.matchText, label)}`),
     )
-    if (found.total > 0) parts.push({ word, ...found, alsoConcept: linkedKeys.has(canonicalKey(word)) })
+    if (found.total > 0) parts.push({ word, ...found, alsoConcept: kind === 'own-concept', partOf })
   }
 
   return { label: node.label, total: main.total, sentences: main.sentences, otherChats: node.chatCount - 1, titleMentions: node.titleMentions, parts }
@@ -111,9 +122,10 @@ export async function forgetPreview(workspaceId: string, sessionId: string, key:
  * `forgotten`, unlink the concept, move the headline if it was the
  * headline, recount, delete it if no chat holds it.
  *
- * A part is accepted only if it is a word the name offers (labelParts) AND
- * not itself a concept linked to this chat (F14: one forget never removes
- * another concept; that one is forgotten on its own). Anything else in the
+ * A part is accepted only if classifyParts calls it 'offer': a word the
+ * name offers that is neither another concept of this chat (F14) nor a word
+ * of another concept's name (F15). One forget never silences another
+ * concept; that one is forgotten on its own. Anything else in the
  * request is ignored: the name and the chat, not the request, are the
  * authority. Messages and their pointers are untouched; retrieval hides the
  * pointers at read time. Returns false when the chat does not hold `key`,
@@ -130,19 +142,10 @@ export async function forgetConcept(workspaceId: string, sessionId: string, key:
       .where(linkedConcept(sessionId, workspaceId, key))
     if (!node) return false
 
-    const linkedKeys = new Set(
-      (
-        await tx
-          .select({ key: nodes.canonicalKey })
-          .from(sessionNodes)
-          .innerJoin(nodes, eq(nodes.id, sessionNodes.nodeId))
-          .where(and(eq(sessionNodes.sessionId, sessionId), eq(nodes.workspaceId, workspaceId)))
-      ).map((r) => r.key),
-    )
     const offered = new Map(
-      labelParts(node.label)
-        .filter((w) => !linkedKeys.has(canonicalKey(w)))
-        .map((w) => [w.toLowerCase(), w]),
+      classifyParts(node.label, key, await linkedConcepts(tx, workspaceId, sessionId))
+        .filter((part) => part.kind === 'offer')
+        .map((part) => [part.word.toLowerCase(), part.word]),
     )
     const words = [...new Set(parts.map((p) => offered.get(p.toLowerCase())).filter((w): w is string => Boolean(w)))]
 

@@ -227,7 +227,7 @@ describe('parts of a name (ticket 10, F9–F12)', () => {
 
     expect(p?.total).toBe(2)
     // Review Focus 4: "Steve" appears only inside "Steve Jobs", so it is not offered.
-    expect(p?.parts).toEqual([{ word: 'Jobs', total: 1, sentences: ['Jobs’s vision shaped it.'], alsoConcept: false }])
+    expect(p?.parts).toEqual([{ word: 'Jobs', total: 1, sentences: ['Jobs’s vision shaped it.'], alsoConcept: false, partOf: [] }])
   })
 
   it('forgets the ticked parts in that chat, and nothing else', async () => {
@@ -258,7 +258,7 @@ describe('parts of a name (ticket 10, F9–F12)', () => {
     expect(await keysOf(a)).toEqual(['kafka', 'kafkapartitions'])
 
     const p = await forgetPreview(WS, a, 'kafkapartitions')
-    expect(p?.parts).toEqual([{ word: 'Kafka', total: 1, sentences: ['Kafka is fast.'], alsoConcept: true }])
+    expect(p?.parts).toEqual([{ word: 'Kafka', total: 1, sentences: ['Kafka is fast.'], alsoConcept: true, partOf: [] }])
 
     // Even a request that sends it anyway.
     await forgetConcept(WS, a, 'kafkapartitions', ['Kafka'])
@@ -269,5 +269,44 @@ describe('parts of a name (ticket 10, F9–F12)', () => {
     const db = await getDb()
     const rows = await db.select({ label: forgotten.nodeLabel }).from(forgotten).where(eq(forgotten.sessionId, a))
     expect(rows.map((r) => r.label)).toEqual(['Kafka partitions'])
+  })
+
+  // Final review, item 1, F15: a ticked "Steve" would hide every "Steve Wozniak" sentence.
+  it('a part that is a word of another concept’s name is flagged, and never forgotten through this concept', async () => {
+    const a = (await createChat(WS)).id
+    await say(a, 'Steve Jobs and Steve Wozniak built Apple.', 'Steve Wozniak designed the board. Steve kept it simple. Jobs sold it.')
+    expect(await keysOf(a)).toEqual(['apple', 'stevejobs', 'stevewozniak'])
+
+    const p = await forgetPreview(WS, a, 'stevejobs')
+    expect(p?.parts).toEqual([
+      {
+        word: 'Steve',
+        total: 2,
+        sentences: ['Steve Wozniak designed the board.', 'Steve kept it simple.'],
+        alsoConcept: false,
+        partOf: ['Steve Wozniak'],
+      },
+      { word: 'Jobs', total: 1, sentences: ['Jobs sold it.'], alsoConcept: false, partOf: [] },
+    ])
+
+    await forgetConcept(WS, a, 'stevejobs', ['Steve', 'Jobs'])
+
+    const db = await getDb()
+    const rows = await db.select({ label: forgotten.nodeLabel }).from(forgotten).where(eq(forgotten.sessionId, a))
+    expect(rows.map((r) => r.label).sort()).toEqual(['Jobs', 'Steve Jobs'])
+    expect(await keysOf(a)).toEqual(['apple', 'stevewozniak'])
+  })
+
+  it('names every other concept a part is a word of', async () => {
+    const a = (await createChat(WS)).id
+    await say(a, 'We use Kafka Streams and Kafka Connect.', 'Kafka Connect moves data. Kafka is fast. Streams process it.')
+    expect(await keysOf(a)).toEqual(['kafkaconnect', 'kafkastreams'])
+
+    const p = await forgetPreview(WS, a, 'kafkastreams')
+
+    expect(p?.parts.map((x) => [x.word, x.alsoConcept, x.partOf])).toEqual([
+      ['Kafka', false, ['Kafka Connect']],
+      ['Streams', false, []],
+    ])
   })
 })
