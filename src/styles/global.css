@@ -28,6 +28,11 @@
        For the one button that throws someone's typing away. */
     --red-d: #DC2626;
     --red-dd: #B91C1C;
+    /* Tints for the forget picker: a hover wash and a border, the same pair
+       violet has in --violet-l / --violet-m. #DC2626 text on --red-l is 4.4:1,
+       so text on the wash steps down to --red-dd (5.9:1). */
+    --red-l: #FEF2F2;
+    --red-m: #FECACA;
     /* Over a limit: not broken, not destroyed, just too much. Amber rather
        than red, dark enough for small text on white (5.0:1). */
     --warn: #B45309;
@@ -876,6 +881,27 @@ input:focus-visible, textarea:focus-visible {
 .at-row { display: flex; gap: 10px; align-items: center; padding: 9px 13px; }
 .at-row .t { font-size: 12.5px; font-weight: 600; color: var(--ink); }
 .at-row .m { margin-left: auto; font-size: 10px; color: var(--ink3); white-space: nowrap; }
+
+/* The /forget picker. The same shell and row shape as @, on purpose, and red
+   everywhere @ is violet or gray: one loads memory, the other destroys it
+   (spec §5.1), and they open in the same place. */
+.picker.is-forget { border-color: var(--red-m); scroll-padding-top: 31px; }
+.picker.is-forget .picker-head { color: var(--red-dd); font-weight: 600; border-bottom-color: var(--red-l); }
+.forget-row { display: flex; gap: 10px; align-items: center; padding: 9px 13px; cursor: pointer; transition: background .1s; }
+.forget-row .t {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12.5px; font-weight: 600; color: var(--ink);
+}
+.forget-row .m { margin-left: auto; flex-shrink: 0; font-size: 11px; color: var(--red-d); white-space: nowrap; }
+.forget-row:hover, .forget-row.hi { background: var(--red-l); }
+.forget-row:hover .m, .forget-row.hi .m { color: var(--red-dd); }
+/* A phone is too narrow for a name and the note side by side: the note drops
+   under the name rather than squeezing it to nothing. */
+@media (max-width: 480px) {
+  .forget-row { flex-wrap: wrap; row-gap: 2px; }
+  .forget-row .t { flex-basis: 100%; }
+  .forget-row .m { margin-left: 0; }
+}
 
 /* A row in the / picker. Taller, because a command carries a consequence and
    the name alone does not say what it is. */

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Crosshair, HelpCircle, Waypoints } from 'lucide-react'
+import { Crosshair, Eraser, HelpCircle, Waypoints } from 'lucide-react'
 import { matchCommands, type ChatMode, type HelpEntry } from './commands'
 
 /**
@@ -29,6 +29,7 @@ import { matchCommands, type ChatMode, type HelpEntry } from './commands'
 const ICONS: Record<string, React.ReactNode> = {
   'mode explore': <Waypoints size={14} />,
   'mode focus': <Crosshair size={14} />,
+  forget: <Eraser size={14} />,
   help: <HelpCircle size={14} />,
 }
 

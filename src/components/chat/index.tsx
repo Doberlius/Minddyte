@@ -6,9 +6,11 @@ import { DefaultChatTransport } from 'ai'
 import { AlertCircle } from 'lucide-react'
 import { AtPicker } from './AtPicker'
 import { CommandPicker } from './CommandPicker'
+import { ForgetPicker } from './ForgetPicker'
 import { exactCommand, modeLabel, type HelpEntry } from './commands'
 import { HelpCard } from './HelpCard'
 import { ModelPicker } from './ModelPicker'
+import { ForgetDialog } from '@/components/forget/ForgetDialog'
 import { classifyChatFailure } from '@/lib/chat-error'
 import type { ChatSummary } from '@/components/layout/Sidebar'
 
@@ -47,6 +49,13 @@ export function NeuralChat({
   const [opening, setOpening] = useState(false)
   /** Whether the `/help` card is open. Set from the / menu; closed by hand. */
   const [showHelp, setShowHelp] = useState(false)
+  /** Whether the `/forget` picker (this chat's concepts) is open. */
+  const [showForget, setShowForget] = useState(false)
+  /**
+   * The concept picked in that list, whose forget confirmation is open.
+   * null when no confirmation is showing.
+   */
+  const [forgetKey, setForgetKey] = useState<string | null>(null)
   /**
    * Why the last send did not go through.
    *
@@ -192,6 +201,8 @@ export function NeuralChat({
     setTagged([])
     setFailure(null)
     setShowHelp(false)
+    setShowForget(false)
+    setForgetKey(null)
 
     /**
      * Decided HERE, once, for every path out of this effect — not left to the
@@ -297,6 +308,7 @@ export function NeuralChat({
   function runCommand(entry: HelpEntry) {
     if (entry.action?.kind === 'mode') setMode(entry.action.mode)
     else if (entry.action?.kind === 'help') setShowHelp(true)
+    else if (entry.action?.kind === 'forget') setShowForget(true)
     // The command is not part of the message, so it does not stay in the box
     // once it has been run.
     setInput('')
@@ -435,6 +447,20 @@ export function NeuralChat({
           />
         )}
 
+        {/* Opened by /forget. It lists only this chat's concepts; picking one
+            closes it and opens the confirmation below, which does the
+            actual forgetting. */}
+        {showForget && (
+          <ForgetPicker
+            chatId={sessionId}
+            onPick={(key) => {
+              setShowForget(false)
+              setForgetKey(key)
+            }}
+            onDismiss={() => setShowForget(false)}
+          />
+        )}
+
         {atQuery !== null && !showCommands && (
           <AtPicker chats={chats.filter((c) => c.id !== sessionId)} query={atQuery} onPick={(c) => {
             if (!tagged.find((t) => t.id === c.id)) setTagged([...tagged, c])
@@ -462,7 +488,12 @@ export function NeuralChat({
           id="chat-composer"
           className="composer-box"
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value)
+            // Typing means you have moved on; the /forget list would
+            // otherwise sit over the box until Esc.
+            setShowForget(false)
+          }}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void submit() } }}
           enterKeyHint="send"
           placeholder="Ask anything — @ to bring in a past chat"
@@ -484,6 +515,20 @@ export function NeuralChat({
         </div>
         </div>
       </div>
+
+      {/* The forget confirmation, for the concept picked in the /forget list.
+          Keyed by the concept, so each pick starts a fresh dialog. Forgetting
+          changes this chat's concept count, so the chat list (and the @
+          picker's counts) are asked for again. */}
+      {forgetKey && sessionId && (
+        <ForgetDialog
+          key={forgetKey}
+          chatId={sessionId}
+          conceptKey={forgetKey}
+          onForgotten={onChatsChanged}
+          onClose={() => setForgetKey(null)}
+        />
+      )}
     </div>
   )
 }

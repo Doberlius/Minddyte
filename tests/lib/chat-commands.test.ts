@@ -3,7 +3,7 @@ import { HELP_ENTRIES, SLASH_ENTRIES, exactCommand, matchCommands, modeLabel } f
 
 describe('the one list of working commands', () => {
   it('holds exactly the commands that work', () => {
-    expect(HELP_ENTRIES.map((e) => e.label)).toEqual(['/mode explore', '/mode focus', '@', 'About you', '/help'])
+    expect(HELP_ENTRIES.map((e) => e.label)).toEqual(['/mode explore', '/mode focus', '@', 'About you', '/forget', '/help'])
   })
   it('gives every entry a plain description and an example', () => {
     for (const e of HELP_ENTRIES) {
@@ -19,11 +19,17 @@ describe('the one list of working commands', () => {
   it('matches what is typed after the slash', () => {
     expect(matchCommands('hel').map((e) => e.label)).toEqual(['/help'])
     expect(matchCommands('mode f').map((e) => e.label)).toEqual(['/mode focus'])
-    expect(matchCommands('').length).toBe(3)
+    expect(matchCommands('').length).toBe(4)
     expect(matchCommands('xyz')).toEqual([])
   })
   it('/help resolves to the help action, never to a mode', () => {
     expect(matchCommands('help')[0].action).toEqual({ kind: 'help' })
+  })
+  it('/forget runs the forget action, and its description says the messages stay', () => {
+    const entry = exactCommand('/forget')
+    expect(entry?.action).toEqual({ kind: 'forget' })
+    expect(entry?.what).toMatch(/messages stay/i)
+    expect(matchCommands('forg').map((e) => e.label)).toEqual(['/forget'])
   })
 })
 
