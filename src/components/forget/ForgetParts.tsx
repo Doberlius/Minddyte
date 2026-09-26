@@ -37,6 +37,14 @@ function quotedList(labels: string[]): string {
   return `${quoted.slice(0, -1).join(', ')} and ${quoted[quoted.length - 1]}`
 }
 
+/** The part toggle's name for a screen reader: `Show the 5 sentences that say “Jobs”`. */
+function toggleName(part: ForgetPart, isOpen: boolean): string {
+  const verb = isOpen ? 'Hide' : 'Show'
+  return part.total === 1
+    ? `${verb} the 1 sentence that says “${part.word}”`
+    : `${verb} the ${part.total.toLocaleString('en-US')} sentences that say “${part.word}”`
+}
+
 export function ForgetParts({
   parts,
   picked,
@@ -109,6 +117,8 @@ export function ForgetParts({
                 <button
                   type="button"
                   className="forget-part-show"
+                  // "Jobs (5)" alone does not say what the button does.
+                  aria-label={toggleName(part, isOpen)}
                   aria-expanded={isOpen}
                   aria-controls={isOpen ? listId : undefined}
                   onClick={() => toggle(part.word)}

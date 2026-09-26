@@ -266,7 +266,10 @@ export function ForgetDialog({
 
             {ready.total === 0 ? (
               <p id="forget-what" className="core-what">
-                No sentences mention it; it will only stop linking this chat.
+                {/* With parts below, "only stop linking" would not be true if one is ticked. */}
+                {ready.parts.length > 0
+                  ? 'No sentence mentions the whole name.'
+                  : 'No sentences mention it; it will only stop linking this chat.'}
               </p>
             ) : (
               <>
