@@ -221,7 +221,10 @@ export function ForgetPicker({
               <span className="t">
                 <Name match={match} />
               </span>
-              <span className="m">stops it being recalled from this chat</span>
+              {/* Where the effect is: OTHER chats. The chat you are in still
+                  reads its own conversation (ticket 10, Q14), so "stops it
+                  being recalled" read as the opposite of what happens. */}
+              <span className="m">other chats can’t pull it from here</span>
             </div>
           ))}
         </div>
