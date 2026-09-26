@@ -168,6 +168,18 @@ describe('forgetPreview', () => {
     await say(a, 'We run Kafka and PostgreSQL in production.')
     expect(await forgetPreview(WS, a, 'redis')).toBeNull()
   })
+
+  // Final review, fix 3: a sentence an earlier forget already hides is not "newly hidden".
+  it('leaves out sentences an earlier forget in this chat already hides', async () => {
+    const a = (await createChat(WS)).id
+    await say(a, 'We run Kafka and PostgreSQL in production.', 'PostgreSQL handles the writes. Kafka carries the events.')
+    await forgetConcept(WS, a, 'kafka')
+
+    const p = await forgetPreview(WS, a, 'postgresql')
+
+    expect(p?.total).toBe(1)
+    expect(p?.sentences).toEqual(['PostgreSQL handles the writes.'])
+  })
 })
 
 describe('after forgetting', () => {

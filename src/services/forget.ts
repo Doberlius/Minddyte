@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { getDb, chatPointers, forgotten, messageNodes, messages, nodes, sessionNodes, sessions } from '../../db'
-import { mentionsSql } from '@/lib/mentions'
+import { mentionsSql, notForgottenSql } from '@/lib/mentions'
 import { recountNodes, rederiveHeadline } from './links'
 
 /** A runaway guard for a huge chat, not a design limit: the modal shows 3 and "and N more". */
@@ -8,7 +8,7 @@ export const PREVIEW_CAP = 500
 
 export type ForgetPreview = {
   label: string
-  /** Every passage of this chat that mentions it, both roles. */
+  /** Every passage of this chat that mentions it, both roles, and that no earlier forget already hides. */
   total: number
   /** Up to PREVIEW_CAP of them, in the order they were said. */
   sentences: string[]
@@ -41,10 +41,14 @@ export async function forgetPreview(workspaceId: string, sessionId: string, key:
     .where(linkedConcept(sessionId, workspaceId, key))
   if (!node) return null
 
+  // Only what THIS forget newly hides: a sentence that also mentions a
+  // concept forgotten earlier in this chat is hidden already, by the same
+  // read-time rule retrieval and the Archive count use.
   const match = and(
     eq(chatPointers.workspaceId, workspaceId),
     eq(chatPointers.sessionId, sessionId),
     mentionsSql(chatPointers.matchText, sql`${node.label}::text`),
+    notForgottenSql(chatPointers.sessionId, chatPointers.matchText),
   )
   const [{ n }] = await db.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(chatPointers).where(match)
   const rows = await db
