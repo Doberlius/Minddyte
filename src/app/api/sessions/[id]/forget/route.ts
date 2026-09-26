@@ -1,11 +1,17 @@
 import { forgetConcept, forgetPreview } from "@/services/forget"
 import { requireWorkspace } from "@/server/workspace"
+import { isUuidV4 } from "@/lib/workspace"
 
 const NOT_FOUND = () => Response.json({ error: "not_found" }, { status: 404 })
+
+// Both handlers check the chat id first: it comes from the URL, and one that
+// is not a uuid would make Postgres throw (a 500). No such chat can exist,
+// so it gets the same 404 as a chat that does not.
 
 /** What forgetting `?key=` in this chat would hide. Ticket 10, Q11/Q17. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  if (!isUuidV4(id)) return NOT_FOUND()
   const key = new URL(request.url).searchParams.get("key") ?? ""
   if (!key) return Response.json({ error: "a key is required" }, { status: 400 })
   const preview = await forgetPreview(await requireWorkspace(), id, key)
@@ -15,6 +21,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 /** Forget `{ key }` in this chat. 404 when the chat does not hold it (Q12: there is no undo). */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  if (!isUuidV4(id)) return NOT_FOUND()
   let body: unknown
   try {
     body = await request.json()

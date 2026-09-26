@@ -33,5 +33,15 @@ const V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}
  * that leaks whether some other value would have worked.
  */
 export function isWorkspaceId(value: unknown): value is string {
+  return isUuidV4(value)
+}
+
+/**
+ * A v4 uuid, the only kind this app mints: `newWorkspaceId` for workspaces,
+ * Postgres's gen_random_uuid() for chats. A route checks a chat id from the
+ * URL with this before it reaches a WHERE clause, where Postgres would reject
+ * a malformed one with an error (a 500) instead of "no such chat".
+ */
+export function isUuidV4(value: unknown): value is string {
   return typeof value === 'string' && V4.test(value)
 }
