@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowUpRight } from 'lucide-react'
+import { ArrowUpRight, X } from 'lucide-react'
 import type { ViewGraph, GraphChat } from '@/types/graph'
 
 /**
@@ -17,6 +17,11 @@ import type { ViewGraph, GraphChat } from '@/types/graph'
  * A card was a dead end. Reading a conversation's summary and wanting the
  * conversation it came from is the obvious next move, and there was nowhere
  * to go — so a card's title opens it.
+ *
+ * Each concept chip can also carry a small × (ticket 10, Q3). It opens the
+ * forget confirmation for that concept in that card's chat. It only appears
+ * when the page passes `onForget`, so a view that cannot forget (or does not
+ * want to) gets plain chips, exactly as before.
  */
 
 function Card({
@@ -25,12 +30,14 @@ function Card({
   isYours,
   highlightLabel,
   onOpen,
+  onForget,
 }: {
   chat: GraphChat
   graph: ViewGraph
   isYours: boolean
   highlightLabel: string
   onOpen?: (id: string) => void
+  onForget?: (chatId: string, key: string) => void
 }) {
   const concepts = graph.nodes.filter((n) => n.chatIds.includes(chat.id))
   // deriveTitle caps at 60 characters and can land mid-clause; without the
@@ -67,6 +74,20 @@ function Card({
             >
               {n.label}
               {n.chatIds.length > 1 && <b>{n.chatIds.length}</b>}
+              {/* A real button, so Tab reaches it and Enter/Space press it.
+                  It sits inside the chip, not inside the title button, so
+                  one button is never nested in another. */}
+              {onForget && (
+                <button
+                  type="button"
+                  className="chip-x"
+                  aria-label={`Forget “${n.label}” in this chat`}
+                  title={`Forget “${n.label}” in this chat`}
+                  onClick={() => onForget(chat.id, n.key)}
+                >
+                  <X size={10} strokeWidth={2.5} aria-hidden="true" />
+                </button>
+              )}
             </span>
           ))}
         </div>
@@ -89,6 +110,7 @@ export function ArchiveView({
   highlight,
   highlightLabel,
   onOpen,
+  onForget,
 }: {
   graph: ViewGraph
   /** Conversations to mark apart: the demo's own, the app's open one. */
@@ -96,6 +118,11 @@ export function ArchiveView({
   highlightLabel: string
   /** Open a conversation. Without it a card is a place you can only look at. */
   onOpen?: (id: string) => void
+  /**
+   * Forget one concept in one chat. When given, each chip gets its × button;
+   * without it the chips are look-only, as they always were.
+   */
+  onForget?: (chatId: string, key: string) => void
 }) {
   const shared = graph.nodes.filter((n) => n.chatIds.length > 1).length
 
@@ -137,6 +164,7 @@ export function ArchiveView({
               isYours={highlight.includes(chat.id)}
               highlightLabel={highlightLabel}
               onOpen={onOpen}
+              onForget={onForget}
             />
           ))}
         </div>

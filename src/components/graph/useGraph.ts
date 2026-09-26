@@ -16,11 +16,19 @@ const EMPTY: ViewGraph = { chats: [], nodes: [] }
  * A failed fetch leaves `graph` empty and `error` set. It must not throw: the
  * chat still works when the graph cannot be read, and taking the whole page
  * down over a panel is a worse outcome than the panel saying so.
+ *
+ * `reload()` asks for the graph again, for when the view itself changed it
+ * (forgetting a concept from the Archive). It bumps `version`, which is in the
+ * effect's dependency list, so React runs the same fetch once more. The graph
+ * already on screen stays there until the new one arrives: `loading` is only
+ * true for the very first fetch, so a reload never flashes the loading text.
  */
 export function useGraph() {
   const [graph, setGraph] = useState<ViewGraph>(EMPTY)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  /** Bumped by `reload()`; changing it re-runs the fetch below. */
+  const [version, setVersion] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -41,7 +49,7 @@ export function useGraph() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [version])
 
-  return { graph, loading, error }
+  return { graph, loading, error, reload: () => setVersion((v) => v + 1) }
 }

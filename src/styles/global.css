@@ -410,6 +410,34 @@ input:focus-visible, textarea:focus-visible {
   padding: 0 5px; margin-right: -3px;
 }
 
+/* The × that forgets a concept from its chip (Archive only; ticket 10, Q3).
+   Its space is always there, so the chip is the same size whether or not
+   anything is hovered: nothing jumps when the pointer arrives. The negative
+   margins tuck it into the chip's own right padding and keep it from making
+   the chip taller. It takes the chip's text colour (gray on white, white on
+   violet), quiet until the card is hovered, and turns red only under the
+   pointer or keyboard focus: red is the forget colour, and the dialog it
+   opens ends in the same red button. */
+.chip-x {
+  position: relative;
+  display: grid; place-items: center; flex-shrink: 0;
+  width: 16px; height: 16px; padding: 0;
+  margin: -2px -5px -2px -1px;
+  border: none; border-radius: 50%;
+  background: none; color: inherit; cursor: pointer;
+  opacity: .7; transition: opacity .12s, background .12s, color .12s;
+}
+/* The drawn circle is 16px; the part that answers a click or tap is 24px. */
+.chip-x::after { content: ''; position: absolute; inset: -4px; border-radius: 50%; }
+.arc-card:hover .chip-x, .arc-card:focus-within .chip-x { opacity: 1; }
+.chip-x:hover, .chip-x:focus-visible {
+  opacity: 1; background: var(--red-d); color: #fff;
+}
+.chip-x:focus-visible { outline-color: var(--red-d); outline-offset: 1px; }
+/* The shared count is followed by the ×, so it gives up the pull it has when
+   it is the last thing in the chip. */
+.demo-chip b:not(:last-child) { margin-right: 0; }
+
 /* The composer — shared, not demo-only: the app's chat box is the same box,
    which is the whole reason the demo is worth showing. Named for what it is
    rather than for where it first appeared. */
