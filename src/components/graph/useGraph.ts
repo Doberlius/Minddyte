@@ -13,7 +13,7 @@ const EMPTY: ViewGraph = { chats: [], nodes: [] }
  * message is sent, which happens on a different tab. Arriving is therefore the
  * exact moment the answer could be stale.
  *
- * A failed fetch leaves `graph` empty and `error` set. It must not throw: the
+ * A failed fetch leaves `graph` as it was and `error` set. It must not throw: the
  * chat still works when the graph cannot be read, and taking the whole page
  * down over a panel is a worse outcome than the panel saying so.
  *
@@ -32,6 +32,9 @@ export function useGraph() {
 
   useEffect(() => {
     let cancelled = false
+    // A new load starts with a clean slate: without this, one failed load
+    // would leave the error showing even after a later load succeeds.
+    setError(false)
 
     fetch('/api/graph')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('graph unavailable'))))

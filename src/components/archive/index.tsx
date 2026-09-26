@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArchiveView } from './ArchiveView'
 import { useGraph } from '@/components/graph/useGraph'
 import { ForgetDialog } from '@/components/forget/ForgetDialog'
@@ -30,6 +30,31 @@ export function MemoryArchives({
    * null while no forget confirmation is open.
    */
   const [forgetting, setForgetting] = useState<{ chatId: string; key: string } | null>(null)
+  /**
+   * Set when a concept has just been forgotten: which card it was on, and the
+   * graph that was on screen then. Kept in a ref because it only steers the
+   * effect below and should not cause a render of its own.
+   */
+  const refocus = useRef<{ chatId: string; graph: typeof graph } | null>(null)
+
+  // Put keyboard focus back somewhere sensible after a forget. The × that
+  // opened the dialog is removed when the reloaded graph draws the card
+  // without that chip, and the browser then drops focus to the page. So wait
+  // until the dialog is closed AND a new graph has been drawn, and only step
+  // in if focus really was lost: on the card's title button, or else the card.
+  useEffect(() => {
+    const pending = refocus.current
+    if (!pending || forgetting || graph === pending.graph) return
+    refocus.current = null
+    const active = document.activeElement
+    if (active && active !== document.body) return
+    const card = document.querySelector<HTMLElement>(
+      `.arc-card[data-chat-id="${CSS.escape(pending.chatId)}"]`,
+    )
+    // If the card itself is gone there is nothing better to offer; leave it.
+    if (!card) return
+    ;(card.querySelector<HTMLElement>('button.arc-title') ?? card).focus()
+  }, [graph, forgetting])
 
   if (loading) {
     return (
@@ -69,13 +94,16 @@ export function MemoryArchives({
       {/* Keyed by chat and concept, so each × starts a fresh dialog rather
           than reusing the last one's state. Once something is forgotten the
           graph is fetched again, so the chip goes and the card's sentence
-          count drops. */}
+          count drops (and the effect above moves focus onto the card). */}
       {forgetting && (
         <ForgetDialog
           key={`${forgetting.chatId}:${forgetting.key}`}
           chatId={forgetting.chatId}
           conceptKey={forgetting.key}
-          onForgotten={reload}
+          onForgotten={() => {
+            refocus.current = { chatId: forgetting.chatId, graph }
+            reload()
+          }}
           onClose={() => setForgetting(null)}
         />
       )}

@@ -47,7 +47,16 @@ function Card({
   const title = truncated ? `${chat.title}…` : chat.title
 
   return (
-    <article className="arc-card">
+    <article
+      className="arc-card"
+      // How the Archive finds this card again to put focus on it after one of
+      // its chips is forgotten (the × that had focus is gone by then).
+      data-chat-id={chat.id}
+      // That focus goes to the title button when there is one. Without it,
+      // the card itself takes focus: -1 lets code focus it without adding a
+      // Tab stop.
+      tabIndex={onForget && !onOpen ? -1 : undefined}
+    >
       <header className="arc-head">
         {onOpen ? (
           <button className="arc-title" onClick={() => onOpen(chat.id)}>
