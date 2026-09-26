@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertCircle } from 'lucide-react'
 import type { ForgetPreview } from '@/services/forget'
+import { ForgetParts } from './ForgetParts'
 
 /**
  * The confirmation for forgetting one concept in one chat (ticket 10,
@@ -21,8 +22,9 @@ import type { ForgetPreview } from '@/services/forget'
  *      chat no longer holds the concept (404), say so and tell the opener
  *      (`onForgotten`, once) so the view behind drops its stale chip.
  *   2. Show it. Only the first three sentences at first; "and N more" opens
- *      the rest.
- *   3. Forget sends a POST. Success tells the opener (`onForgotten`) and
+ *      the rest. If some sentences say only part of the name ("Jobs" for
+ *      "Steve Jobs"), offer those words too, unticked (ForgetParts.tsx).
+ *   3. Forget sends a POST, with the words the person ticked. Success tells the opener (`onForgotten`) and
  *      closes; a failure keeps the dialog open so the person can try again.
  */
 
@@ -52,6 +54,8 @@ export function ForgetDialog({
   const [expanded, setExpanded] = useState(false)
   const [forgetting, setForgetting] = useState(false)
   const [failed, setFailed] = useState(false)
+  /** The parts of the name the person ticked to forget as well. None at first. */
+  const [picked, setPicked] = useState<string[]>([])
   const card = useRef<HTMLDivElement>(null)
   // Cancel and Close are the same button with a different word on it, so the
   // focus it was given on open survives the switch to the "gone" state.
@@ -131,16 +135,26 @@ export function ForgetDialog({
     onClose()
   }
 
+  function pick(word: string) {
+    setPicked((now) => (now.includes(word) ? now.filter((w) => w !== word) : [...now, word]))
+  }
+
   // Step 3: the destructive act itself.
   async function forget() {
-    if (forgetting) return
+    if (forgetting || state.kind !== 'ready') return
+    // Only the ticked words that could be ticked: a word that is its own
+    // concept has no box (F14), so it is never sent.
+    const parts = state.preview.parts
+      .filter((part) => !part.alsoConcept && picked.includes(part.word))
+      .map((part) => part.word)
     setForgetting(true)
     setFailed(false)
     try {
       const res = await fetch(path, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ key: conceptKey }),
+        // `parts` only when something is ticked, so a plain forget sends what it always did.
+        body: JSON.stringify(parts.length > 0 ? { key: conceptKey, parts } : { key: conceptKey }),
       })
       if (res.ok) {
         onForgotten()
@@ -168,8 +182,11 @@ export function ForgetDialog({
       return
     }
     // Keep Tab inside the dialog: the page behind is inert while it is open.
+    // The part checkboxes count too, so Tab can reach them and wrap past them.
     if (event.key === 'Tab' && card.current) {
-      const items = card.current.querySelectorAll<HTMLElement>('button:not(:disabled), [tabindex="0"]')
+      const items = card.current.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), [tabindex="0"]',
+      )
       if (items.length === 0) return
       const first = items[0]
       const last = items[items.length - 1]
@@ -262,9 +279,16 @@ export function ForgetDialog({
               </>
             )}
 
+            {ready.parts.length > 0 && (
+              <ForgetParts parts={ready.parts} picked={picked} onPick={pick} disabled={forgetting} />
+            )}
+
             <ul className="forget-notes">
               <li>The messages stay in this chat, and you can still read them.</li>
               <li>While you are in this chat, the conversation itself is still used.</li>
+              {ready.titleMentions && (
+                <li>This chat’s name mentions it too. The name stays on your screen, but it won’t be sent as memory.</li>
+              )}
               {ready.otherChats > 0 && (
                 <li>
                   “{ready.label}” stays in your {ready.otherChats.toLocaleString('en-US')} other{' '}
