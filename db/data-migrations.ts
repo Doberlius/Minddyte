@@ -3,6 +3,7 @@ import type { Db } from './index'
 import { chatPointers, dataMigrations, messages, sessions } from './schema'
 import { describeSkip, pointerRows } from '../src/lib/pointers'
 import { PROVISIONAL } from '../src/lib/provisional'
+import { reextractNodes } from '../src/services/reextract'
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0]
 
@@ -16,6 +17,7 @@ export type DataMigration = { name: string; run: (tx: Tx) => Promise<void> }
 export const DATA_MIGRATIONS: DataMigration[] = [
   { name: '0001_backfill_chat_pointers', run: backfillChatPointers },
   { name: '0002_split_long_passages', run: splitLongPassages },
+  { name: '0003_reextract_nodes', run: reextractNodes },
 ]
 
 /**

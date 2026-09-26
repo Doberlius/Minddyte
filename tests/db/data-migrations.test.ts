@@ -22,12 +22,12 @@ describe('runDataMigrations', () => {
     expect(await countRows('chat_pointers')).toBe(0)
 
     const db = await getDb()
-    expect(await runDataMigrations(db)).toEqual(['0001_backfill_chat_pointers', '0002_split_long_passages'])
+    expect(await runDataMigrations(db)).toEqual(['0001_backfill_chat_pointers', '0002_split_long_passages', '0003_reextract_nodes'])
     expect(await countRows('chat_pointers')).toBe(3)
 
     // Recorded, so a second boot does nothing.
     expect(await runDataMigrations(db)).toEqual([])
-    expect(await countRows('data_migrations')).toBe(2)
+    expect(await countRows('data_migrations')).toBe(3)
   })
 
   it('a step that throws records nothing, so it runs again next boot', async () => {
