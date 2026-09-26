@@ -952,8 +952,58 @@ input:focus-visible, textarea:focus-visible {
 /* The /forget picker. The same shell and row shape as @, on purpose, and red
    everywhere @ is violet or gray: one loads memory, the other destroys it
    (spec §5.1), and they open in the same place. */
-.picker.is-forget { border-color: var(--red-m); scroll-padding-top: 31px; }
-.picker.is-forget .picker-head { color: var(--red-dd); font-weight: 600; border-bottom-color: var(--red-l); }
+.picker.is-forget {
+  border-color: var(--red-m);
+  /* Taller than @: the search row takes a line, and a pasted essay can hold
+     fifty names. Still capped so the transcript above stays in view. */
+  max-height: min(340px, 52dvh);
+  /* Room for the sticky title and search row when a row scrolls into view. */
+  scroll-padding-top: 76px;
+}
+.picker.is-forget .picker-head {
+  display: flex; align-items: baseline; gap: 8px;
+  position: static;
+  color: var(--red-dd); font-weight: 600; border-bottom: none; padding-bottom: 2px;
+}
+/* The title and the search field stay put while the names scroll under them. */
+.forget-top {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--white); border-bottom: 1px solid var(--red-l);
+}
+.forget-tally {
+  margin-left: auto;
+  font-size: 10.5px; font-weight: 500; letter-spacing: 0; text-transform: none;
+  color: var(--ink3);
+}
+.forget-search {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 13px 9px;
+  color: var(--ink3); cursor: text;
+}
+.forget-search input {
+  flex: 1; min-width: 0;
+  border: none; outline: none; background: none; padding: 2px 0;
+  font: inherit; font-size: 13px; color: var(--ink);
+  caret-color: var(--red-d);
+}
+.forget-search input::placeholder { color: var(--ink3); }
+.forget-search input:focus, .forget-search input:focus-visible { outline: none; box-shadow: none; }
+/* The field always holds focus while the picker is open, so a focus ring
+   would be permanent noise; the caret and the icon warming to red say it. */
+.forget-search:focus-within { color: var(--red-d); }
+/* Esc clears the search; the browser's own clear button would be a second,
+   unthemed way to do the same thing. */
+.forget-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+/* A phone zooms into any field under 16px; this one is the whole point of
+   the panel, so it is sized not to. */
+@media (pointer: coarse) { .forget-search input { font-size: 16px; } }
+/* The typed letters inside a name: underlined, not filled, so the mark
+   survives the red wash of the highlighted row. */
+.forget-row mark {
+  background: none; color: inherit;
+  text-decoration: underline; text-decoration-color: var(--red-d);
+  text-decoration-thickness: 2px; text-underline-offset: 3px;
+}
 .forget-row { display: flex; gap: 10px; align-items: center; padding: 9px 13px; cursor: pointer; transition: background .1s; }
 .forget-row .t {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
