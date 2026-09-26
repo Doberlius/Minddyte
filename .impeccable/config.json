@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "fraunces",
+        "createdAt": "2026-09-26T09:23:45.215Z",
+        "reason": "user confirmed 2026-09-26: Fraunces is the intended heading font, used since the first stylesheet (2026-07-03), paired with DM Sans"
+      }
+    ]
+  }
+}
