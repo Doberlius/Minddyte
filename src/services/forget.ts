@@ -117,6 +117,20 @@ export async function forgetPreview(workspaceId: string, sessionId: string, key:
 }
 
 /**
+ * A ticked part is a word the name offers, but it may no longer be ticked:
+ * since the modal opened, it became its own concept of this chat (F14) or
+ * a word of another concept's name (F15), in another tab, say. Forgetting
+ * it now would silence that concept, so nothing is forgotten; the route
+ * answers 409 and the modal reads the chat again.
+ */
+export class PartsChangedError extends Error {
+  constructor() {
+    super('parts_changed')
+    this.name = 'PartsChangedError'
+  }
+}
+
+/**
  * Forget `key` in one chat (ticket 10), and the ticked `parts` of its name
  * (F9–F12). One transaction: record the concept and each accepted part in
  * `forgotten`, unlink the concept, move the headline if it was the
@@ -125,9 +139,10 @@ export async function forgetPreview(workspaceId: string, sessionId: string, key:
  * A part is accepted only if classifyParts calls it 'offer': a word the
  * name offers that is neither another concept of this chat (F14) nor a word
  * of another concept's name (F15). One forget never silences another
- * concept; that one is forgotten on its own. Anything else in the
- * request is ignored: the name and the chat, not the request, are the
- * authority. Messages and their pointers are untouched; retrieval hides the
+ * concept; that one is forgotten on its own. A word the name offers that
+ * is refused throws PartsChangedError, and the transaction changes nothing
+ * (final review, item 3). A word the name does not contain at all is
+ * ignored: the name and the chat, not the request, are the authority. Messages and their pointers are untouched; retrieval hides the
  * pointers at read time. Returns false when the chat does not hold `key`,
  * which includes a second forget of the same concept.
  */
@@ -142,12 +157,16 @@ export async function forgetConcept(workspaceId: string, sessionId: string, key:
       .where(linkedConcept(sessionId, workspaceId, key))
     if (!node) return false
 
-    const offered = new Map(
-      classifyParts(node.label, key, await linkedConcepts(tx, workspaceId, sessionId))
-        .filter((part) => part.kind === 'offer')
-        .map((part) => [part.word.toLowerCase(), part.word]),
+    const classified = new Map(
+      classifyParts(node.label, key, await linkedConcepts(tx, workspaceId, sessionId)).map((part) => [
+        part.word.toLowerCase(),
+        part,
+      ]),
     )
-    const words = [...new Set(parts.map((p) => offered.get(p.toLowerCase())).filter((w): w is string => Boolean(w)))]
+    const asked = parts.map((p) => classified.get(p.toLowerCase())).filter((part) => part !== undefined)
+    // Thrown inside the transaction, so it rolls back: nothing has been written yet anyway.
+    if (asked.some((part) => part.kind !== 'offer')) throw new PartsChangedError()
+    const words = [...new Set(asked.map((part) => part.word))]
 
     await tx
       .insert(forgotten)

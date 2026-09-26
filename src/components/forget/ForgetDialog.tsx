@@ -24,8 +24,11 @@ import { ForgetParts, canPick } from './ForgetParts'
  *   2. Show it. Only the first three sentences at first; "and N more" opens
  *      the rest. If some sentences say only part of the name ("Jobs" for
  *      "Steve Jobs"), offer those words too, unticked (ForgetParts.tsx).
- *   3. Forget sends a POST, with the words the person ticked. Success tells the opener (`onForgotten`) and
- *      closes; a failure keeps the dialog open so the person can try again.
+ *   3. Forget sends a POST, with the words the person ticked. Success
+ *      tells the opener (`onForgotten`) and closes; a failure keeps the
+ *      dialog open so the person can try again. A 409 means a ticked word
+ *      may no longer be ticked: the list is read again, with no boxes
+ *      ticked, and the dialog says the chat changed.
  */
 
 /** How many sentences show before "and N more". */
@@ -54,6 +57,10 @@ export function ForgetDialog({
   const [expanded, setExpanded] = useState(false)
   const [forgetting, setForgetting] = useState(false)
   const [failed, setFailed] = useState(false)
+  /** A ticked part could no longer be ticked (a 409), so the list was read again. */
+  const [changed, setChanged] = useState(false)
+  /** Bumped to read the preview again, after a 409. */
+  const [reads, setReads] = useState(0)
   /** The parts of the name the person ticked to forget as well. None at first. */
   const [picked, setPicked] = useState<string[]>([])
   const card = useRef<HTMLDivElement>(null)
@@ -85,7 +92,9 @@ export function ForgetDialog({
   }, [])
 
   // Step 1: ask what forgetting would hide. The AbortController stops a slow
-  // answer from updating a dialog that has already been closed.
+  // answer from updating a dialog that has already been closed. `reads`
+  // makes it ask again after a 409; the old list stays on screen until the
+  // new one arrives.
   useEffect(() => {
     const abort = new AbortController()
     fetch(`${path}?key=${encodeURIComponent(conceptKey)}`, { signal: abort.signal })
@@ -109,7 +118,7 @@ export function ForgetDialog({
         if (!abort.signal.aborted) setState({ kind: 'broken' })
       })
     return () => abort.abort()
-  }, [path, conceptKey])
+  }, [path, conceptKey, reads])
 
   // When a Forget request ends without closing the dialog (it failed, or the
   // concept was already gone), put focus on Cancel/Close. This has to wait
@@ -150,6 +159,7 @@ export function ForgetDialog({
       .map((part) => part.word)
     setForgetting(true)
     setFailed(false)
+    setChanged(false)
     try {
       const res = await fetch(path, {
         method: 'POST',
@@ -169,6 +179,14 @@ export function ForgetDialog({
       if (res.status === 404) {
         setState({ kind: 'gone' })
         onForgotten()
+      } else if (res.status === 409) {
+        // A ticked word became a concept, or a word of one, since this
+        // opened (in another tab, say). Nothing was forgotten. Read the list
+        // again, with every box empty, so the person decides on what is
+        // true now. Focus goes to Cancel, as after any failed Forget.
+        setPicked([])
+        setChanged(true)
+        setReads((n) => n + 1)
       } else setFailed(true)
     } catch {
       setFailed(true)
@@ -297,6 +315,12 @@ export function ForgetDialog({
                 </li>
               )}
             </ul>
+
+            {changed && (
+              <p className="forget-status forget-failed" role="status">
+                This chat changed while this was open. Check the list again.
+              </p>
+            )}
 
             {failed && (
               <p className="composer-failed forget-failed" role="alert">

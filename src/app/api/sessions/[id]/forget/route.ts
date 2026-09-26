@@ -1,4 +1,4 @@
-import { forgetConcept, forgetPreview } from "@/services/forget"
+import { PartsChangedError, forgetConcept, forgetPreview } from "@/services/forget"
 import { requireWorkspace } from "@/server/workspace"
 import { isUuidV4 } from "@/lib/workspace"
 
@@ -18,7 +18,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   return preview ? Response.json(preview) : NOT_FOUND()
 }
 
-/** Forget `{ key, parts? }` in this chat. 404 when the chat does not hold it (Q12: there is no undo). */
+/**
+ * Forget `{ key, parts? }` in this chat. 404 when the chat does not hold it
+ * (Q12: there is no undo). 409 `parts_changed` when a ticked part may no
+ * longer be ticked (it became a concept, or a word of one, since the modal
+ * opened); nothing was forgotten, and the modal reads the chat again.
+ */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   if (!isUuidV4(id)) return NOT_FOUND()
@@ -42,6 +47,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   ) {
     return Response.json({ error: "parts must be a list of words" }, { status: 400 })
   }
-  const ok = await forgetConcept(await requireWorkspace(), id, key, (parts as string[] | undefined) ?? [])
-  return ok ? new Response(null, { status: 204 }) : NOT_FOUND()
+  try {
+    const ok = await forgetConcept(await requireWorkspace(), id, key, (parts as string[] | undefined) ?? [])
+    return ok ? new Response(null, { status: 204 }) : NOT_FOUND()
+  } catch (error) {
+    if (error instanceof PartsChangedError) return Response.json({ error: "parts_changed" }, { status: 409 })
+    throw error
+  }
 }

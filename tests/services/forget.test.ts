@@ -4,7 +4,7 @@ import { getDb, nodes, sessions, sessionNodes, forgotten } from '../../db'
 import { countRows, truncateAll } from '../helpers/pglite'
 import { createChat } from '@/services/dbApi'
 import { ingestUserMessage, persistMessage } from '@/services/graph'
-import { forgetConcept, forgetPreview } from '@/services/forget'
+import { PartsChangedError, forgetConcept, forgetPreview } from '@/services/forget'
 import { newWorkspaceId } from '@/lib/workspace'
 
 beforeEach(truncateAll)
@@ -260,15 +260,14 @@ describe('parts of a name (ticket 10, F9–F12)', () => {
     const p = await forgetPreview(WS, a, 'kafkapartitions')
     expect(p?.parts).toEqual([{ word: 'Kafka', total: 1, sentences: ['Kafka is fast.'], alsoConcept: true, partOf: [] }])
 
-    // Even a request that sends it anyway.
-    await forgetConcept(WS, a, 'kafkapartitions', ['Kafka'])
+    // Even a request that sends it anyway: refused, and nothing changes (final review, item 3).
+    const headline = await headlineKey(a)
+    await expect(forgetConcept(WS, a, 'kafkapartitions', ['Kafka'])).rejects.toBeInstanceOf(PartsChangedError)
 
-    expect(await keysOf(a)).toEqual(['kafka'])
+    expect(await keysOf(a)).toEqual(['kafka', 'kafkapartitions'])
     expect((await node('kafka'))?.chatCount).toBe(1)
-    expect(await headlineKey(a)).toBe('kafka')
-    const db = await getDb()
-    const rows = await db.select({ label: forgotten.nodeLabel }).from(forgotten).where(eq(forgotten.sessionId, a))
-    expect(rows.map((r) => r.label)).toEqual(['Kafka partitions'])
+    expect(await headlineKey(a)).toBe(headline)
+    expect(await countRows('forgotten')).toBe(0)
   })
 
   // Final review, item 1, F15: a ticked "Steve" would hide every "Steve Wozniak" sentence.
@@ -289,12 +288,36 @@ describe('parts of a name (ticket 10, F9–F12)', () => {
       { word: 'Jobs', total: 1, sentences: ['Jobs sold it.'], alsoConcept: false, partOf: [] },
     ])
 
-    await forgetConcept(WS, a, 'stevejobs', ['Steve', 'Jobs'])
+    // A request that ticks it anyway is refused whole: nothing is forgotten.
+    await expect(forgetConcept(WS, a, 'stevejobs', ['Steve', 'Jobs'])).rejects.toBeInstanceOf(PartsChangedError)
+    expect(await countRows('forgotten')).toBe(0)
+    expect(await keysOf(a)).toEqual(['apple', 'stevejobs', 'stevewozniak'])
 
+    // Without it, the rest goes through.
+    expect(await forgetConcept(WS, a, 'stevejobs', ['Jobs'])).toBe(true)
     const db = await getDb()
     const rows = await db.select({ label: forgotten.nodeLabel }).from(forgotten).where(eq(forgotten.sessionId, a))
     expect(rows.map((r) => r.label).sort()).toEqual(['Jobs', 'Steve Jobs'])
     expect(await keysOf(a)).toEqual(['apple', 'stevewozniak'])
+  })
+
+  // Final review, item 3: "Jobs" became a concept (in another tab, say)
+  // after the modal offered it. The ticked request must change nothing.
+  it('a part refused after the preview offered it changes nothing', async () => {
+    const a = (await createChat(WS)).id
+    await say(a, 'Tell me about Steve Jobs.', 'Steve Jobs founded Apple. Jobs’s vision shaped it. Tim Cook followed him.')
+    expect((await forgetPreview(WS, a, 'stevejobs'))?.parts.map((x) => x.word)).toEqual(['Jobs'])
+    const db = await getDb()
+    const [jobs] = await db.insert(nodes).values({ workspaceId: WS, label: 'Jobs', canonicalKey: 'jobs', chatCount: 1 }).returning({ id: nodes.id })
+    await db.insert(sessionNodes).values({ sessionId: a, nodeId: jobs.id })
+    const headline = await headlineKey(a)
+
+    await expect(forgetConcept(WS, a, 'stevejobs', ['jobs'])).rejects.toBeInstanceOf(PartsChangedError)
+
+    expect(await countRows('forgotten')).toBe(0)
+    expect(await keysOf(a)).toEqual(['jobs', 'stevejobs'])
+    expect((await node('stevejobs'))?.chatCount).toBe(1)
+    expect(await headlineKey(a)).toBe(headline)
   })
 
   it('names every other concept a part is a word of', async () => {

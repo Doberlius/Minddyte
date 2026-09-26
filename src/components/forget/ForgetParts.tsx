@@ -33,7 +33,8 @@ export function canPick(part: ForgetPart): boolean {
 /** “A”, “A” and “B”, “A”, “B” and “C”. */
 function quotedList(labels: string[]): string {
   const quoted = labels.map((label) => `“${label}”`)
-  return quoted.length < 2 ? quoted.join('') : `${quoted.slice(0, -1).join(', ')} and ${quoted[quoted.length - 1]}`
+  if (quoted.length < 2) return quoted.join('')
+  return `${quoted.slice(0, -1).join(', ')} and ${quoted[quoted.length - 1]}`
 }
 
 export function ForgetParts({

@@ -65,7 +65,10 @@ export function classifyParts(
   // An empty key (a word with no a–z or 0–9, such as "数据") says nothing
   // about which concept it is, so it never counts as a match.
   const otherKeys = new Set(others.map((c) => c.key).filter(Boolean))
-  const otherWords = others.map((c) => ({ label: c.label, words: new Set(wordsOf(c.label).map((w) => w.toLowerCase())) }))
+  const otherWords = others.map((c) => ({
+    label: c.label,
+    words: new Set(wordsOf(c.label).map((w) => w.toLowerCase())),
+  }))
 
   return labelParts(label).map((word) => {
     const key = canonicalKey(word)
