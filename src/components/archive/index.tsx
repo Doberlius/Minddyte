@@ -19,10 +19,16 @@ import { ForgetDialog } from '@/components/forget/ForgetDialog'
 export function MemoryArchives({
   activeChatId,
   onOpenChat,
+  onChatsChanged,
 }: {
   activeChatId: string | null
   /** Open a conversation from its card. Without it the card is a dead end. */
   onOpenChat?: (id: string) => void
+  /**
+   * Ask for the chat list again. Forgetting changes a chat's concept count,
+   * which the sidebar shows, as the `/forget` path in chat already does.
+   */
+  onChatsChanged: () => void
 }) {
   const { graph, loading, error, reload } = useGraph()
   /**
@@ -120,6 +126,7 @@ export function MemoryArchives({
           onForgotten={() => {
             refocus.current = { chatId: forgetting.chatId, graph }
             reload()
+            onChatsChanged()
           }}
           onClose={() => setForgetting(null)}
         />

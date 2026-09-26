@@ -262,6 +262,7 @@ export default function Page() {
         {tab === 'archive' && (
           <MemoryArchives
             activeChatId={activeId}
+            onChatsChanged={refreshChats}
             onOpenChat={(id) => {
               openChat(id)
               setTab('chat')
