@@ -395,48 +395,50 @@ input:focus-visible, textarea:focus-visible {
   background: var(--violet); width: 16px; border-radius: 999px;
 }
 
-.demo-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 11.5px; padding: 4px 10px; border-radius: 999px;
-  border: 1px solid var(--border); color: var(--ink2); background: var(--white);
+/* ── Archive concept tags ─────────────────────────────────────
+   What a chat is ABOUT, so they sit under the title and do not compete with
+   it: neutral fill, no border, no pill, one weight lighter than the title.
+   Shared is a small violet dot, never a filled chip. A pasted essay makes
+   most of its concepts shared, and filling them turned the card into a
+   violet wall. */
+.arc-tags {
+  display: flex; flex-wrap: wrap; gap: 5px;
+  margin: 0; padding: 0; list-style: none;
 }
-.demo-chip.is-shared {
-  background: var(--violet); border-color: var(--violet); color: #fff; font-weight: 600;
+.arc-tag {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
+  padding: 3px 2px 3px 8px; border-radius: 6px;
+  background: var(--border2); color: var(--ink2);
+  font-size: 12px; line-height: 1.45;
+  transition: background .12s, color .12s;
 }
-/* The count inside a shared chip. */
-.demo-chip b {
-  font-variant-numeric: tabular-nums; font-weight: 600;
-  background: rgba(255,255,255,.26); border-radius: 999px;
-  padding: 0 5px; margin-right: -3px;
-}
+/* Without a forget button the tag keeps even padding on both sides. */
+.arc-tag:not(:has(.arc-tag-x)) { padding-right: 8px; }
+.arc-tag-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arc-tag-dot { flex-shrink: 0; width: 5px; height: 5px; border-radius: 50%; background: var(--violet); }
+.arc-tag:hover, .arc-tag:focus-within { background: var(--border); color: var(--ink); }
 
-/* The × that forgets a concept from its chip (Archive only; ticket 10, Q3).
-   Its space is always there, so the chip is the same size whether or not
-   anything is hovered: nothing jumps when the pointer arrives. The negative
-   margins tuck it into the chip's own right padding and keep it from making
-   the chip taller. It takes the chip's text colour (gray on white, white on
-   violet), quiet until the card is hovered, and turns red only under the
-   pointer or keyboard focus: red is the forget colour, and the dialog it
-   opens ends in the same red button. */
-.chip-x {
+/* The × that forgets a concept (ticket 10, Q3). Its space is always kept, so
+   the tag is the same size whether or not it shows: nothing moves when the
+   pointer arrives. Hidden until its own tag is hovered or focused, so a card
+   of fifty concepts is not fifty red-adjacent crosses; red only under the
+   pointer or keyboard focus, the colour of the dialog it opens. */
+.arc-tag-x {
   position: relative;
   display: grid; place-items: center; flex-shrink: 0;
-  width: 16px; height: 16px; padding: 0;
-  margin: -2px -5px -2px -1px;
-  border: none; border-radius: 50%;
-  background: none; color: inherit; cursor: pointer;
-  opacity: .7; transition: opacity .12s, background .12s, color .12s;
+  width: 14px; height: 16px; padding: 0;
+  border: none; border-radius: 4px;
+  background: none; color: var(--ink3); cursor: pointer;
+  opacity: 0; transition: opacity .12s, background .12s, color .12s;
 }
-/* The drawn circle is 16px; the part that answers a click or tap is 24px. */
-.chip-x::after { content: ''; position: absolute; inset: -4px; border-radius: 50%; }
-.arc-card:hover .chip-x, .arc-card:focus-within .chip-x { opacity: 1; }
-.chip-x:hover, .chip-x:focus-visible {
-  opacity: 1; background: var(--red-d); color: #fff;
-}
-.chip-x:focus-visible { outline-color: var(--red-d); outline-offset: 1px; }
-/* The shared count is followed by the ×, so it gives up the pull it has when
-   it is the last thing in the chip. */
-.demo-chip b:not(:last-child) { margin-right: 0; }
+/* The drawn button is 14×16px; the part that answers a click or tap is 24px. */
+.arc-tag-x::after { content: ''; position: absolute; inset: -4px -5px; }
+.arc-tag:hover .arc-tag-x, .arc-tag:focus-within .arc-tag-x { opacity: 1; }
+.arc-tag-x:hover, .arc-tag-x:focus-visible { background: var(--red-d); color: #fff; }
+.arc-tag-x:focus-visible { outline: 2px solid var(--red-d); outline-offset: 1px; }
+/* No hover on a touch screen, so the × would never appear: there it stays
+   visible, faint, until pressed. */
+@media (hover: none) { .arc-tag-x { opacity: .55; } }
 
 /* The composer — shared, not demo-only: the app's chat box is the same box,
    which is the whole reason the demo is worth showing. Named for what it is
@@ -1117,14 +1119,25 @@ input:focus-visible, textarea:focus-visible {
 .arc-title:hover { color: var(--violet); }
 .arc-title:hover svg { opacity: 1; }
 
+/* "Open now": a marker, not a badge. A dot and small text, so it does not
+   out-shout the title it sits beside. */
 .arc-mine {
-  flex-shrink: 0; margin-top: 3px;
-  font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
-  padding: 2px 7px; border-radius: 999px;
-  background: var(--violet-l); color: var(--violet);
+  flex-shrink: 0; margin-top: 4px;
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 500; color: var(--violet-d); white-space: nowrap;
 }
+.arc-mine::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--violet); }
 
-.arc-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 13px; }
+.arc-concepts { margin-bottom: 13px; }
+/* "Show all 53": text, not another chip, so it cannot be mistaken for one. */
+.arc-more {
+  margin-top: 7px; padding: 2px 0;
+  border: none; background: none; cursor: pointer;
+  font: inherit; font-size: 11.5px; font-weight: 500; color: var(--ink3);
+  text-decoration: underline; text-decoration-color: var(--line-quiet); text-underline-offset: 3px;
+  transition: color .12s, text-decoration-color .12s;
+}
+.arc-more:hover { color: var(--violet-d); text-decoration-color: currentColor; }
 
 .arc-none { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--ink3); }
 

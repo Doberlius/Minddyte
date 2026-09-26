@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { ArrowUpRight, X } from 'lucide-react'
 import type { ViewGraph, GraphChat } from '@/types/graph'
 
@@ -18,11 +19,21 @@ import type { ViewGraph, GraphChat } from '@/types/graph'
  * conversation it came from is the obvious next move, and there was nowhere
  * to go — so a card's title opens it.
  *
- * Each concept chip can also carry a small × (ticket 10, Q3). It opens the
+ * Each concept tag can also carry a small × (ticket 10, Q3). It opens the
  * forget confirmation for that concept in that card's chat. It only appears
  * when the page passes `onForget`, so a view that cannot forget (or does not
- * want to) gets plain chips, exactly as before.
+ * want to) gets plain tags.
+ *
+ * Concepts are quiet on purpose: they are what a chat is ABOUT, not what the
+ * card is for. Neutral tags, the first eight, "Show all" for the rest.
  */
+
+/**
+ * How many concepts a card shows before "Show all". A chat built from a
+ * pasted essay holds fifty; listing every one made that card the whole page,
+ * and the rest of the Archive an afterthought beneath it.
+ */
+const CONCEPTS_SHOWN = 8
 
 function Card({
   chat,
@@ -39,12 +50,15 @@ function Card({
   onOpen?: (id: string) => void
   onForget?: (chatId: string, key: string) => void
 }) {
+  const [showAll, setShowAll] = useState(false)
   const concepts = graph.nodes.filter((n) => n.chatIds.includes(chat.id))
+  const shown = showAll ? concepts : concepts.slice(0, CONCEPTS_SHOWN)
   // deriveTitle caps at 60 characters and can land mid-clause; without the
   // ellipsis the card reads as a rendering bug rather than a derived title.
   const truncated = chat.titleTruncated
 
   const title = truncated ? `${chat.title}…` : chat.title
+  const tagsId = `arc-tags-${chat.id}`
 
   return (
     <article
@@ -70,35 +84,51 @@ function Card({
       </header>
 
       {concepts.length > 0 && (
-        <div className="arc-chips">
-          {concepts.map((n) => (
-            <span
-              key={n.key}
-              className={`demo-chip${n.chatIds.length > 1 ? ' is-shared' : ''}`}
-              title={
-                n.chatIds.length > 1
-                  ? `Also in ${n.chatIds.length - 1} other conversation${n.chatIds.length > 2 ? 's' : ''}`
-                  : 'Only this conversation mentions it'
-              }
-            >
-              {n.label}
-              {n.chatIds.length > 1 && <b>{n.chatIds.length}</b>}
-              {/* A real button, so Tab reaches it and Enter/Space press it.
-                  It sits inside the chip, not inside the title button, so
-                  one button is never nested in another. */}
-              {onForget && (
-                <button
-                  type="button"
-                  className="chip-x"
-                  aria-label={`Forget “${n.label}” in this chat`}
-                  title={`Forget “${n.label}” in this chat`}
-                  onClick={() => onForget(chat.id, n.key)}
+        <div className="arc-concepts">
+          <ul className="arc-tags" id={tagsId} aria-label="Concepts in this chat">
+            {shown.map((n) => {
+              const others = n.chatIds.length - 1
+              const sharedNote = `Also in ${others} other conversation${others === 1 ? '' : 's'}`
+              return (
+                <li
+                  key={n.key}
+                  className={`arc-tag${others > 0 ? ' is-shared' : ''}`}
+                  title={others > 0 ? sharedNote : 'Only this conversation mentions it'}
                 >
-                  <X size={10} strokeWidth={2.5} aria-hidden="true" />
-                </button>
-              )}
-            </span>
-          ))}
+                  {/* Shared is a quiet dot, not a filled pill: in a chat where
+                      most concepts are shared, filling them turned the whole
+                      card into a violet wall. The header counts them. */}
+                  {others > 0 && <span className="arc-tag-dot" aria-hidden="true" />}
+                  <span className="arc-tag-name">{n.label}</span>
+                  {others > 0 && <span className="sr-only">, {sharedNote.toLowerCase()}</span>}
+                  {/* A real button, so Tab reaches it and Enter/Space press it.
+                      Its space is always kept, so nothing moves when it shows. */}
+                  {onForget && (
+                    <button
+                      type="button"
+                      className="arc-tag-x"
+                      aria-label={`Forget “${n.label}” in this chat`}
+                      title={`Forget “${n.label}” in this chat`}
+                      onClick={() => onForget(chat.id, n.key)}
+                    >
+                      <X size={10} strokeWidth={2.5} aria-hidden="true" />
+                    </button>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+          {concepts.length > CONCEPTS_SHOWN && (
+            <button
+              type="button"
+              className="arc-more"
+              aria-expanded={showAll}
+              aria-controls={tagsId}
+              onClick={() => setShowAll((v) => !v)}
+            >
+              {showAll ? 'Show fewer' : `Show all ${concepts.length}`}
+            </button>
+          )}
         </div>
       )}
 

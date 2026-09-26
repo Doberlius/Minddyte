@@ -110,7 +110,7 @@ export function MemoryArchives({
       <ArchiveView
         graph={graph}
         highlight={activeChatId ? [activeChatId] : []}
-        highlightLabel="the chat you have open"
+        highlightLabel="Open now"
         onOpen={onOpenChat}
         onForget={(chatId, key) => setForgetting({ chatId, key })}
       />
