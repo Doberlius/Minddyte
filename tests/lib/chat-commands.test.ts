@@ -29,6 +29,7 @@ describe('the one list of working commands', () => {
     const entry = exactCommand('/forget')
     expect(entry?.action).toEqual({ kind: 'forget' })
     expect(entry?.what).toMatch(/messages stay/i)
+    expect(entry?.what).toMatch(/conversation itself is still used/i)
     expect(matchCommands('forg').map((e) => e.label)).toEqual(['/forget'])
   })
 })

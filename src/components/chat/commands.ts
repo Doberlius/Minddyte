@@ -35,7 +35,7 @@ export const HELP_ENTRIES: HelpEntry[] = [
   },
   {
     name: 'forget', label: '/forget',
-    what: 'Stop a concept in this chat from being used as memory. The messages stay, and you can still read them.',
+    what: 'Stop a concept in this chat from being used as memory. The messages stay, and you can still read them. While you are in this chat, the conversation itself is still used.',
     example: '/forget, then pick Kafka',
     action: { kind: 'forget' },
   },
