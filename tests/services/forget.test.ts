@@ -142,6 +142,7 @@ describe('forgetPreview', () => {
       sentences: ['We run Kafka and PostgreSQL in production.', "KAFKA's partitions carry the events."],
       otherChats: 0,
       titleMentions: true,
+      parts: [],
     })
   })
 
@@ -214,5 +215,59 @@ describe('after forgetting', () => {
 
     expect(await keysOf(b)).toEqual(['kafka'])
     expect((await node('kafka'))?.chatCount).toBe(1)
+  })
+})
+
+describe('parts of a name (ticket 10, F9–F12)', () => {
+  it('offers a part that some sentences mention on their own, and not one they never do', async () => {
+    const a = (await createChat(WS)).id
+    await say(a, 'Tell me about Steve Jobs.', 'Steve Jobs founded Apple. Jobs’s vision shaped it. Tim Cook followed him.')
+
+    const p = await forgetPreview(WS, a, 'stevejobs')
+
+    expect(p?.total).toBe(2)
+    // Review Focus 4: "Steve" appears only inside "Steve Jobs", so it is not offered.
+    expect(p?.parts).toEqual([{ word: 'Jobs', total: 1, sentences: ['Jobs’s vision shaped it.'], alsoConcept: false }])
+  })
+
+  it('forgets the ticked parts in that chat, and nothing else', async () => {
+    const a = (await createChat(WS)).id
+    await say(a, 'Tell me about Steve Jobs.', 'Steve Jobs founded Apple. Jobs’s vision shaped it. Tim Cook followed him.')
+
+    expect(await forgetConcept(WS, a, 'stevejobs', ['jobs'])).toBe(true)
+
+    const db = await getDb()
+    const rows = await db.select({ label: forgotten.nodeLabel }).from(forgotten).where(eq(forgotten.sessionId, a))
+    expect(rows.map((r) => r.label).sort()).toEqual(['Jobs', 'Steve Jobs'])
+  })
+
+  // Review Focus 2.
+  it('ignores parts the name does not contain', async () => {
+    const a = (await createChat(WS)).id
+    await say(a, 'Tell me about Steve Jobs.', 'Steve Jobs founded Apple.')
+
+    await forgetConcept(WS, a, 'stevejobs', ['Apple', 'nonsense'])
+
+    expect(await countRows('forgotten')).toBe(1)
+  })
+
+  // Review Focus 1, F14: one forget never removes another concept.
+  it('a part that is its own concept is flagged, and never forgotten through this concept', async () => {
+    const a = (await createChat(WS)).id
+    await say(a, 'Kafka partitions keep order, and we run Kafka in production.', 'Kafka is fast.')
+    expect(await keysOf(a)).toEqual(['kafka', 'kafkapartitions'])
+
+    const p = await forgetPreview(WS, a, 'kafkapartitions')
+    expect(p?.parts).toEqual([{ word: 'Kafka', total: 1, sentences: ['Kafka is fast.'], alsoConcept: true }])
+
+    // Even a request that sends it anyway.
+    await forgetConcept(WS, a, 'kafkapartitions', ['Kafka'])
+
+    expect(await keysOf(a)).toEqual(['kafka'])
+    expect((await node('kafka'))?.chatCount).toBe(1)
+    expect(await headlineKey(a)).toBe('kafka')
+    const db = await getDb()
+    const rows = await db.select({ label: forgotten.nodeLabel }).from(forgotten).where(eq(forgotten.sessionId, a))
+    expect(rows.map((r) => r.label)).toEqual(['Kafka partitions'])
   })
 })

@@ -157,3 +157,17 @@ describe('a title that mentions a forgotten concept (ticket 10, F2/F4/F5)', () =
     expect((await ask(b, 'what about it?', [a])).chats.map((x) => x.title)).toEqual(['Tell me about Kafka'])
   })
 })
+
+describe('a ticked part of a name', () => {
+  it('hides the sentences that mention only that part', async () => {
+    const a = await newChat('A')
+    await turn(a, 'Tell me about Steve Jobs.', 'Steve Jobs founded Apple. Jobs’s vision shaped it. Tim Cook followed him.')
+    const b = await newChat('B')
+    await forgetConcept(WS, a, 'stevejobs', ['Jobs'])
+
+    const r = await ask(b, 'what did we say?', [a])
+
+    expect(text(r)).toContain('Tim Cook followed him.')
+    expect(text(r)).not.toMatch(/jobs/i)
+  })
+})

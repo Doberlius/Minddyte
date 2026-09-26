@@ -18,7 +18,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   return preview ? Response.json(preview) : NOT_FOUND()
 }
 
-/** Forget `{ key }` in this chat. 404 when the chat does not hold it (Q12: there is no undo). */
+/** Forget `{ key, parts? }` in this chat. 404 when the chat does not hold it (Q12: there is no undo). */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   if (!isUuidV4(id)) return NOT_FOUND()
@@ -32,5 +32,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // parses fine, and reading `.key` off null would throw and answer 500.
   const key = typeof body === "object" && body !== null ? (body as { key?: unknown }).key : undefined
   if (typeof key !== "string" || !key) return Response.json({ error: "a key is required" }, { status: 400 })
-  return (await forgetConcept(await requireWorkspace(), id, key)) ? new Response(null, { status: 204 }) : NOT_FOUND()
+  // Ticket 10, F9–F12: the ticked parts of the name. Optional; a list of at
+  // most 20 words of at most 100 characters. Words the name does not contain
+  // are ignored by forgetConcept.
+  const parts = typeof body === "object" && body !== null ? (body as { parts?: unknown }).parts : undefined
+  if (
+    parts !== undefined &&
+    !(Array.isArray(parts) && parts.length <= 20 && parts.every((p) => typeof p === "string" && p.length <= 100))
+  ) {
+    return Response.json({ error: "parts must be a list of words" }, { status: 400 })
+  }
+  const ok = await forgetConcept(await requireWorkspace(), id, key, (parts as string[] | undefined) ?? [])
+  return ok ? new Response(null, { status: 204 }) : NOT_FOUND()
 }
