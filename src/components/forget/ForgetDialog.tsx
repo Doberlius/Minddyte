@@ -82,6 +82,18 @@ export function ForgetDialog({
     return () => abort.abort()
   }, [path, conceptKey])
 
+  // When a Forget request ends without closing the dialog (it failed, or the
+  // concept was already gone), put focus on Cancel/Close. This has to wait
+  // for React to draw the new state: until then Cancel is still disabled, so
+  // focusing it does nothing, and in the "gone" case the Forget button that
+  // holds focus is about to be removed, which would drop focus to the page
+  // (where Escape and the Tab trap no longer reach this dialog).
+  const wasForgetting = useRef(false)
+  useEffect(() => {
+    if (wasForgetting.current && !forgetting) cancel.current?.focus()
+    wasForgetting.current = forgetting
+  }, [forgetting])
+
   // After "and N more" opens the whole list, move focus onto it so the
   // keyboard can scroll it (the button that had focus is gone).
   useEffect(() => {
@@ -122,7 +134,6 @@ export function ForgetDialog({
       setFailed(true)
     }
     setForgetting(false)
-    cancel.current?.focus()
   }
 
   function onKeyDown(event: React.KeyboardEvent) {
