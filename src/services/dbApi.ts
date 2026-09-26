@@ -2,6 +2,7 @@ import { getDb, sessions, messages, nodes, sessionNodes, chatPointers } from "..
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import type { GraphNode, ViewGraph } from "@/types/graph"
 import { recountNodes } from "./links"
+import { notForgottenSql } from "@/lib/mentions"
 
 /**
  * The whole graph, shaped for the Brain and the Archive.
@@ -68,7 +69,7 @@ export async function loadGraph(workspaceId: string): Promise<ViewGraph> {
   const passages = await db
     .select({ sessionId: chatPointers.sessionId, n: sql<number>`count(*)`.mapWith(Number) })
     .from(chatPointers)
-    .where(eq(chatPointers.workspaceId, workspaceId))
+    .where(and(eq(chatPointers.workspaceId, workspaceId), notForgottenSql(chatPointers.sessionId, chatPointers.matchText)))
     .groupBy(chatPointers.sessionId)
   const passageCounts = new Map(passages.map((p) => [p.sessionId, p.n]))
 

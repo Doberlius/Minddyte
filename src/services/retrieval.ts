@@ -7,6 +7,7 @@ import { selectWindows, type ScoredPointer, type Excerpt } from "@/lib/windows"
 import { sentLength } from "@/lib/prompt"
 import { PROVISIONAL } from "@/lib/provisional"
 import { queryText, strongPhrases } from "@/lib/tokens"
+import { notForgottenSql } from "@/lib/mentions"
 
 /** Spec §6.2 — a QUALITY limit, not a capacity one. */
 export const CONTEXT_CHAR_BUDGET = 2000 * 4 // ~2000 tokens
@@ -126,6 +127,8 @@ export async function scoredPointers(
   // Rank inside Postgres and read text back only for the picked passages and
   // their neighbours. Loading every passage (with text cut from its message)
   // into the app took 7.6 s for a 4,662-passage chat and blocked every visitor.
+  // Ticket 10, Q9: forgotten sentences are hidden here, at read time, and in
+  // every other read of chat_pointers (wholeChats, textHits). The rows stay.
   const res = (await db.execute(sql`
     with scored0 as (
       select ${chatPointers.sessionId} as session_id, ${chatPointers.messageId} as message_id,
@@ -133,6 +136,7 @@ export async function scoredPointers(
              ${score} as score
         from ${chatPointers} join ${messages} on ${messages.id} = ${chatPointers.messageId}
        where ${chatPointers.workspaceId} = ${workspaceId} and ${chatPointers.sessionId} in (${ids})
+         and ${notForgottenSql(chatPointers.sessionId, chatPointers.matchText)}
     ), picked as (
       select * from (
         select *, row_number() over (partition by session_id
@@ -151,6 +155,7 @@ export async function scoredPointers(
       join chat_pointers p2 on p2.message_id = w.message_id and p2.ordinal = w.ordinal and p2.workspace_id = ${workspaceId}
       join messages m on m.id = p2.message_id
       left join picked pk on pk.message_id = w.message_id and pk.ordinal = w.ordinal
+      where ${notForgottenSql(sql`p2.session_id`, sql`p2.match_text`)}
   `)) as unknown as { rows: { chatId: string; messageId: string; ordinal: number; createdMs: number | string; text: string; score: number | string }[] }
 
   for (const r of res.rows) {
@@ -192,7 +197,13 @@ async function wholeChats(workspaceId: string, ids: string[]): Promise<Map<strin
     })
     .from(chatPointers)
     .innerJoin(messages, eq(messages.id, chatPointers.messageId))
-    .where(and(eq(chatPointers.workspaceId, workspaceId), inArray(chatPointers.sessionId, ids)))
+    .where(
+      and(
+        eq(chatPointers.workspaceId, workspaceId),
+        inArray(chatPointers.sessionId, ids),
+        notForgottenSql(chatPointers.sessionId, chatPointers.matchText),
+      ),
+    )
   for (const r of rows) {
     const list = out.get(r.chatId) ?? []
     list.push({ messageId: r.messageId, messageCreatedAt: r.createdMs, ordinal: r.ordinal, text: r.text, score: 0 })
@@ -280,6 +291,7 @@ async function textHits(workspaceId: string, sessionId: string, draft: string): 
           eq(sessions.workspaceId, workspaceId),
           ne(chatPointers.sessionId, sessionId),
           sql`(${draft} <% ${chatPointers.matchText} or ${phraseMatch})`,
+          notForgottenSql(chatPointers.sessionId, chatPointers.matchText),
         ),
       )
       .groupBy(sessions.id, sessions.title, sessions.createdAt, sessions.updatedAt)
