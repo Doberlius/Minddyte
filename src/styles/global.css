@@ -700,6 +700,81 @@ input:focus-visible, textarea:focus-visible {
   .core, .core-confirm { animation: none; }
 }
 
+/* ─────────────────────────────────────────────────────────────
+   Forget: the confirmation.
+
+   The one act in the product that cannot be taken back, asked on the
+   "About you" card (.core) rather than a new one. Red here means exactly
+   that act, and only the Forget button and its "No undo" wear it; violet
+   stays with @. The sentences sit on the page's own tint, like the About
+   you box, so they read as quoted paper inside the card.
+   ───────────────────────────────────────────────────────────── */
+.forget { width: min(500px, 100%); }
+.forget h2 { max-width: 30ch; overflow-wrap: anywhere; }
+.forget .core-what { margin-bottom: 10px; }
+
+/* Before the title exists: waiting, or nothing left to forget. */
+.forget-status { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--ink2); }
+.forget-status.is-final { color: var(--ink); font-weight: 600; }
+
+.forget-quotes {
+  list-style: none; margin: 0; padding: 0;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+}
+.forget-quotes li {
+  padding: 9px 13px;
+  font-size: 13px; line-height: 1.6; color: var(--ink);
+  overflow-wrap: anywhere;
+  /* Closed, each sentence is a glimpse; open, it is read in full. */
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden;
+}
+.forget-quotes li + li { border-top: 1px solid var(--border); }
+.forget-quotes.is-open {
+  max-height: min(44dvh, 360px); overflow-y: auto; overscroll-behavior: contain;
+  animation: fade-up .18s ease;
+}
+.forget-quotes.is-open li { display: block; }
+.forget-quotes:focus-visible { outline-offset: 1px; }
+.forget-quotes li.forget-unshown { color: var(--ink3); font-size: 12px; }
+
+.forget-more {
+  margin-top: 7px; padding: 3px 2px;
+  border: none; background: none; cursor: pointer;
+  font-family: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink2);
+  text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--pill-border);
+  transition: color .12s, text-decoration-color .12s;
+}
+.forget-more:hover { color: var(--ink); text-decoration-color: currentColor; }
+
+/* What does NOT happen, said as plainly as what does. */
+.forget-notes {
+  list-style: none; margin: 16px 0 0; padding: 0;
+  display: grid; gap: 5px;
+  font-size: 12.5px; line-height: 1.55; color: var(--ink2);
+}
+
+.forget-failed { margin: 14px 0 0; }
+
+/* "No undo" belongs to Forget, so the two sit as one pair, apart from Cancel. */
+.forget-pair { display: inline-flex; align-items: center; gap: 9px; margin-left: 8px; }
+.forget-noundo { font-size: 11.5px; font-weight: 600; color: var(--red-dd); white-space: nowrap; }
+.forget-go {
+  padding: 9px 17px; border-radius: 8px;
+  border: 1px solid var(--red-d); background: var(--red-d); color: #fff;
+  font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.forget-go:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--red-dd); border-color: var(--red-dd); }
+.forget-go:focus-visible { outline-color: var(--red-d); }
+.forget-go[aria-disabled="true"] { cursor: progress; }
+.forget-go:disabled, .forget .tour-back:disabled {
+  background: var(--border2); border-color: var(--border); color: var(--ink3); cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .forget-quotes.is-open { animation: none; }
+}
+
 /* A send that did not go through, said out loud.
 
    Red is reserved for destruction in this palette, so a failure that the
