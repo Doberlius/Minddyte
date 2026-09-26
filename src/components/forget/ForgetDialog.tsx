@@ -111,9 +111,13 @@ export function ForgetDialog({
         return
       }
       // Already gone (forgotten in another tab, say): say so, rather than
-      // inviting a retry that can never work.
-      if (res.status === 404) setState({ kind: 'gone' })
-      else setFailed(true)
+      // inviting a retry that can never work. The opener still hears about
+      // it so the view behind can refresh, but the dialog stays open (only
+      // Close) so the person reads why nothing more happened.
+      if (res.status === 404) {
+        setState({ kind: 'gone' })
+        onForgotten()
+      } else setFailed(true)
     } catch {
       setFailed(true)
     }
