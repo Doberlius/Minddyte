@@ -17,7 +17,9 @@ import type { ForgetPreview } from '@/services/forget'
  * focus lands on Cancel, never on Forget, so pressing Enter cannot destroy.
  *
  * What happens, in order:
- *   1. On open, ask the server what forgetting would hide (GET).
+ *   1. On open, ask the server what forgetting would hide (GET). If the
+ *      chat no longer holds the concept (404), say so and tell the opener
+ *      (`onForgotten`, once) so the view behind drops its stale chip.
  *   2. Show it. Only the first three sentences at first; "and N more" opens
  *      the rest.
  *   3. Forget sends a POST. Success tells the opener (`onForgotten`) and
@@ -58,6 +60,18 @@ export function ForgetDialog({
 
   const path = `/api/sessions/${chatId}/forget`
 
+  // The newest `onForgotten`, for the preview effect below. It is read from a
+  // ref, not listed as that effect's dependency: the opener hands a new
+  // function on every render, and refreshing the view (which is what
+  // onForgotten does) re-renders the opener. As a dependency, that would
+  // fetch the preview again, get another 404, refresh again: a loop.
+  const onForgottenRef = useRef(onForgotten)
+  useEffect(() => {
+    onForgottenRef.current = onForgotten
+  })
+  /** Set once the opener has heard that the preview found the concept gone. */
+  const toldGone = useRef(false)
+
   // Focus starts on Cancel (Enter then means "keep it"), and returns to
   // whatever opened the dialog when it closes.
   useEffect(() => {
@@ -72,7 +86,18 @@ export function ForgetDialog({
     const abort = new AbortController()
     fetch(`${path}?key=${encodeURIComponent(conceptKey)}`, { signal: abort.signal })
       .then(async (res) => {
-        if (res.status === 404) return setState({ kind: 'gone' })
+        if (res.status === 404) {
+          setState({ kind: 'gone' })
+          // The view behind still shows this concept (it was forgotten in
+          // another tab, say), so tell the opener, as the Forget button's
+          // 404 does, and it refreshes. Once per dialog: the ref survives
+          // React's development double-run of this effect.
+          if (!toldGone.current) {
+            toldGone.current = true
+            onForgottenRef.current()
+          }
+          return
+        }
         if (!res.ok) return setState({ kind: 'broken' })
         setState({ kind: 'ready', preview: (await res.json()) as ForgetPreview })
       })
