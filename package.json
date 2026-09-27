@@ -3,8 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "node scripts/build-scene.mjs && next dev",
+    "build": "node scripts/build-scene.mjs && next build",
+    "build:scene": "node scripts/build-scene.mjs",
+    "scene:check": "tsx scripts/scene-check.ts",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
@@ -51,8 +53,10 @@
     "babel-plugin-react-compiler": "1.0.0",
     "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.10",
+    "esbuild": "0.25.12",
     "eslint": "^9.39.4",
     "eslint-config-next": "^15.5.18",
+    "playwright-core": "^1.55.0",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.9.3",
     "vitest": "^5.0.0"
