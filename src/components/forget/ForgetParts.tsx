@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { ForgetPart } from '@/services/forget'
+import { InlineText } from '@/components/ui/InlineText'
 
 /**
  * The forget dialog's offer of the name's parts (ticket 10 follow-up,
@@ -142,7 +143,7 @@ export function ForgetParts({
                   aria-label={`Sentences that say “${part.word}”`}
                 >
                   {part.sentences.map((sentence, j) => (
-                    <li key={j}>{sentence}</li>
+                    <li key={j}><InlineText text={sentence} /></li>
                   ))}
                   {part.total > part.sentences.length && (
                     <li className="forget-unshown">

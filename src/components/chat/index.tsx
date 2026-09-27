@@ -9,6 +9,7 @@ import { CommandPicker } from './CommandPicker'
 import { ForgetPicker } from './ForgetPicker'
 import { exactCommand, modeLabel, type HelpEntry } from './commands'
 import { HelpCard } from './HelpCard'
+import { Markdown } from './Markdown'
 import { ModelPicker } from './ModelPicker'
 import { ForgetDialog } from '@/components/forget/ForgetDialog'
 import { classifyChatFailure } from '@/lib/chat-error'
@@ -401,18 +402,28 @@ export function NeuralChat({
         )}
 
         {!opening &&
-          messages.map((m) => (
-            <div key={m.id} style={{
-              alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-              maxWidth: 640, fontSize: 13.5, lineHeight: 1.65,
-              background: m.role === 'user' ? 'var(--white)' : 'transparent',
-              border: m.role === 'user' ? '1px solid var(--border)' : 'none',
-              borderRadius: 14, padding: m.role === 'user' ? '11px 15px' : 0,
-              color: m.role === 'user' ? 'var(--ink)' : 'var(--ink2)',
-            }}>
-              {m.parts.filter((p) => p.type === 'text').map((p) => p.text).join('')}
-            </div>
-          ))}
+          messages.map((m) => {
+            const text = m.parts.filter((p) => p.type === 'text').map((p) => p.text).join('')
+            // The user's own message is shown exactly as typed, line breaks
+            // kept: people type * _ # casually, without meaning formatting.
+            // A model reply is markdown, and is rendered as markdown; it takes
+            // the whole column, so code blocks and tables have room, and
+            // minWidth 0 lets them scroll inside it instead of widening it.
+            return m.role === 'user' ? (
+              <div key={m.id} style={{
+                alignSelf: 'flex-end', maxWidth: 640, fontSize: 13.5, lineHeight: 1.65,
+                background: 'var(--white)', border: '1px solid var(--border)',
+                borderRadius: 14, padding: '11px 15px', color: 'var(--ink)',
+                whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
+              }}>
+                {text}
+              </div>
+            ) : (
+              <div key={m.id} style={{ alignSelf: 'stretch', minWidth: 0, fontSize: 13.5, lineHeight: 1.65, color: 'var(--ink2)' }}>
+                <Markdown text={text} />
+              </div>
+            )
+          })}
 
         {status === 'streaming' && (
           <div style={{ alignSelf: 'flex-start', display: 'flex', gap: 4 }} aria-label="Thinking">

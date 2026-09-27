@@ -3,6 +3,10 @@ import path from 'node:path'
 
 export default defineConfig({
   resolve: { alias: { '@': path.resolve(__dirname, './src') } },
+  // tsconfig keeps JSX as-is for Next.js ("preserve"); tests that render a
+  // component to HTML need it compiled, the way React 19 expects. Vite 8
+  // compiles with oxc, not esbuild.
+  oxc: { jsx: { runtime: 'automatic' } },
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],

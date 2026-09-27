@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AlertCircle } from 'lucide-react'
 import type { ForgetPreview } from '@/services/forget'
 import { ForgetParts, canPick } from './ForgetParts'
+import { InlineText } from '@/components/ui/InlineText'
 
 /**
  * The confirmation for forgetting one concept in one chat (ticket 10,
@@ -285,7 +286,7 @@ export function ForgetDialog({
                   aria-label={expanded ? 'Every sentence that will be forgotten' : undefined}
                 >
                   {(expanded ? ready.sentences : ready.sentences.slice(0, FIRST)).map((sentence, i) => (
-                    <li key={i}>{sentence}</li>
+                    <li key={i}><InlineText text={sentence} /></li>
                   ))}
                   {expanded && ready.total > ready.sentences.length && (
                     <li className="forget-unshown">

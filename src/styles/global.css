@@ -1208,3 +1208,76 @@ input:focus-visible, textarea:focus-visible {
      you press, and it repeats what the pills already say. */
   .composer-note { display: none; }
 }
+
+/* ── Markdown: model replies (components/chat/Markdown.tsx) ─────────────────
+   A reply is markdown. Spacing is set per element and the first/last child
+   lose theirs, so a one-line reply sits exactly where plain text did. */
+.md { --mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 .75em; }
+.md h1, .md h2, .md h3, .md h4 { color: var(--ink); line-height: 1.3; margin: 1.3em 0 .5em; }
+.md h1, .md h2 { font-family: 'Fraunces', serif; font-weight: 600; letter-spacing: -.01em; }
+.md h1 { font-size: 18px; }
+.md h2 { font-size: 16px; }
+.md h3 { font-size: 14px; font-weight: 700; }
+.md h4 { font-size: 13.5px; font-weight: 700; }
+.md strong { color: var(--ink); font-weight: 650; }
+.md ul, .md ol { margin: 0 0 .75em; padding-left: 1.35em; }
+.md li { margin: .2em 0; }
+.md li > p { margin: 0 0 .35em; }
+.md li > ul, .md li > ol { margin: .2em 0; }
+.md li::marker { color: var(--ink3); }
+.md blockquote { margin: 0 0 .75em; padding: 2px 0 2px 12px; border-left: 3px solid var(--violet-m); color: var(--ink3); }
+.md hr { border: 0; border-top: 1px solid var(--border); margin: 1.2em 0; }
+.md a { color: var(--violet-d); text-decoration: underline; text-underline-offset: 2px; }
+.md a:hover { color: var(--violet); }
+.md :not(pre) > code,
+.forget-quotes code {
+  font-family: var(--mono, ui-monospace, Menlo, Consolas, monospace); font-size: .88em;
+  background: var(--border2); border: 1px solid var(--border); border-radius: 5px;
+  padding: .08em .35em; color: var(--ink); overflow-wrap: anywhere;
+}
+.md input[type='checkbox'] { margin: 0 .45em 0 0; vertical-align: -1px; }
+
+/* Tables scroll sideways inside the reply instead of widening the page. */
+.md-table { overflow-x: auto; margin: 0 0 .9em; border: 1px solid var(--border); border-radius: 10px; background: var(--white); }
+.md-table table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.md-table th, .md-table td { padding: 7px 11px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: normal; }
+.md-table th { background: var(--border2); color: var(--ink); font-weight: 650; white-space: nowrap; }
+.md-table tr:last-child td { border-bottom: 0; }
+
+/* ── Code blocks (components/chat/CodeBlock.tsx): a header with the language
+   and Copy, then the code, scrolling sideways rather than wrapping. */
+.codeblock { margin: 0 0 .9em; border: 1px solid var(--border); border-radius: 10px; background: var(--white); overflow: hidden; }
+.codeblock-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 5px 6px 5px 12px; background: var(--border2); border-bottom: 1px solid var(--border);
+}
+.codeblock-lang { font-family: var(--mono); font-size: 11.5px; color: var(--ink3); }
+.codeblock-copy {
+  font-family: inherit; font-size: 11.5px; font-weight: 600; color: var(--ink2);
+  background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 3px 9px; cursor: pointer;
+}
+.codeblock-copy:hover { background: var(--white); border-color: var(--border); color: var(--ink); }
+.codeblock-copy:focus-visible { outline: 2px solid var(--violet); outline-offset: 1px; }
+.codeblock pre { margin: 0; padding: 12px 14px; overflow-x: auto; }
+.codeblock pre code {
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.6; color: var(--ink);
+  white-space: pre; overflow-wrap: normal; background: none; border: 0; padding: 0;
+}
+
+/* highlight.js token colours, on the white code surface (all >= 4.5:1). */
+.hljs-comment, .hljs-quote { color: #6B7280; font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-doctag, .hljs-section { color: var(--violet-d); }
+.hljs-string, .hljs-regexp, .hljs-template-string, .hljs-addition { color: #17703F; }
+.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet { color: #A14A0A; }
+.hljs-title, .hljs-title.function_, .hljs-title.class_ { color: #0B6479; }
+.hljs-built_in, .hljs-type, .hljs-class .hljs-title { color: #7A3CC4; }
+.hljs-attr, .hljs-attribute, .hljs-property, .hljs-variable, .hljs-template-variable, .hljs-params { color: #8A3B12; }
+.hljs-meta, .hljs-meta .hljs-keyword { color: #5B6472; }
+.hljs-name, .hljs-tag, .hljs-selector-id, .hljs-selector-class { color: #0B6479; }
+.hljs-deletion { color: var(--red-dd); background: var(--red-l); }
+.hljs-addition { background: #ECFDF3; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }
