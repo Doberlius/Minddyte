@@ -70,6 +70,54 @@ describe('sliders', () => {
     build(({ slider }) => { expect(slider('k', 1, 5, 2)).toBe(4) }, { k: 4 })
     build(({ slider }) => { expect(slider('k', 1, 5, 2)).toBe(5) }, { k: 99 })
   })
+
+  it('rejects a non-numeric initial when the viewer has not chosen a value either', () => {
+    expect(() => build(({ slider }) => { slider('k', 0, 1, NaN) })).toThrow(/initial/)
+  })
+
+  it("still uses the viewer's chosen value even if initial is not a number", () => {
+    const s = build(({ slider }) => { expect(slider('k', 0, 1, NaN)).toBe(0.5) }, { k: 0.5 })
+    expect(s.sliders[0].value).toBe(0.5)
+  })
+})
+
+describe('transform', () => {
+  it("clones b's shape instead of ever showing b itself, when kinds or counts differ", () => {
+    let vectorIds: string[] = []
+    let pointIds: string[] = []
+    const scene = build(({ point, vector, play, create, transform, move }) => {
+      const p = point([0, 0])
+      pointIds = p.ids.slice()
+      play(create(p))
+      const v = vector([2, 1])
+      vectorIds = v.ids.slice()
+      play(transform(p, v))
+      play(move(p, [1, 0]))
+    })
+    const ops = scene.steps[1].ops as ({ op: 'fadeOut'; ids: string[] } | { op: 'create'; ids: string[] } | { op: 'change'; id: string; to: unknown })[]
+    const allIds = ops.flatMap((o) => (o.op === 'change' ? [o.id] : o.ids))
+    expect(allIds.some((id) => vectorIds.includes(id))).toBe(false) // b's own ids never appear
+
+    const fade = ops.find((o) => o.op === 'fadeOut') as { ids: string[] }
+    expect(fade.ids).toEqual(pointIds)
+
+    const created = ops.find((o) => o.op === 'create') as { ids: string[] }
+    expect(created.ids.some((id) => vectorIds.includes(id))).toBe(false) // clones, not b's ids
+    expect(created.ids.map((id) => scene.shapes[id])).toEqual(vectorIds.map((id) => scene.shapes[id])) // same shapes
+
+    const moveIds = (scene.steps[2].ops as { id: string }[]).map((o) => o.id)
+    expect(created.ids.every((id) => moveIds.includes(id))).toBe(true) // a's clones move with it afterwards
+  })
+
+  it('stays a single change op when a and b line up pairwise', () => {
+    const scene = build(({ label, play, transform }) => {
+      const a = label('a', [0, 0])
+      const b = label('b', [1, 1])
+      play(transform(a, b))
+    })
+    expect(scene.steps[0].ops).toHaveLength(1)
+    expect(scene.steps[0].ops[0].op).toBe('change')
+  })
 })
 
 describe('array', () => {

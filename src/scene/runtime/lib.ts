@@ -363,10 +363,24 @@ export function createSceneBuilder(sliderValues: Record<string, number>) {
   })
   const transform = (a: Obj, b: Obj, o: { duration?: number } = {}): Anim => {
     const from = idsOf(a); const to = idsOf(b)
-    const pairwise = from.length === to.length && from.every((id, i) => current[id].kind === current[to[i]].kind)
-    const ops: Op[] = pairwise
-      ? from.map((id, i) => change(id, current[to[i]]))
-      : [{ op: 'fadeOut', ids: from }, { op: 'create', ids: to }]
+    const n = Math.max(from.length, to.length)
+    const changes: Op[] = []
+    const fadeIds: string[] = []
+    const cloneIds: string[] = []
+    for (let i = 0; i < n; i++) {
+      const fid = from[i]
+      const tid = to[i]
+      if (fid !== undefined && tid !== undefined && current[fid].kind === current[tid].kind) {
+        changes.push(change(fid, current[tid]))
+        continue
+      }
+      if (fid !== undefined) fadeIds.push(fid)
+      if (tid !== undefined) cloneIds.push(add({ ...current[tid] }))
+    }
+    if (cloneIds.length) a.ids.push(...cloneIds) // so a later move/fadeOut/transform on `a` reaches them too
+    const ops: Op[] = [...changes]
+    if (fadeIds.length) ops.push({ op: 'fadeOut', ids: fadeIds })
+    if (cloneIds.length) ops.push({ op: 'create', ids: cloneIds })
     return { ops, duration: o.duration ?? 1.2 }
   }
   const wait = (seconds = 1): Anim => ({ ops: [], duration: clamp(Number(seconds) || 0, 0, 10) })
@@ -388,6 +402,7 @@ export function createSceneBuilder(sliderValues: Record<string, number>) {
     if (!(Number.isFinite(min) && Number.isFinite(max) && max > min)) throw new Error(`slider "${name}": needs min < max`)
     const s = step && step > 0 ? step : +((max - min) / 100).toFixed(6)
     const chosen = sliderValues[String(name)]
+    if (!Number.isFinite(chosen) && !Number.isFinite(Number(initial))) throw new Error(`slider "${name}": initial must be a number between min and max`)
     const value = clamp(Number.isFinite(chosen) ? chosen : Number(initial), min, max)
     sliders.push({ name: String(name), min, max, value, step: s })
     return value
