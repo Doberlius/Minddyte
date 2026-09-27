@@ -235,11 +235,6 @@ Built and tested: the graph engine, the retrieval path, the local-first data
 layer, the chat interface, the Neural Brain and Memory Archives panels — one
 implementation each.
 
-**Forgetting is not built yet.** The `forgotten` table has been in the schema
-since the first migration, but nothing in `src/services/` reads or writes it,
-so no conversation can delete a concept from its memory. Planned as
-layered-memory ticket 10.
-
 Also open: extraction still swallows a leading verb into some concepts
 (`Rust checks memory safety` should be two concepts, not one), which is why
 concepts are clearest when technologies are named plainly.
