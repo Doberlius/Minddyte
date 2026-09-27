@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { createContext, useContext, useMemo } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -15,7 +15,7 @@ import type { Element, ElementContent } from 'hast'
 import type { PluggableList } from 'unified'
 import 'katex/dist/katex.min.css'
 import { normalizeMath } from '@/lib/math'
-import { findSceneBlocks } from '@/lib/scene/blocks'
+import { findSceneBlocks, type SceneBlock } from '@/lib/scene/blocks'
 import { LIMITS } from '@/scene/types'
 import { CodeBlock } from './CodeBlock'
 import { ScenePlayer } from './ScenePlayer'
@@ -66,7 +66,70 @@ function languageOf(code: Element): string {
   return found ? found.slice('language-'.length) : 'text'
 }
 
-const components: Components = {
+/**
+ * The reply's CLOSED scene blocks (spec §6), found once per render and read
+ * by `ScenePre` through context rather than being baked into a per-render
+ * `components` object.
+ *
+ * That distinction matters: react-markdown (hast-util-to-jsx-runtime) uses
+ * `components.pre` as a React component TYPE, not a value it calls. A new
+ * function identity is a different type to React, and a different type means
+ * unmount-then-remount, not update. `components` used to be built by a
+ * `componentsFor(text)` factory called from `useMemo(() => componentsFor(text),
+ * [text])` — a fresh `pre` function every time `text` changed. While a reply is
+ * streaming, `text` changes on every token, so every scene block that had
+ * already closed and mounted its `ScenePlayer` was torn down and rebuilt (a
+ * new iframe, a new worker, a new ready/render/done round trip) on every
+ * single token after it. `components` is a module-level constant again so
+ * `pre`'s identity never changes; only the scenes it can see, via context, do.
+ */
+const SceneBlocksContext = createContext<SceneBlock[]>([])
+
+/**
+ * `pre` for one fenced block. A `scene` block is matched to its `SceneBlock`
+ * by POSITION (`node.position.start.offset`), not by comparing code text —
+ * two blocks with identical code must still get their own, different index
+ * (repair, Task 7, addresses a block by this index).
+ *
+ * The offset is into the string `Markdown` actually gave `ReactMarkdown`
+ * (`normalizeMath(text)`), which is also what `scenes` was computed from, so
+ * the two agree. That string can differ from the raw stored message in
+ * length (LaTeX delimiters get rewritten), but never inside a fenced block —
+ * `normalizeMath` passes fence lines through untouched — so it can never
+ * add, remove or reorder a scene block; the Nth scene block here is always
+ * the Nth scene block in `findSceneBlocks(<raw stored text>)`, which is what
+ * the repair endpoint re-parses.
+ */
+const ScenePre: NonNullable<Components['pre']> = ({ node, children }) => {
+  const scenes = useContext(SceneBlocksContext)
+  const code = node?.children.find((c): c is Element => c.type === 'element' && c.tagName === 'code')
+  if (!code) return <pre>{children}</pre>
+  const language = languageOf(code)
+  const plain = textOf(code).replace(/\n$/, '')
+  if (language === 'scene') {
+    const offset = node?.position?.start.offset
+    const index = scenes.findIndex((b) => offset !== undefined && b.start <= offset && offset < b.end)
+    // Closed scene blocks only: a block still streaming has no closing fence
+    // yet (no match here) and must never run half-written code.
+    if (index === -1) return <div className="scene-card is-pending">Drawing…</div>
+    if (index < LIMITS.scenesPerReply) return <ScenePlayer code={scenes[index].code} index={index} />
+  }
+  // `children` is the <code> element react-markdown already built, with
+  // the highlighted spans inside; the block wraps it as it is.
+  return (
+    <CodeBlock language={language} code={plain}>
+      {children}
+    </CodeBlock>
+  )
+}
+
+/**
+ * Exported so a test can assert its identity is stable across renders — the
+ * whole point of pulling `pre` out of a per-text factory (see `ScenePre`'s
+ * comment above).
+ */
+export const markdownComponents: Components = {
+  pre: ScenePre,
   // Column alignment lives on the th/td cells, so the table needs only its rows.
   table({ children }) {
     return (
@@ -101,42 +164,16 @@ const components: Components = {
   },
 }
 
-function componentsFor(text: string): Components {
-  // Closed scene blocks only: a block still streaming has no closing fence yet
-  // and must never run half-written code (Review Focus 1).
-  const scenes = findSceneBlocks(text)
-  return {
-    pre({ node, children }) {
-      const code = node?.children.find((c): c is Element => c.type === 'element' && c.tagName === 'code')
-      if (!code) return <pre>{children}</pre>
-      const language = languageOf(code)
-      const plain = textOf(code).replace(/\n$/, '')
-      if (language === 'scene') {
-        const index = scenes.findIndex((b) => b.code === plain)
-        if (index === -1) return <div className="scene-card is-pending">Drawing…</div>
-        if (index < LIMITS.scenesPerReply) return <ScenePlayer code={plain} index={index} />
-      }
-      // `children` is the <code> element react-markdown already built, with
-      // the highlighted spans inside; the block wraps it as it is.
-      return (
-        <CodeBlock language={language} code={plain}>
-          {children}
-        </CodeBlock>
-      )
-    },
-    table: components.table,
-    img: components.img,
-    a: components.a,
-  }
-}
-
 export function Markdown({ text }: { text: string }) {
-  const components = useMemo(() => componentsFor(text), [text])
+  const source = normalizeMath(text)
+  const scenes = useMemo(() => findSceneBlocks(source), [source])
   return (
     <div className="md">
-      <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={REHYPE} components={components}>
-        {normalizeMath(text)}
-      </ReactMarkdown>
+      <SceneBlocksContext.Provider value={scenes}>
+        <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={REHYPE} components={markdownComponents}>
+          {source}
+        </ReactMarkdown>
+      </SceneBlocksContext.Provider>
     </div>
   )
 }

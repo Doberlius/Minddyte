@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { Markdown } from '@/components/chat/Markdown'
+import { Markdown, markdownComponents } from '@/components/chat/Markdown'
 import { InlineText } from '@/components/ui/InlineText'
 
 /**
@@ -160,6 +160,36 @@ describe('scene blocks in a reply', () => {
     expect(html.match(/data-scene-index=/g)?.length).toBe(2)
     expect(html).toMatch(/class="codeblock-lang">scene</)
     expect(html).toContain('c()')
+  })
+
+  // Fix round 1, finding 2: a block was matched to its SceneBlock by comparing
+  // its rendered code text, so two blocks with identical code both matched
+  // the FIRST one — same index twice. Task 7's repair addresses a block by
+  // index, so two identical blocks must still get two different indices.
+  it('gives two blocks with identical code two different indices', () => {
+    const html = md([block('play(create(axes()))'), block('play(create(axes()))')].join('\n\n'))
+    expect(html).toContain('data-scene-index="0"')
+    expect(html).toContain('data-scene-index="1"')
+  })
+
+  // Fix round 1, finding 1: `Markdown` used to build a fresh `components`
+  // object (and so a fresh `pre` function) on every render via
+  // `useMemo(() => componentsFor(text), [text])`. react-markdown treats
+  // `components.pre` as a component TYPE: a new function identity per
+  // streamed token unmounts and remounts every already-open ScenePlayer (a
+  // new iframe, a new worker) on every token after it. `markdownComponents`
+  // (and its `pre`) must now be a stable, module-level reference — this
+  // cannot be observed as a remount from server-rendered HTML alone (no DOM,
+  // no commit phase; a jsdom-based mount test was ruled out for this repo),
+  // so this asserts the identity invariant that removing the per-render
+  // factory guarantees: the very same reference, both before AND after
+  // rendering two different replies through it.
+  it('keeps pre a stable reference across renders (the remount this fixes)', () => {
+    const before = markdownComponents.pre
+    md(block('play(create(axes()))'))
+    md('some other reply entirely, with a ```scene\nx()\n``` block too')
+    expect(markdownComponents.pre).toBe(before)
+    expect(markdownComponents.pre).toBe(markdownComponents.pre)
   })
 })
 
