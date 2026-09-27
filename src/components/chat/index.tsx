@@ -11,6 +11,7 @@ import { exactCommand, modeLabel, type HelpEntry } from './commands'
 import { HelpCard } from './HelpCard'
 import { Markdown } from './Markdown'
 import { ModelPicker } from './ModelPicker'
+import { SceneContext } from './SceneContext'
 import { ForgetDialog } from '@/components/forget/ForgetDialog'
 import { classifyChatFailure } from '@/lib/chat-error'
 import type { ChatSummary } from '@/components/layout/Sidebar'
@@ -191,6 +192,13 @@ export function NeuralChat({
    * the two cases.
    */
   const loadedFor = useRef<string | null | undefined>(undefined)
+  /**
+   * The ids of messages that were already on the server when this chat was
+   * opened. Anything else — a message that just streamed in — arrived in
+   * this page view, which is what a diagram needs to know before it
+   * autoplays or self-repairs (spec §6, §8).
+   */
+  const loadedIds = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     if (sessionId === undefined) return // the shell has not read localStorage yet
@@ -223,6 +231,7 @@ export function NeuralChat({
     setOpening(Boolean(sessionId))
 
     if (!sessionId) {
+      loadedIds.current = new Set()
       setMessages([])
       return
     }
@@ -247,6 +256,7 @@ export function NeuralChat({
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('session_not_found'))))
       .then((chat: { messages?: StoredMessage[] }) => {
         if (!stillWanted()) return
+        loadedIds.current = new Set((chat.messages ?? []).map((m) => m.id))
         setMessages(
           (chat.messages ?? []).map((m) => ({
             id: m.id,
@@ -427,7 +437,9 @@ export function NeuralChat({
               </div>
             ) : (
               <div key={m.id} style={{ alignSelf: 'stretch', minWidth: 0, fontSize: 13.5, lineHeight: 1.65, color: 'var(--ink2)' }}>
-                <Markdown text={text} />
+                <SceneContext.Provider value={{ sessionId: sessionId ?? null, messageId: m.id, fresh: !loadedIds.current.has(m.id), model: model ?? null }}>
+                  <Markdown text={text} />
+                </SceneContext.Provider>
               </div>
             )
           })}

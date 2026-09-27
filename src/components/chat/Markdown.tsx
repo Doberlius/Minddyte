@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -14,7 +15,10 @@ import type { Element, ElementContent } from 'hast'
 import type { PluggableList } from 'unified'
 import 'katex/dist/katex.min.css'
 import { normalizeMath } from '@/lib/math'
+import { findSceneBlocks } from '@/lib/scene/blocks'
+import { LIMITS } from '@/scene/types'
 import { CodeBlock } from './CodeBlock'
+import { ScenePlayer } from './ScenePlayer'
 
 /**
  * A model reply, rendered as markdown: headings, lists, tables (GFM), quotes,
@@ -44,7 +48,7 @@ const REHYPE: PluggableList = [
   rehypeRaw,
   rehypeSanitize,
   [rehypeKatex, { throwOnError: false, errorColor: '#B91C1C' }],
-  [rehypeHighlight, { languages: { ...common, dockerfile, nginx }, detect: false }],
+  [rehypeHighlight, { languages: { ...common, dockerfile, nginx }, detect: false, plainText: ['scene'] }],
 ]
 
 /** The plain text of a hast node: what Copy puts on the clipboard. */
@@ -63,17 +67,6 @@ function languageOf(code: Element): string {
 }
 
 const components: Components = {
-  pre({ node, children }) {
-    const code = node?.children.find((c): c is Element => c.type === 'element' && c.tagName === 'code')
-    if (!code) return <pre>{children}</pre>
-    // `children` is the <code> element react-markdown already built, with
-    // the highlighted spans inside; the block wraps it as it is.
-    return (
-      <CodeBlock language={languageOf(code)} code={textOf(code).replace(/\n$/, '')}>
-        {children}
-      </CodeBlock>
-    )
-  },
   // Column alignment lives on the th/td cells, so the table needs only its rows.
   table({ children }) {
     return (
@@ -108,7 +101,37 @@ const components: Components = {
   },
 }
 
+function componentsFor(text: string): Components {
+  // Closed scene blocks only: a block still streaming has no closing fence yet
+  // and must never run half-written code (Review Focus 1).
+  const scenes = findSceneBlocks(text)
+  return {
+    pre({ node, children }) {
+      const code = node?.children.find((c): c is Element => c.type === 'element' && c.tagName === 'code')
+      if (!code) return <pre>{children}</pre>
+      const language = languageOf(code)
+      const plain = textOf(code).replace(/\n$/, '')
+      if (language === 'scene') {
+        const index = scenes.findIndex((b) => b.code === plain)
+        if (index === -1) return <div className="scene-card is-pending">Drawing…</div>
+        if (index < LIMITS.scenesPerReply) return <ScenePlayer code={plain} index={index} />
+      }
+      // `children` is the <code> element react-markdown already built, with
+      // the highlighted spans inside; the block wraps it as it is.
+      return (
+        <CodeBlock language={language} code={plain}>
+          {children}
+        </CodeBlock>
+      )
+    },
+    table: components.table,
+    img: components.img,
+    a: components.a,
+  }
+}
+
 export function Markdown({ text }: { text: string }) {
+  const components = useMemo(() => componentsFor(text), [text])
   return (
     <div className="md">
       <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={REHYPE} components={components}>

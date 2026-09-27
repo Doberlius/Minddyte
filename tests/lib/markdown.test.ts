@@ -139,6 +139,30 @@ describe('Markdown (model replies)', () => {
   })
 })
 
+describe('scene blocks in a reply', () => {
+  const block = (code: string) => '```scene\n' + code + '\n```'
+
+  it('renders a diagram player instead of code', () => {
+    const html = md(`Here:\n\n${block('play(create(axes()))')}`)
+    expect(html).toContain('data-scene-index="0"')
+    expect(html).toContain('Loading diagram')
+    expect(html).not.toContain('play(create(axes()))') // not shown as a code block until asked
+  })
+
+  it('shows "Drawing…" for a block that is still streaming', () => {
+    const html = md('Here:\n\n```scene\nplay(create(ax')
+    expect(html).toContain('Drawing…')
+    expect(html).not.toContain('data-scene-index')
+  })
+
+  it(`renders at most ${2} players; later blocks stay code`, () => {
+    const html = md([block('a()'), block('b()'), block('c()')].join('\n\n'))
+    expect(html.match(/data-scene-index=/g)?.length).toBe(2)
+    expect(html).toMatch(/class="codeblock-lang">scene</)
+    expect(html).toContain('c()')
+  })
+})
+
 describe('InlineText (stored sentences)', () => {
   const inline = (text: string) => renderToStaticMarkup(createElement(InlineText, { text }))
 
