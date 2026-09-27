@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { queryText, significantTokenCount, strongPhrases } from '@/lib/tokens'
+import { queryText, significantTokenCount, strongPhrases, contentTokens } from '@/lib/tokens'
 import { PROVISIONAL } from '@/lib/provisional'
 
 describe('significantTokenCount', () => {
@@ -71,5 +71,49 @@ describe('queryText', () => {
 
   it('returns a short draft unchanged, trimmed', () => {
     expect(queryText('  how long do we keep audit logs \n')).toBe('how long do we keep audit logs')
+  })
+})
+
+describe('contentTokens', () => {
+  it('drops filler and keeps the words that carry the question', () => {
+    expect(contentTokens('What is the plot of Hamlet?')).toEqual(['plot', 'hamlet'])
+    expect(contentTokens('How do I set up a Python virtual environment?')).toEqual(['python', 'virtual', 'environment'])
+  })
+
+  it('keeps identifiers whole', () => {
+    // "2" is one character, so it is dropped.
+    expect(contentTokens('min.insync.replicas=2')).toEqual(['min.insync.replicas'])
+    expect(contentTokens('pg_stat_statements')).toEqual(['pg_stat_statements'])
+    expect(contentTokens('enable.idempotence=true acks=all')).toEqual(['enable.idempotence', 'true', 'acks'])
+  })
+
+  it("drops a possessive 's, straight or curly", () => {
+    expect(contentTokens("the database's journal")).toEqual(['database', 'journal'])
+    expect(contentTokens('the UN\'s agenda')).toEqual(['un', 'agenda'])
+  })
+
+  it('returns nothing for a draft of filler only', () => {
+    expect(contentTokens('what is it?')).toEqual([])
+    expect(contentTokens('go on')).toEqual([])
+    expect(contentTokens('')).toEqual([])
+  })
+
+  it('de-duplicates, keeping first-seen order', () => {
+    expect(contentTokens('Kafka kafka KAFKA partitions')).toEqual(['kafka', 'partitions'])
+  })
+
+  // Review Focus 4 / Decision 2: letters are kept whole, not mangled. This is
+  // NOT multi-language support — the filler list stays English.
+  it('keeps non-Latin letters', () => {
+    expect(contentTokens('Größe der Datenbank')).toEqual(['größe', 'der', 'datenbank'])
+    expect(contentTokens('café crème')).toEqual(['café', 'crème'])
+  })
+
+  // Review Focus 5.
+  it('caps the list at PROVISIONAL.reachMaxWords', () => {
+    const draft = Array.from({ length: 100 }, (_, i) => `word${i}`).join(' ')
+    const words = contentTokens(draft)
+    expect(words).toHaveLength(PROVISIONAL.reachMaxWords)
+    expect(words[0]).toBe('word0')
   })
 })

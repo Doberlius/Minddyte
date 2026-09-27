@@ -14,6 +14,8 @@ export const PROVISIONAL = {
   reachWordSimilarity: 0.3,
   /** strict_word_similarity(phrase, passage) at or above this promotes a chat to the strong-text tier. */
   strongStrictSimilarity: 0.9,
+  /** Content words of a draft that text reach reads (ticket 18). Bounds the per-message word query. */
+  reachMaxWords: 24,
   /** Passages taken from each reached chat, before ±1 neighbours are added. */
   windowsPerChat: 3,
   /** A code block or table longer than this (UTF-16 chars) is not indexed, and the skip is logged. A sentence over it is split into chunks (ticket 15). */

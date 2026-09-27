@@ -112,3 +112,34 @@ export function strongPhrases(draft: string): string[] {
   }
   return out
 }
+
+/**
+ * Words that carry no topic: closed-class words and question filler. Copied
+ * verbatim from the ticket-18 experiment (prototypes/retrieval-exp.ts), whose
+ * measured numbers depend on exactly this list — do not tune it by feel.
+ */
+const READ_FILLER = new Set(`a an the and or but if then than so as of in on at to for from by with about into over under
+between through during before after up down out off again once all any both each few more most other some such no nor
+not only own same too very can could should would will shall may might must do does did doing done be am is are was
+were been being have has had having i me my mine we us our you your he him his she her it its they them their this
+that these those what which who whom whose when where why how there here just also s t don doesn isn aren wasn
+get got make made use using used way ways thing things best good need want like really much many tell explain know
+kind sort work works working go goes set`.split(/\s+/))
+
+/**
+ * The draft's content words, for rare-word coverage reach (ticket 18).
+ * Lowercased; a possessive 's dropped; identifiers such as
+ * `min.insync.replicas` kept whole; filler and 1-character words dropped;
+ * de-duplicated in first-seen order; at most PROVISIONAL.reachMaxWords.
+ * Unicode letters and digits, so "café" and "Größe" survive.
+ */
+export function contentTokens(draft: string): string[] {
+  const words = draft.toLowerCase().replace(/['']s\b/g, '').match(/[\p{L}\p{N}][\p{L}\p{N}._\-]*[\p{L}\p{N}]|[\p{L}\p{N}]/gu) ?? []
+  const out: string[] = []
+  for (const w of words) {
+    if (w.length < 2 || READ_FILLER.has(w) || out.includes(w)) continue
+    out.push(w)
+    if (out.length === PROVISIONAL.reachMaxWords) break
+  }
+  return out
+}
