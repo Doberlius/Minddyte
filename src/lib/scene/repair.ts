@@ -1,9 +1,10 @@
 import { DIAGRAM_GUIDE } from './guide'
+import { isSingleSceneBody } from './blocks'
 import { LIMITS } from '@/scene/types'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MAX_CODE = 20_000
-const MAX_ERROR = 2000
+const MAX_ERROR = 500
 
 export type RepairBody = {
   sessionId: string
@@ -30,11 +31,41 @@ export function parseRepairBody(x: unknown): RepairBody | null {
   }
   if (typeof b.error !== 'string') return null
   const p = b.previous as Record<string, unknown> | undefined
+  // A `previous.code` that cannot be a single scene block (empty, or
+  // containing its own fence line) could close the prompt's ```scene fence
+  // early and inject text after it as if it were the system's own words —
+  // dropped rather than refused, since the current failure being reported is
+  // still a legitimate request on its own.
   const previous =
-    p && typeof p.code === 'string' && typeof p.error === 'string' && p.code.length <= MAX_CODE
+    p && typeof p.code === 'string' && typeof p.error === 'string' && p.code.length <= MAX_CODE && isSingleSceneBody(p.code)
       ? { code: p.code, error: p.error.slice(0, MAX_ERROR) }
       : undefined
   return { ...base, save: false, error: b.error.slice(0, MAX_ERROR), ...(previous ? { previous } : {}) }
+}
+
+/**
+ * A server-side cap on repair calls, independent of ScenePlayer's own
+ * 2-attempt limit — a client-only limit is not a limit at all, since nothing
+ * stops a script from calling the endpoint directly. Keyed by caller
+ * (typically `messageId:blockIndex`); `maxKeys` bounds the map itself, so an
+ * attacker who mints a fresh key on every call cannot grow this without
+ * bound — the oldest key is evicted first (a `Map`'s keys iterate in
+ * insertion order, so the first one IS the oldest).
+ */
+export function createRepairBudget(maxPerBlock: number, maxKeys: number): { take(key: string): boolean } {
+  const counts = new Map<string, number>()
+  return {
+    take(key: string): boolean {
+      const n = counts.get(key) ?? 0
+      if (n >= maxPerBlock) return false
+      if (!counts.has(key) && counts.size >= maxKeys) {
+        const oldest = counts.keys().next().value
+        if (oldest !== undefined) counts.delete(oldest)
+      }
+      counts.set(key, n + 1)
+      return true
+    },
+  }
 }
 
 export const REPAIR_SYSTEM = [

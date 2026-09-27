@@ -44,6 +44,12 @@ export function ScenePlayer({ code, index }: { code: string; index: number }) {
   const [repairing, setRepairing] = useState(false)
   const attempts = useRef(0)
   const lastFailure = useRef<{ code: string; error: string } | null>(null)
+  // The error from the run of the ORIGINAL `code` (set the first time it
+  // fails, never overwritten after). The server always loads `code` — the
+  // original, from the database — never `current`, so once a repaired
+  // attempt itself fails, the error to send alongside `code` is this one,
+  // not the repaired attempt's own error (that one describes `previous`).
+  const firstError = useRef<string | null>(null)
   // Set only while a repaired run's success has not yet been persisted, so
   // the 'done' handler below knows there is something worth saving.
   const unsaved = useRef<string | null>(null)
@@ -67,9 +73,17 @@ export function ScenePlayer({ code, index }: { code: string; index: number }) {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          sessionId: ctx.sessionId, messageId: ctx.messageId, blockIndex: index, error: failure.error,
-          // Attempt 2 shows the model what attempt 1 tried (Decision 3).
-          ...(failure.code !== code ? { previous: failure } : {}),
+          sessionId: ctx.sessionId, messageId: ctx.messageId, blockIndex: index,
+          // The server always loads `code` (the original) from the database,
+          // never `current` — so the `error` sent here must describe THAT
+          // code, not whatever last ran. `failure.code !== code` means the
+          // failing run was itself a repaired attempt: its own error belongs
+          // in `previous` (Decision 3 — attempt 2 shows the model what
+          // attempt 1 tried), and `error` falls back to the original
+          // failure's message.
+          ...(failure.code !== code
+            ? { error: firstError.current ?? failure.error, previous: failure }
+            : { error: failure.error }),
           ...(ctx.model ? { model: ctx.model } : {}),
         }),
       })
@@ -109,6 +123,10 @@ export function ScenePlayer({ code, index }: { code: string; index: number }) {
           })
         }
       } else if (msg.type === 'error') {
+        // Whatever this run was repairing toward didn't get saved, so there
+        // is nothing left for a later 'done' to persist.
+        unsaved.current = null
+        if (current === code) firstError.current = msg.message
         lastFailure.current = { code: current, error: msg.message }
         if (shouldAutoRepair({ fresh: ctx.fresh, attempts: attempts.current, kind: msg.kind, canRepair })) void repair()
         else setPhase({ kind: 'failed', error: { kind: msg.kind, message: msg.message } })
