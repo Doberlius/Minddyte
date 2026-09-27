@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { streamText, convertToModelMessages, type UIMessage } from "ai"
-import { clientFor, resolveModel } from "@/lib/ollama"
-import { chooseProvider } from "@/lib/provider"
+import { resolveChatModel } from "@/server/model"
 import { retrieveContext } from "@/services/retrieval"
 import { persistMessage, ingestUserMessage } from "@/services/graph"
 import { sessionExists } from "@/services/dbApi"
@@ -100,30 +99,9 @@ export async function POST(req: Request) {
     model?: string
   } = await req.json()
 
-  const choice = chooseProvider(process.env, model)
-
-  if (choice.kind === "none") {
-    // Standing rule: say what is wrong and how to fix it, never fail blankly.
-    return Response.json({ error: choice.reason }, { status: 503 })
-  }
-
-  // The hosted path already knows its model; only the local daemon has to be
-  // asked what it actually has. Validated against what the daemon actually
-  // reports, not a hardcoded list.
-  const modelId =
-    choice.kind === "hosted" ? choice.model : await resolveModel(choice.model)
-
-  if (!modelId) {
-    // Standing rule: say what is wrong and how to fix it, never fail blankly.
-    return Response.json(
-      {
-        error:
-          "No model available. Start Ollama and pull one with `ollama pull gemma3`, " +
-          "or set HOSTED_API_KEY to use a hosted model instead.",
-      },
-      { status: 503 },
-    )
-  }
+  const resolved = await resolveChatModel(model)
+  if (!resolved.ok) return Response.json({ error: resolved.error }, { status: resolved.status })
+  const { modelId } = resolved
 
   const last = messages[messages.length - 1]
   if (!last || last.role !== "user") {
@@ -185,7 +163,7 @@ export async function POST(req: Request) {
   const assistantMessageId = randomUUID()
 
   const result = streamText({
-    model: clientFor(choice)(modelId),
+    model: resolved.model,
     system: systemPrompt,
     messages: await convertToModelMessages(messages),
     // maxOutputTokens alone does NOT reach ollama.com/api. The provider maps
