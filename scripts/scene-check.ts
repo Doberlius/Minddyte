@@ -93,6 +93,21 @@ export const CHECKS: Check[] = [
     code: 'this is not javascript',
     expect: ({ msg }) => (msg.type === 'error' && msg.kind === 'error' ? null : `got ${JSON.stringify(msg)}`),
   },
+  {
+    name: 'draws a sine scene with a slider',
+    code: 'title("sine"); const k = slider("k", 1, 5, 2); const ax = axes({ x: [-PI, PI], y: [-1.5, 1.5] }); play(create(ax)); caption("y = sin(kx)"); play(create(ax.plot(x => sin(k * x), { color: BLUE })))',
+    expect: ({ msg }) => (msg.type === 'done' ? null : `got ${JSON.stringify(msg)}`),
+  },
+  {
+    name: 'an unknown function is named in the error',
+    code: 'play(create(sphere()))',
+    expect: ({ msg }) => (msg.type === 'error' && /sphere/.test(String(msg.message)) ? null : `got ${JSON.stringify(msg)}`),
+  },
+  {
+    name: 'a scene past the shape limit is "too large"',
+    code: 'for (let i = 0; i < 500; i++) point([0, 0])',
+    expect: ({ msg }) => (msg.type === 'error' && msg.kind === 'limits' ? null : `got ${JSON.stringify(msg)}`),
+  },
 ]
 
 async function main() {
@@ -111,6 +126,15 @@ async function main() {
       console.log(`${problem ? 'FAIL' : 'PASS'}  ${c.name}${problem ? `: ${problem}` : ''}`)
       if (problem) failures.push(c.name)
     }
+    await run(page, CHECKS.find((c) => c.name.startsWith('draws a sine'))!.code)
+    const frame = page.frameLocator('#f')
+    await frame.locator('.sliders input').first().fill('4')
+    await page.waitForTimeout(600)
+    const curve = await frame.locator('svg path').count()
+    console.log(`${curve > 5 ? 'PASS' : 'FAIL'}  slider re-run keeps a drawn scene (${curve} paths)`)
+    if (curve <= 5) failures.push('slider re-run')
+    await page.locator('#f').screenshot({ path: 'public/scene-check.png' })
+    console.log('screenshot: public/scene-check.png (not committed)')
   } finally {
     await browser.close()
     close()

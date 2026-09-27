@@ -19,6 +19,7 @@
 
 # The diagram runtime bundle; built by scripts/build-scene.mjs (dev, build, Dockerfile).
 /public/scene/
+/public/scene-check.png
 
 # production
 /build
