@@ -16,6 +16,14 @@ export const PROVISIONAL = {
   strongStrictSimilarity: 0.9,
   /** Content words of a draft that text reach reads (ticket 18). Bounds the per-message word query. */
   reachMaxWords: 24,
+  /** Share of the draft's rarity weight a chat must hold to be reached (ticket 18, measured). */
+  reachCoverage: 0.4,
+  /** Matched words a reach needs, when the draft has at least this many (ticket 18). One stray word never reaches. */
+  reachMinWords: 2,
+  /** Rarity is computed as if the workspace had at least this many other chats, so a tiny workspace is not starved (ticket 18, Decision 1). */
+  reachIdfMinChats: 20,
+  /** word_similarity(word, passage) at or above this puts a word "in" a chat — fuzzy, so small typos still count (ticket 18). */
+  reachWordMatch: 0.8,
   /** Passages taken from each reached chat, before ±1 neighbours are added. */
   windowsPerChat: 3,
   /** A code block or table longer than this (UTF-16 chars) is not indexed, and the skip is logged. A sentence over it is split into chunks (ticket 15). */
