@@ -307,6 +307,13 @@ export function NeuralChat({
    * Send, so a command is never sent to the model and never saved (Q10).
    */
   function runCommand(entry: HelpEntry) {
+    if (entry.action?.kind === 'visualize') {
+      // Not run: the command starts a message. Keep it in the box, and keep
+      // the / menu closed while the topic is typed after it.
+      setInput('/visualize ')
+      setSlashOff(true)
+      return
+    }
     if (entry.action?.kind === 'mode') setMode(entry.action.mode)
     else if (entry.action?.kind === 'help') setShowHelp(true)
     else if (entry.action?.kind === 'forget') setShowForget(true)

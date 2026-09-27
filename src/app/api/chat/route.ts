@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { streamText, convertToModelMessages, type UIMessage } from "ai"
 import { clientFor, resolveModel } from "@/lib/ollama"
 import { chooseProvider } from "@/lib/provider"
@@ -9,6 +10,8 @@ import { requireWorkspace } from "@/server/workspace"
 import { describeSkip } from "@/lib/pointers"
 import { getCore } from "@/services/core"
 import { PROVISIONAL } from "@/lib/provisional"
+import { stripVisualize, wantsDiagram } from "@/lib/scene/intent"
+import { DIAGRAM_GUIDE } from "@/lib/scene/guide"
 
 /**
  * A runaway guard, NOT a budget.
@@ -128,6 +131,10 @@ export async function POST(req: Request) {
   }
   const draft = last?.parts?.filter((p) => p.type === "text").map((p) => p.text).join("") ?? ""
 
+  // Spec §3: what memory reads. `/visualize` is a command, not a concept; the
+  // stored message keeps exactly what was typed.
+  const memoryDraft = stripVisualize(draft)
+
   // A browser can hold a sessionId for a chat the database no longer has —
   // db:reset, a deleted chat, a restored export all look identical from here.
   // Checked BEFORE persistMessage runs: messages.session_id is a NOT NULL FK
@@ -155,7 +162,7 @@ export async function POST(req: Request) {
   // 2. retrieve against the PREVIOUS graph state, then call the model
   let chats: Awaited<ReturnType<typeof retrieveContext>>["chats"] = []
   try {
-    ;({ chats } = await retrieveContext({ workspaceId, sessionId, mode, taggedChatIds, draftText: draft }))
+    ;({ chats } = await retrieveContext({ workspaceId, sessionId, mode, taggedChatIds, draftText: memoryDraft }))
   } catch (err) {
     // Spec §6.5 — never block the message. Memory is the feature; the answer is
     // the product. Degrade to no memory rather than failing the request.
@@ -169,7 +176,13 @@ export async function POST(req: Request) {
     try { core = buildCoreBlock((await getCore(workspaceId)).text) }
     catch (err) { console.error('[chat] could not read About you, continuing without it', err) }
   }
-  const systemPrompt = buildSystemPrompt(mode, chats, { core })
+  const systemPrompt = buildSystemPrompt(mode, chats, {
+    core,
+    diagrams: wantsDiagram(draft) ? DIAGRAM_GUIDE : undefined,
+  })
+  // Chosen here so the browser and the database agree on the reply's id:
+  // the diagram player names this message when it asks for a repair.
+  const assistantMessageId = randomUUID()
 
   const result = streamText({
     model: clientFor(choice)(modelId),
@@ -186,15 +199,15 @@ export async function POST(req: Request) {
     // 3-6. Graph writes happen AFTER the stream. Spec §4.5.
     onFinish: async ({ text }) => {
       try {
-        const assistantMessageId = await persistMessage({
-          workspaceId, sessionId, role: "assistant", content: text, modelUsed: modelId,
+        const saved = await persistMessage({
+          workspaceId, sessionId, role: "assistant", content: text, modelUsed: modelId, id: assistantMessageId,
         })
         const { skipped } = await ingestUserMessage({
-          workspaceId, sessionId, messageId, content: draft,
+          workspaceId, sessionId, messageId, content: memoryDraft,
           // Pointers take both roles; extraction stays user-only (spec §4.2).
           // ingestUserMessage enforces that split.
           assistantContent: text,
-          assistantMessageId,
+          assistantMessageId: saved,
         })
         // Ticket 05, Q14 — a block too large to index is a loss, and a loss
         // is never silent. Logged only: one block, not the whole message.
@@ -208,5 +221,5 @@ export async function POST(req: Request) {
     },
   })
 
-  return result.toUIMessageStreamResponse({ onError: explainStreamFailure })
+  return result.toUIMessageStreamResponse({ onError: explainStreamFailure, generateMessageId: () => assistantMessageId })
 }

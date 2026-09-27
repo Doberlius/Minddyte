@@ -7,7 +7,7 @@
  * are NOT built. Nothing here reads it.
  */
 export type ChatMode = 'focus' | 'explore'
-export type CommandAction = { kind: 'mode'; mode: ChatMode } | { kind: 'help' } | { kind: 'forget' }
+export type CommandAction = { kind: 'mode'; mode: ChatMode } | { kind: 'help' } | { kind: 'forget' } | { kind: 'visualize' }
 export type HelpEntry = { name: string; label: string; what: string; example: string; action?: CommandAction }
 
 export const HELP_ENTRIES: HelpEntry[] = [
@@ -38,6 +38,12 @@ export const HELP_ENTRIES: HelpEntry[] = [
     what: 'Stop a concept in this chat from being used as memory. The messages stay, and you can still read them. While you are in this chat, the conversation itself is still used.',
     example: '/forget, then pick Kafka',
     action: { kind: 'forget' },
+  },
+  {
+    name: 'visualize', label: '/visualize',
+    what: 'Draw an interactive diagram of what you ask about: a curve, a vector, a sorting algorithm, Kafka partitions.',
+    example: '/visualize how the frequency changes a sine wave',
+    action: { kind: 'visualize' },
   },
   {
     name: 'help', label: '/help',

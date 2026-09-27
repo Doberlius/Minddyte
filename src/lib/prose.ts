@@ -41,6 +41,7 @@ export type ProseSpan = { kind: 'sentence' | 'code' | 'table'; start: number; en
 
 type MdNode = {
   type: string
+  lang?: string | null
   children?: MdNode[]
   position?: { start: { offset?: number }; end: { offset?: number } }
 }
@@ -63,6 +64,8 @@ export function proseSpans(text: string): ProseSpan[] {
   const walk = (node: MdNode) => {
     const start = node.position?.start.offset
     const end = node.position?.end.offset
+    // Spec §3.7: a scene block is drawing code, not a fact. Never memory.
+    if (node.type === 'code' && node.lang === 'scene') return
     if (node.type === 'code' || node.type === 'table') {
       if (start !== undefined && end !== undefined) out.push({ kind: node.type, start, end })
       return

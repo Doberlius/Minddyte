@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildMemoryBlock, buildSystemPrompt, formatExcerptDate, sentLength, buildCoreBlock, CORE_AUTHORITY, type MemoryChat } from '@/lib/prompt'
+import { DIAGRAM_GUIDE } from '@/lib/scene/guide'
 
 const chat = (over: Partial<MemoryChat> = {}): MemoryChat => ({
   title: 'Event streaming',
@@ -151,5 +152,15 @@ describe('Core in the prompt (ticket 03)', () => {
     const p = buildSystemPrompt('focus', [chat()], { core: '   ' })
     expect(p).not.toContain('the facts the user wrote about themselves')
     expect(p).not.toContain(CORE_AUTHORITY)
+  })
+})
+
+describe('the diagram guide slot', () => {
+  it('is included only when asked for, after Core and before memory', () => {
+    const withGuide = buildSystemPrompt('explore', [], { core: 'CORE', diagrams: DIAGRAM_GUIDE })
+    expect(withGuide).toContain('```scene')
+    expect(withGuide.indexOf('CORE')).toBeLessThan(withGuide.indexOf('Interactive diagrams'))
+    expect(withGuide.indexOf('Interactive diagrams')).toBeLessThan(withGuide.indexOf('No memory loaded'))
+    expect(buildSystemPrompt('explore', [], { core: 'CORE' })).not.toContain('```scene')
   })
 })

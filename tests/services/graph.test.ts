@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
-import { getDb, nodes, sessions } from '../../db'
+import { getDb, messages, nodes, sessions } from '../../db'
 import { countRows, FIXTURE_WORKSPACE_ID, newChat, truncateAll } from '../helpers/pglite'
 import { persistMessage, ingestUserMessage } from '@/services/graph'
 
@@ -193,5 +193,17 @@ describe('pointers (ticket 05)', () => {
     const chatId = await newChat()
     await fullTurn(chatId, 'สวัสดีครับ วันนี้อากาศดีมาก เราไปเที่ยวกันไหม', 'ได้เลย')
     expect(await countRows('chat_pointers')).toBe(2)
+  })
+})
+
+describe('persistMessage with a chosen id', () => {
+  it('stores the message under the id the caller chose', async () => {
+    const chat = await newChat('A')
+    const id = '6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f'
+    const got = await persistMessage({ workspaceId: FIXTURE_WORKSPACE_ID, sessionId: chat, role: 'assistant', content: 'hi', id })
+    expect(got).toBe(id)
+    const db = await getDb()
+    const [row] = await db.select({ content: messages.content }).from(messages).where(eq(messages.id, id))
+    expect(row.content).toBe('hi')
   })
 })

@@ -27,12 +27,27 @@ async function writePointers(
   return skipped.map((s) => ({ ...s, messageId: input.messageId }))
 }
 
+/**
+ * Replace one message's passages after its content changed (a repaired
+ * diagram, spec §8). Pointers address the message by offset, so any change in
+ * length shifts every later sentence: delete them all, write them again.
+ */
+export async function rewritePointers(
+  tx: Tx,
+  input: { workspaceId: string; sessionId: string; messageId: string; content: string },
+): Promise<Skip[]> {
+  await tx.delete(chatPointers).where(eq(chatPointers.messageId, input.messageId))
+  return writePointers(tx, input)
+}
+
 export async function persistMessage(input: {
   workspaceId: string
   sessionId: string
   role: "user" | "assistant"
   content: string
   modelUsed?: string
+  /** Chosen by the caller when the browser must know it in advance (the chat route). */
+  id?: string
 }): Promise<string> {
   const db = await getDb()
 
@@ -55,6 +70,7 @@ export async function persistMessage(input: {
   const [row] = await db
     .insert(messages)
     .values({
+      ...(input.id ? { id: input.id } : {}),
       sessionId: input.sessionId,
       role: input.role,
       content: input.content,

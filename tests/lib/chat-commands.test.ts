@@ -3,7 +3,7 @@ import { HELP_ENTRIES, SLASH_ENTRIES, exactCommand, matchCommands, modeLabel } f
 
 describe('the one list of working commands', () => {
   it('holds exactly the commands that work', () => {
-    expect(HELP_ENTRIES.map((e) => e.label)).toEqual(['/mode explore', '/mode focus', '@', 'About you', '/forget', '/help'])
+    expect(HELP_ENTRIES.map((e) => e.label)).toEqual(['/mode explore', '/mode focus', '@', 'About you', '/forget', '/visualize', '/help'])
   })
   it('gives every entry a plain description and an example', () => {
     for (const e of HELP_ENTRIES) {
@@ -19,7 +19,7 @@ describe('the one list of working commands', () => {
   it('matches what is typed after the slash', () => {
     expect(matchCommands('hel').map((e) => e.label)).toEqual(['/help'])
     expect(matchCommands('mode f').map((e) => e.label)).toEqual(['/mode focus'])
-    expect(matchCommands('').length).toBe(4)
+    expect(matchCommands('').length).toBe(5)
     expect(matchCommands('xyz')).toEqual([])
   })
   it('/help resolves to the help action, never to a mode', () => {
@@ -63,5 +63,15 @@ describe('modeLabel', () => {
   it('is the one place that spells out a mode for a person to read', () => {
     expect(modeLabel('focus')).toBe('Focus')
     expect(modeLabel('explore')).toBe('Explore')
+  })
+})
+
+describe('/visualize', () => {
+  it('is offered by the / menu and recognised when typed alone', () => {
+    expect(matchCommands('vis').map((e) => e.name)).toContain('visualize')
+    expect(exactCommand('/visualize')?.action).toEqual({ kind: 'visualize' })
+  })
+  it('is not an exact command once a topic follows', () => {
+    expect(exactCommand('/visualize the unit circle')).toBeFalsy()
   })
 })

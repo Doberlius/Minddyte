@@ -97,3 +97,15 @@ describe('proseSpans', () => {
     expect(slices('## Setup\n\nKafka keeps order.')).toEqual([{ kind: 'sentence', text: 'Kafka keeps order.' }])
   })
 })
+
+describe('scene blocks are not memory', () => {
+  it('skips a scene block but keeps other code blocks and prose', () => {
+    const text = 'Look at this.\n\n```scene\nplay(create(axes()))\n```\n\n```python\nprint(1)\n```\n\nThat is all.'
+    const spans = proseSpans(text)
+    expect(spans.map((s) => text.slice(s.start, s.end))).toEqual([
+      'Look at this.',
+      '```python\nprint(1)\n```',
+      'That is all.',
+    ])
+  })
+})
