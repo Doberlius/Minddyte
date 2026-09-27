@@ -206,6 +206,24 @@ describe('reach by text', () => {
     })).resolves.toBeDefined()
   })
 
+  // Fix round 2, finding 2: a long word list is shortened, naming 5 and saying
+  // how many more matched, so the why-line does not run on forever.
+  it('names at most 5 matched words, and says how many more', async () => {
+    const a = await newChat('ZK')
+    await turn(
+      a,
+      "What's the status?",
+      'The heartbeats arrive on a watcher thread. A znode tracks ephemeral state. Quorum requires majority acks across the ensemble managed by zookeeper.',
+    )
+    const b = await newChat('B')
+    const { chats } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'explore', taggedChatIds: [],
+      draftText: 'zookeeper, ensemble, quorum, ephemeral, znode, watcher, heartbeats',
+    })
+    const found = chats.find((c) => c.id === a)!
+    expect(found.why).toMatch(/matches words (?:"[^"]+", ){4}"[^"]+" and 2 more \(/)
+  })
+
   it('does not reach by text in focus mode', async () => {
     const a = await newChat('Logs')
     await turn(a, 'Defaults?', 'The retention period for audit logs is ninety days by default.')

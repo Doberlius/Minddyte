@@ -75,9 +75,13 @@ describe('retrieval never uses a forgotten sentence', () => {
   })
 
   // Ticket 18, Review Focus 2: a forgotten sentence never counts towards word coverage.
+  // The second, unrelated sentence stays visible after forgetting: without it,
+  // A would have zero visible excerpts regardless of whether wordHits filters
+  // forgotten sentences, and retrieveContext drops chats with no excerpts,
+  // making the test pass even if wordHits' notForgottenSql filter were removed.
   it('a word only in forgotten sentences does not count towards coverage', async () => {
     const a = await newChat('A')
-    await turn(a, 'Tell me about Kafka.', 'Kafka replays the journal after a crash.')
+    await turn(a, 'Tell me about Kafka.', 'Kafka replays the journal after a crash. The weather was sunny that day.')
     const b = await newChat('B')
     // Control: before forgetting, A IS reached (every content word is in it).
     expect((await ask(b, 'After a crash, what replays the journal in Kafka?')).chats.map((c) => c.id)).toEqual([a])

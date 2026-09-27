@@ -6,6 +6,12 @@
  * not measured against real questions. They live here, together, so the one
  * place to change them is obvious, and so nobody mistakes them for measured.
  *
+ * Exception: the text-reach values below — reachWordSimilarity, reachMaxWords,
+ * reachCoverage, reachMinWords, reachIdfMinChats, reachWordMatch — WERE
+ * measured, in ticket 18 (2026-09-27), on 120 labelled questions drawn from
+ * the user's real chats, with a held-out check included. The "NOT CALIBRATED"
+ * statement above applies to the rest.
+ *
  * Recalibrate when `bun run eval:retrieval` stops refusing — its floor is 20
  * chats, 8 shared concepts and 10 labelled cases.
  */
@@ -20,7 +26,7 @@ export const PROVISIONAL = {
   reachWordSimilarity: 0.5,
   /** strict_word_similarity(phrase, passage) at or above this promotes a chat to the strong-text tier. */
   strongStrictSimilarity: 0.9,
-  /** Content words of a draft that text reach reads (ticket 18). Bounds the per-message word query. */
+  /** Content words of a draft that text reach reads (ticket 18). Bounds the number of per-word queries (one per word, at most 24). */
   reachMaxWords: 24,
   /** Share of the draft's rarity weight a chat must hold to be reached (ticket 18, measured). */
   reachCoverage: 0.4,

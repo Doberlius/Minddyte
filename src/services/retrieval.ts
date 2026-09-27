@@ -380,6 +380,16 @@ async function wholeDraftHits(workspaceId: string, sessionId: string, draft: str
   })
 }
 
+/**
+ * Formats a why-line's matched-word list, naming at most 5 words: past that,
+ * the line names 5 and says how many more matched, e.g.
+ * `"a", "b", "c", "d", "e" and 3 more`.
+ */
+function wordList(words: string[]): string {
+  const shown = words.slice(0, 5).map((w) => `"${w}"`).join(", ")
+  return words.length > 5 ? `${shown} and ${words.length - 5} more` : shown
+}
+
 export async function retrieveContext(input: {
   workspaceId: string
   sessionId: string
@@ -445,7 +455,7 @@ export async function retrieveContext(input: {
       strong
         ? `matches exact phrase "${h.phrase}" (${h.strong.toFixed(2)})`
         : h.words.length
-          ? `matches words ${h.words.map((w) => `"${w}"`).join(", ")} (${h.reach.toFixed(2)})`
+          ? `matches words ${wordList(h.words)} (${h.reach.toFixed(2)})`
           : `matches your wording (${h.reach.toFixed(2)})`,
     )
     const existing = byChat.get(h.chatId)

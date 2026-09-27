@@ -19,7 +19,7 @@ export type Candidate = {
   chatId: string
   kind: CandidateKind
   sharedNodes: SharedNode[]
-  /** The text-match score for the text tiers: strict similarity for strong-text, word similarity for text. */
+  /** The text-match score for the text tiers: strict similarity for strong-text; for text, max(rare-word coverage, whole-draft word_similarity) (ticket 18). */
   textScore?: number
   /** epoch ms */
   lastReferencedAt: number
