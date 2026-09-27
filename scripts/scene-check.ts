@@ -142,6 +142,38 @@ async function main() {
     console.log(`${noteOk ? 'PASS' : 'FAIL'}  a new render clears the slider note (before="${noteBefore}" after="${noteAfter}" circles=${drawn})`)
     if (!noteOk) failures.push('a new render clears the slider note')
 
+    // Fix round 2 (review): while a NEW top-level render's runScene is still
+    // in flight, the OLD scene's sliders are still in the DOM. Dragging one
+    // must never suppress the new render's own done/error (the single shared
+    // counter from round 1 let it do exactly that, orphaning the page's
+    // player on "loading" forever).
+    await run(page, 'const k = slider("k", 0, 2, 1); play(create(point([k, 0])))')
+    const orphanFrame = page.frameLocator('#f')
+    await page.evaluate(() => { (window as unknown as { msgs: unknown[] }).msgs.length = 0 })
+    const slowCode = 'const t0 = Date.now(); while (Date.now() - t0 < 700) {} ; play(create(point([0, 0])))'
+    const orphanStart = Date.now()
+    await page.evaluate((c) => (window as unknown as { render(c: string): void }).render(c), slowCode)
+    await page.waitForTimeout(100)
+    // { force: true }: the old sliders are frozen (sliderBox.inert) while the
+    // new render computes, so this drag is asserting the counter logic holds
+    // even if something still gets an 'input' event through the freeze.
+    await orphanFrame.locator('.sliders input').first().fill('2', { force: true })
+    const orphanHandle = await page
+      .waitForFunction(() => (window as unknown as { msgs: Msg[] }).msgs.find((m) => m.type === 'done' || m.type === 'error'), null, {
+        timeout: 3000,
+      })
+      .catch(() => null)
+    const orphanMs = Date.now() - orphanStart
+    const orphanMsg = orphanHandle ? ((await orphanHandle.jsonValue()) as Msg) : null
+    const orphanCircles = await orphanFrame.locator('svg circle').count()
+    const orphanCx = orphanCircles === 1 ? await orphanFrame.locator('svg circle').first().getAttribute('cx') : null
+    const orphanOk = orphanMsg?.type === 'done' && orphanMs < 3000 && orphanCircles === 1 && orphanCx === '0'
+    console.log(
+      `${orphanOk ? 'PASS' : 'FAIL'}  a slider drag during a new render does not orphan it ` +
+        `(got ${JSON.stringify(orphanMsg)} after ${orphanMs} ms, circles=${orphanCircles}, cx=${orphanCx})`,
+    )
+    if (!orphanOk) failures.push('a slider drag during a new render does not orphan it')
+
     await run(page, CHECKS.find((c) => c.name.startsWith('draws a sine'))!.code)
     const frame = page.frameLocator('#f')
     await frame.locator('.sliders input').first().fill('4')

@@ -141,16 +141,25 @@ function show(next: Scene, autoplay: boolean) {
   paint()
 }
 
-// One counter shared by every in-flight run (a top-level render or a slider
-// re-run): bumped whenever either starts, so an older run's result — however
-// it finishes, success or failure — is discarded once a newer one has
-// started. This is what stops a slow slider re-run from clobbering a
-// top-level render that arrived while it was still awaiting the worker, and
-// what stops two rapid slider drags from racing each other.
-let gen = 0
+// Two counters, not one, so a slider dragged against the OLD scene can never
+// affect whether a top-level render (already computing the NEW scene) posts
+// done/error (fix round 2 — a single shared counter let a slider drag against
+// stale sliders still in the DOM invalidate the render that was replacing
+// them, so runScene's own message never got a done/error and the page's
+// player was stuck "loading" forever).
+//   renderGen — bumped only by a top-level `render` message. A top-level
+//     render discards its own result only when an even NEWER render started
+//     meanwhile (one-way: a slider drag never bumps this).
+//   sliderGen — bumped by every slider drag AND by every top-level render
+//     (so a fresh render always cancels a slider run scheduled against the
+//     scene it is replacing). A slider run discards its result if EITHER
+//     counter has moved since it was scheduled.
+let renderGen = 0
+let sliderGen = 0
 
 function renderSliders(s: Scene) {
   sliderBox.innerHTML = ''
+  sliderBox.inert = false // undo the freeze a top-level render puts on the sliders it is about to replace
   for (const def of s.sliders) {
     const id = `k${Math.random().toString(36).slice(2)}`
     const lab = document.createElement('label'); lab.htmlFor = id; lab.textContent = def.name
@@ -160,13 +169,14 @@ function renderSliders(s: Scene) {
     input.addEventListener('input', () => {
       out.textContent = input.value
       values[def.name] = Number(input.value)
-      const myGen = ++gen
+      const myRenderGen = renderGen
+      const mySliderGen = ++sliderGen
       const runCode = code
       const runValues = { ...values } // a snapshot: a later top-level render may reassign the module-level `values`
       setTimeout(async () => {
-        if (myGen !== gen) return
+        if (mySliderGen !== sliderGen || myRenderGen !== renderGen) return
         const r = await runScene(runCode, runValues)
-        if (myGen !== gen) return
+        if (mySliderGen !== sliderGen || myRenderGen !== renderGen) return
         if (r.ok) { note.textContent = ''; const sc = r.scene as Scene; scene = sc; scrub.max = String(totalDuration(sc)); t = totalDuration(sc); playing = false; paint() }
         else note.textContent = `This value breaks the diagram: ${r.message}` // Decision 7
       }, 120)
@@ -213,12 +223,14 @@ function init() {
     if (ev.source !== window.parent) return
     const m = ev.data as ToFrame
     if (m?.type !== 'render' || typeof m.code !== 'string') return
-    const myGen = ++gen // also invalidates any slider re-run still in flight
+    const myRenderGen = ++renderGen
+    sliderGen++ // cancel any slider run still scheduled against the scene this render is replacing
+    sliderBox.inert = true // freeze the old scene's sliders while this render computes; renderSliders() lifts it
     code = m.code
     values = {}
     const r = await runScene(code, values)
-    if (myGen !== gen) return // a newer render arrived meanwhile: only the last one may show
-    if (!r.ok) { post({ type: 'error', kind: r.kind, message: r.message }); return }
+    if (myRenderGen !== renderGen) return // a NEWER render arrived meanwhile: only the last one may post done/error
+    if (!r.ok) { sliderBox.inert = false; post({ type: 'error', kind: r.kind, message: r.message }); return }
     show(r.scene as Scene, !!m.autoplay)
     post({ type: 'done' })
   })
