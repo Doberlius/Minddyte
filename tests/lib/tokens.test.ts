@@ -89,7 +89,7 @@ describe('contentTokens', () => {
 
   it("drops a possessive 's, straight or curly", () => {
     expect(contentTokens("the database's journal")).toEqual(['database', 'journal'])
-    expect(contentTokens('the UN\'s agenda')).toEqual(['un', 'agenda'])
+    expect(contentTokens('the UN’s agenda')).toEqual(['un', 'agenda'])
   })
 
   it('returns nothing for a draft of filler only', () => {
