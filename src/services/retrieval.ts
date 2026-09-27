@@ -227,9 +227,13 @@ type TextHit = {
 /**
  * For each content word, the chats holding it: word_similarity(word, passage)
  * >= PROVISIONAL.reachWordMatch for some passage the forgetting rule lets
- * through (ticket 18). ONE query for all words: unnest the list and let the
- * GIN index answer `word <% match_text` per word. Also counts the other chats
- * in the workspace, which rarity needs.
+ * through (ticket 18). One query PER WORD, inside a single transaction (after
+ * one SET LOCAL): a single unnest-and-join query cannot use the GIN trigram
+ * index — measured on real data, the planner instead drives from `sessions`
+ * via the session_id B-tree and evaluates `word <% match_text` as an
+ * unindexed join filter, 4.6 s vs 1.6 s median for the per-word loop over the
+ * same 40 questions. Also counts the other chats in the workspace, which
+ * rarity needs.
  */
 async function wordHits(workspaceId: string, sessionId: string, words: string[]) {
   const chatsByWord = new Map<string, Set<string>>(words.map((w) => [w, new Set<string>()]))
@@ -238,21 +242,24 @@ async function wordHits(workspaceId: string, sessionId: string, words: string[])
   const db = await getDb()
   return db.transaction(async (tx) => {
     await tx.execute(sql.raw(`set local pg_trgm.word_similarity_threshold = ${PROVISIONAL.reachWordMatch}`))
-    const list = sql.join(words.map((w) => sql`${w}`), sql`, `)
-    const res = await tx.execute(sql`
-      select distinct w.word, ${sessions.id} as chat_id, ${sessions.title} as title,
-             ${sessions.createdAt} as created_at, ${sessions.updatedAt} as updated_at
-      from unnest(array[${list}]::text[]) as w(word)
-      join ${chatPointers} on w.word <% ${chatPointers.matchText}
-      join ${sessions} on ${sessions.id} = ${chatPointers.sessionId}
-      where ${chatPointers.workspaceId} = ${workspaceId}
-        and ${sessions.workspaceId} = ${workspaceId}
-        and ${chatPointers.sessionId} <> ${sessionId}
-        and ${notForgottenSql(chatPointers.sessionId, chatPointers.matchText)}`)
-    const rows = (res as unknown as { rows: { word: string; chat_id: string; title: string; created_at: string | Date; updated_at: string | Date }[] }).rows
-    for (const r of rows) {
-      chatsByWord.get(r.word)!.add(r.chat_id)
-      meta.set(r.chat_id, { title: r.title, createdAt: new Date(r.created_at), updatedAt: new Date(r.updated_at) })
+    for (const w of words) {
+      const rows = await tx
+        .selectDistinct({ chatId: sessions.id, title: sessions.title, createdAt: sessions.createdAt, updatedAt: sessions.updatedAt })
+        .from(chatPointers)
+        .innerJoin(sessions, eq(sessions.id, chatPointers.sessionId))
+        .where(
+          and(
+            eq(chatPointers.workspaceId, workspaceId),
+            eq(sessions.workspaceId, workspaceId),
+            ne(chatPointers.sessionId, sessionId),
+            sql`${w} <% ${chatPointers.matchText}`,
+            notForgottenSql(chatPointers.sessionId, chatPointers.matchText),
+          ),
+        )
+      for (const r of rows) {
+        chatsByWord.get(w)!.add(r.chatId)
+        meta.set(r.chatId, { title: r.title, createdAt: r.createdAt, updatedAt: r.updatedAt })
+      }
     }
     const [{ n }] = await tx
       .select({ n: sql<number>`count(*)`.mapWith(Number) })
