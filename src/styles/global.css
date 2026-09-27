@@ -1240,6 +1240,27 @@ input:focus-visible, textarea:focus-visible {
 }
 .md input[type='checkbox'] { margin: 0 .45em 0 0; vertical-align: -1px; }
 
+/* Safe HTML a reply may carry (rehype-sanitize's allow-list). */
+.md kbd {
+  font-family: var(--mono); font-size: .85em; color: var(--ink);
+  background: var(--white); border: 1px solid var(--border); border-bottom-width: 2px;
+  border-radius: 5px; padding: .05em .4em;
+}
+/* An image a reply mentions, shown as a chip, never loaded (Markdown.tsx `img`). */
+.md-img {
+  display: inline-block; margin: 0 .2em; padding: 0 .45em; font-size: .88em; color: var(--ink3);
+  border: 1px dashed var(--pill-border); border-radius: 5px; background: var(--white);
+}
+.md details { margin: 0 0 .75em; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; background: var(--white); }
+.md summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+.md details[open] summary { margin-bottom: .5em; }
+
+/* LaTeX (KaTeX). A display formula wider than the column scrolls inside
+   itself, like a code block, instead of pushing the page sideways. */
+.md .katex { font-size: 1.08em; }
+.md .katex-display { margin: .4em 0 .9em; padding: 4px 0; overflow-x: auto; overflow-y: hidden; }
+.md .katex-error, .forget-quotes .katex-error { font-family: var(--mono); font-size: .9em; }
+
 /* Tables scroll sideways inside the reply instead of widening the page. */
 .md-table { overflow-x: auto; margin: 0 0 .9em; border: 1px solid var(--border); border-radius: 10px; background: var(--white); }
 .md-table table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
