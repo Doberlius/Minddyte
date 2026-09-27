@@ -126,6 +126,22 @@ async function main() {
       console.log(`${problem ? 'FAIL' : 'PASS'}  ${c.name}${problem ? `: ${problem}` : ''}`)
       if (problem) failures.push(c.name)
     }
+    // Fix round 1 (review): a slider re-run's error note must not survive a
+    // top-level render that arrives while it is in flight or after it, and a
+    // fresh top-level render must always clear a stale note.
+    const noteCode = 'const k = slider("k", 0, 2, 1); if (k > 1.5) throw new Error("too big"); play(create(point([k, 0])))'
+    await run(page, noteCode)
+    const noteFrame = page.frameLocator('#f')
+    await noteFrame.locator('.sliders input').first().fill('2') // k = 2 > 1.5: the slider re-run throws
+    await page.waitForTimeout(600)
+    const noteBefore = (await noteFrame.locator('.note').innerText()).trim()
+    await run(page, 'play(create(point([3, 3])))') // a different, valid, top-level render
+    const noteAfter = (await noteFrame.locator('.note').innerText()).trim()
+    const drawn = await noteFrame.locator('svg circle').count()
+    const noteOk = noteBefore.length > 0 && noteAfter.length === 0 && drawn > 0
+    console.log(`${noteOk ? 'PASS' : 'FAIL'}  a new render clears the slider note (before="${noteBefore}" after="${noteAfter}" circles=${drawn})`)
+    if (!noteOk) failures.push('a new render clears the slider note')
+
     await run(page, CHECKS.find((c) => c.name.startsWith('draws a sine'))!.code)
     const frame = page.frameLocator('#f')
     await frame.locator('.sliders input').first().fill('4')

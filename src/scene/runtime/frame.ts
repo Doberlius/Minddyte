@@ -136,11 +136,19 @@ function show(next: Scene, autoplay: boolean) {
   titleBox.textContent = next.title ?? ''
   t = autoplay && !reduced ? 0 : total // Decision 2: a reopened chat shows the finished diagram
   playing = autoplay && !reduced && total > 0
+  note.textContent = '' // a stale "this value breaks the diagram" note must not outlive the scene it was about
   renderSliders(next)
   paint()
 }
 
-let rerun = 0
+// One counter shared by every in-flight run (a top-level render or a slider
+// re-run): bumped whenever either starts, so an older run's result — however
+// it finishes, success or failure — is discarded once a newer one has
+// started. This is what stops a slow slider re-run from clobbering a
+// top-level render that arrived while it was still awaiting the worker, and
+// what stops two rapid slider drags from racing each other.
+let gen = 0
+
 function renderSliders(s: Scene) {
   sliderBox.innerHTML = ''
   for (const def of s.sliders) {
@@ -152,11 +160,13 @@ function renderSliders(s: Scene) {
     input.addEventListener('input', () => {
       out.textContent = input.value
       values[def.name] = Number(input.value)
-      const mine = ++rerun
+      const myGen = ++gen
+      const runCode = code
+      const runValues = { ...values } // a snapshot: a later top-level render may reassign the module-level `values`
       setTimeout(async () => {
-        if (mine !== rerun) return
-        const r = await runScene(code, values)
-        if (mine !== rerun) return
+        if (myGen !== gen) return
+        const r = await runScene(runCode, runValues)
+        if (myGen !== gen) return
         if (r.ok) { note.textContent = ''; const sc = r.scene as Scene; scene = sc; scrub.max = String(totalDuration(sc)); t = totalDuration(sc); playing = false; paint() }
         else note.textContent = `This value breaks the diagram: ${r.message}` // Decision 7
       }, 120)
@@ -203,9 +213,11 @@ function init() {
     if (ev.source !== window.parent) return
     const m = ev.data as ToFrame
     if (m?.type !== 'render' || typeof m.code !== 'string') return
+    const myGen = ++gen // also invalidates any slider re-run still in flight
     code = m.code
     values = {}
     const r = await runScene(code, values)
+    if (myGen !== gen) return // a newer render arrived meanwhile: only the last one may show
     if (!r.ok) { post({ type: 'error', kind: r.kind, message: r.message }); return }
     show(r.scene as Scene, !!m.autoplay)
     post({ type: 'done' })
