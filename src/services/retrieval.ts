@@ -6,8 +6,9 @@ import { canonicalKey } from "@/lib/text"
 import { selectWindows, type ScoredPointer, type Excerpt } from "@/lib/windows"
 import { sentLength, HIDDEN_TITLE } from "@/lib/prompt"
 import { PROVISIONAL } from "@/lib/provisional"
-import { queryText, strongPhrases } from "@/lib/tokens"
+import { queryText, strongPhrases, contentTokens } from "@/lib/tokens"
 import { notForgottenSql } from "@/lib/mentions"
+import { coverageReach } from "@/lib/coverage"
 
 /** Spec §6.2 — a QUALITY limit, not a capacity one. */
 export const CONTEXT_CHAR_BUDGET = 2000 * 4 // ~2000 tokens
@@ -220,10 +221,73 @@ type TextHit = {
   phrase: string | null
   createdAt: Date
   updatedAt: Date
+  words: string[]
 }
 
 /**
- * Chats whose passages match the draft's words. Ticket 05, rounds 2–4:
+ * For each content word, the chats holding it: word_similarity(word, passage)
+ * >= PROVISIONAL.reachWordMatch for some passage the forgetting rule lets
+ * through (ticket 18). ONE query for all words: unnest the list and let the
+ * GIN index answer `word <% match_text` per word. Also counts the other chats
+ * in the workspace, which rarity needs.
+ */
+async function wordHits(workspaceId: string, sessionId: string, words: string[]) {
+  const chatsByWord = new Map<string, Set<string>>(words.map((w) => [w, new Set<string>()]))
+  const meta = new Map<string, { title: string; createdAt: Date; updatedAt: Date }>()
+  if (!words.length) return { chatsByWord, meta, otherChats: 0 }
+  const db = await getDb()
+  return db.transaction(async (tx) => {
+    await tx.execute(sql.raw(`set local pg_trgm.word_similarity_threshold = ${PROVISIONAL.reachWordMatch}`))
+    const list = sql.join(words.map((w) => sql`${w}`), sql`, `)
+    const res = await tx.execute(sql`
+      select distinct w.word, ${sessions.id} as chat_id, ${sessions.title} as title,
+             ${sessions.createdAt} as created_at, ${sessions.updatedAt} as updated_at
+      from unnest(array[${list}]::text[]) as w(word)
+      join ${chatPointers} on w.word <% ${chatPointers.matchText}
+      join ${sessions} on ${sessions.id} = ${chatPointers.sessionId}
+      where ${chatPointers.workspaceId} = ${workspaceId}
+        and ${sessions.workspaceId} = ${workspaceId}
+        and ${chatPointers.sessionId} <> ${sessionId}
+        and ${notForgottenSql(chatPointers.sessionId, chatPointers.matchText)}`)
+    const rows = (res as unknown as { rows: { word: string; chat_id: string; title: string; created_at: string | Date; updated_at: string | Date }[] }).rows
+    for (const r of rows) {
+      chatsByWord.get(r.word)!.add(r.chat_id)
+      meta.set(r.chat_id, { title: r.title, createdAt: new Date(r.created_at), updatedAt: new Date(r.updated_at) })
+    }
+    const [{ n }] = await tx
+      .select({ n: sql<number>`count(*)`.mapWith(Number) })
+      .from(sessions)
+      .where(and(eq(sessions.workspaceId, workspaceId), ne(sessions.id, sessionId)))
+    return { chatsByWord, meta, otherChats: n }
+  })
+}
+
+/**
+ * Text reach (ticket 18): rare-word coverage, plus the whole-draft backup
+ * (>= reachWordSimilarity) and the unchanged exact-phrase promotion.
+ */
+async function textHits(workspaceId: string, sessionId: string, draft: string): Promise<TextHit[]> {
+  if (!draft) return []
+  const words = contentTokens(draft)
+  const { chatsByWord, meta, otherChats } = await wordHits(workspaceId, sessionId, words)
+  const whole = await wholeDraftHits(workspaceId, sessionId, draft)
+  const covered = coverageReach(words, chatsByWord, otherChats)
+  const out = new Map<string, TextHit>()
+  for (const h of whole) {
+    const c = covered.get(h.chatId)
+    out.set(h.chatId, { ...h, reach: Math.max(h.reach, c?.coverage ?? 0), words: c?.words ?? [] })
+  }
+  for (const [id, c] of covered) {
+    if (out.has(id)) continue
+    const m = meta.get(id)!
+    out.set(id, { chatId: id, title: m.title, createdAt: m.createdAt, updatedAt: m.updatedAt, reach: c.coverage, strong: 0, phrase: null, words: c.words })
+  }
+  return [...out.values()]
+}
+
+/**
+ * Chats whose passages match the WHOLE draft (the ticket-18 backup, at
+ * reachWordSimilarity 0.5), plus exact-phrase promotion. Ticket 05, rounds 2–4:
  *   reach      word_similarity(draft, passage) >= PROVISIONAL.reachWordSimilarity
  *   promotion  strict_word_similarity(phrase, passage) >= PROVISIONAL.strongStrictSimilarity
  *              for a draft phrase of >= 2 significant tokens (strongPhrases)
@@ -233,7 +297,7 @@ type TextHit = {
  * would outlive it, and on single-connection PGlite that means for the life of
  * the process.
  */
-async function textHits(workspaceId: string, sessionId: string, draft: string): Promise<TextHit[]> {
+async function wholeDraftHits(workspaceId: string, sessionId: string, draft: string): Promise<TextHit[]> {
   // `draft` is already queryText(): bounded, trimmed. See retrieveContext.
   if (!draft) return []
   const db = await getDb()
@@ -303,6 +367,7 @@ async function textHits(workspaceId: string, sessionId: string, draft: string): 
         chatId: r.chatId, title: r.title, createdAt: r.createdAt, updatedAt: r.updatedAt, reach: r.reach,
         strong: scores.length ? scores[best] : 0,
         phrase: scores.length ? phrases[best] : null,
+        words: [],
       }
     })
   })
@@ -370,7 +435,11 @@ export async function retrieveContext(input: {
     meta.set(h.chatId, { title: h.title })
     textWhy.set(
       h.chatId,
-      strong ? `matches exact phrase "${h.phrase}" (${h.strong.toFixed(2)})` : `matches your wording (${h.reach.toFixed(2)})`,
+      strong
+        ? `matches exact phrase "${h.phrase}" (${h.strong.toFixed(2)})`
+        : h.words.length
+          ? `matches words ${h.words.map((w) => `"${w}"`).join(", ")} (${h.reach.toFixed(2)})`
+          : `matches your wording (${h.reach.toFixed(2)})`,
     )
     const existing = byChat.get(h.chatId)
     if (existing) {

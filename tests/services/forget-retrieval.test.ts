@@ -73,6 +73,19 @@ describe('retrieval never uses a forgotten sentence', () => {
 
     expect(text(await ask(b, 'what about it?', [c]))).toContain('Kafka carries the events.')
   })
+
+  // Ticket 18, Review Focus 2: a forgotten sentence never counts towards word coverage.
+  it('a word only in forgotten sentences does not count towards coverage', async () => {
+    const a = await newChat('A')
+    await turn(a, 'Tell me about Kafka.', 'Kafka replays the journal after a crash.')
+    const b = await newChat('B')
+    // Control: before forgetting, A IS reached (every content word is in it).
+    expect((await ask(b, 'After a crash, what replays the journal in Kafka?')).chats.map((c) => c.id)).toEqual([a])
+
+    await forgetConcept(WS, a, 'kafka')
+
+    expect((await ask(b, 'After a crash, what replays the journal in Kafka?')).chats).toEqual([])
+  })
 })
 
 describe('the Archive passage count', () => {

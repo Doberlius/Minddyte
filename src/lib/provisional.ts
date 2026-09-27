@@ -10,8 +10,14 @@
  * chats, 8 shared concepts and 10 labelled cases.
  */
 export const PROVISIONAL = {
-  /** word_similarity(draft, passage) at or above this reaches a chat. Band that caught a paraphrase: 0.25–0.379. */
-  reachWordSimilarity: 0.3,
+  /**
+   * BACKUP reach (ticket 18): word_similarity(whole draft, passage) at or above
+   * this still reaches a chat. The main text reach is rare-word coverage
+   * (lib/coverage.ts). Kept for typo'd drafts ("kafak partiton ordering"),
+   * whose content words match nothing exactly. Was 0.3 (the primary rule);
+   * results were flat from 0.45 to 0.55, and 0.5 was chosen.
+   */
+  reachWordSimilarity: 0.5,
   /** strict_word_similarity(phrase, passage) at or above this promotes a chat to the strong-text tier. */
   strongStrictSimilarity: 0.9,
   /** Content words of a draft that text reach reads (ticket 18). Bounds the per-message word query. */

@@ -115,14 +115,11 @@ describe('reach by text', () => {
     expect(chats[0].why).toMatch(/matches exact phrase "retention period"/i)
   })
 
-  // Fix round 1, finding 2: every other test in this file reaches through a
-  // strong phrase, so 'text' — the plain, unpromoted tier — and its "matches
-  // your wording" reason were never exercised. Measured against this exact
-  // fixture: word_similarity('ninety days sounds about right', 'The
-  // retention period for audit logs is ninety days by default.') = 0.387,
-  // above PROVISIONAL.reachWordSimilarity (0.3); strongPhrases('ninety days
-  // sounds about right') = [] (no phrase of >= 2 significant tokens), so
-  // promotion never fires and the chat surfaces via the plain text tier.
+  // Ticket 18: the plain text tier now reaches by rare-word coverage. Words
+  // "ninety", "days", "sounds", "right"; the chat holds the first two.
+  // With the small-workspace smoothing (reachIdfMinChats 20) that is
+  // coverage 0.414 >= 0.4 — a thin margin, on purpose: it pins the smoothing.
+  // The whole-draft backup (word_similarity 0.387 < 0.5) does not fire.
   it('reaches a chat by wording alone, with no strong phrase to promote it', async () => {
     const a = await newChat('Logs')
     await turn(a, 'What are the defaults?', 'The retention period for audit logs is ninety days by default.')
@@ -134,7 +131,79 @@ describe('reach by text', () => {
     })
     expect(chats.map((c) => c.id)).toContain(a)
     const found = chats.find((c) => c.id === a)!
-    expect(found.why).toMatch(/matches your wording/i)
+    expect(found.why).toMatch(/matches words "ninety", "days"/)
+  })
+
+  // Ticket 18 diagnosis: "What is the … of" matched 0.444 against this sentence.
+  it('does not reach through filler words', async () => {
+    const a = await newChat('KG')
+    await turn(a, 'Compare them.', 'It is excellent for answering "What is the relationship between these two things?"')
+    const b = await newChat('B')
+    const { chats } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'explore', taggedChatIds: [],
+      draftText: 'What is the plot of Hamlet?',
+    })
+    expect(chats).toEqual([])
+  })
+
+  it('does not reach through one stray shared word', async () => {
+    const a = await newChat('SDG')
+    await turn(a, 'Goal 6?', 'Goal 6 is clean water and sanitation for all.')
+    const b = await newChat('B')
+    const { chats } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'explore', taggedChatIds: [],
+      draftText: 'How much water should I drink each day?',
+    })
+    expect(chats).toEqual([])
+  })
+
+  it('reaches a rephrased question through its rare words, and names them', async () => {
+    const a = await newChat('WAL')
+    await turn(a, 'What is a WAL?', 'If the server crashes, we simply replay the journal from the last checkpoint until the end.')
+    const b = await newChat('B')
+    const { chats } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'explore', taggedChatIds: [],
+      draftText: 'After a crash, how is the journal replayed?',
+    })
+    expect(chats.map((c) => c.id)).toEqual([a])
+    expect(chats[0].why).toMatch(/matches words "crash", "journal"/)
+  })
+
+  // The backup: a typo'd draft has almost no exact content words, but the
+  // whole draft still looks like the chat (word_similarity >= 0.5).
+  it('still reaches a typo-ridden draft through the whole-draft backup', async () => {
+    const a = await newChat('Kafka')
+    await turn(a, 'Ordering?', 'Kafka partition ordering is guaranteed only within one partition.')
+    const b = await newChat('B')
+    const { chats } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'explore', taggedChatIds: [],
+      draftText: 'kafak partiton ordering',
+    })
+    expect(chats.map((c) => c.id)).toEqual([a])
+  })
+
+  // Review Focus 3.
+  it('treats quote and wildcard characters as plain text', async () => {
+    const a = await newChat('Books')
+    await turn(a, 'Publisher?', "O'Reilly's book covers 100% of a_b testing.")
+    const b = await newChat('B')
+    await expect(retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'explore', taggedChatIds: [],
+      draftText: "O'Reilly's 100% a_b % _ ' \\",
+    })).resolves.toBeDefined()
+  })
+
+  // Review Focus 4.
+  // How pg_trgm treats umlauts depends on the database locale, which is not
+  // pinned here, so this asserts only what Review Focus 4 promises: no throw.
+  it('does not throw on a non-Latin draft', async () => {
+    const a = await newChat('DE')
+    await turn(a, 'Größe?', 'Die Größe der Datenbank wächst mit jedem Eintrag.')
+    const b = await newChat('B')
+    await expect(retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'explore', taggedChatIds: [],
+      draftText: 'Wie wächst die Größe der Datenbank? ภาษาไทย',
+    })).resolves.toBeDefined()
   })
 
   it('does not reach by text in focus mode', async () => {
