@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { createRepairBudget, parseRepairBody, repairPrompt, REPAIR_SYSTEM, type RepairBody } from '@/lib/scene/repair'
+import {
+  createRepairBudget, parseRepairBody, repairPrompt, REPAIR_SYSTEM, withNotFoundRetry,
+  type RepairAttempt, type RepairBody,
+} from '@/lib/scene/repair'
 
 const ids = { sessionId: '0b6f7c1e-8a4d-4f7a-9c2e-3d5b6a7c8d9e', messageId: '6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f' }
 
@@ -65,6 +68,61 @@ describe('createRepairBudget', () => {
     // 'a' was evicted, so it is treated as new again and gets a fresh budget.
     for (let i = 0; i < 5; i++) expect(budget.take('a')).toBe(true)
     expect(budget.take('a')).toBe(false)
+  })
+})
+
+describe('withNotFoundRetry', () => {
+  const NOT_FOUND: RepairAttempt = { ok: false, status: 404, data: { error: 'not_found' } }
+  const OK: RepairAttempt = { ok: true, status: 200, data: { code: 'play(ok())' } }
+
+  it('returns the first result immediately when it is not a not_found 404', async () => {
+    let calls = 0
+    const waits: number[] = []
+    const result = await withNotFoundRetry(
+      async () => { calls++; return OK },
+      3, 1000,
+      async (ms) => { waits.push(ms) },
+    )
+    expect(result).toEqual(OK)
+    expect(calls).toBe(1)
+    expect(waits).toEqual([])
+  })
+
+  it('retries up to `tries` times while it keeps seeing not_found, waiting delayMs between each', async () => {
+    let calls = 0
+    const waits: number[] = []
+    const result = await withNotFoundRetry(
+      async () => { calls++; return NOT_FOUND },
+      3, 1000,
+      async (ms) => { waits.push(ms) },
+    )
+    // 1 initial call + 3 retries = 4 calls total; a wait before each retry.
+    expect(calls).toBe(4)
+    expect(waits).toEqual([1000, 1000, 1000])
+    expect(result).toEqual(NOT_FOUND)
+  })
+
+  it('stops retrying as soon as a non-not_found result arrives', async () => {
+    let calls = 0
+    const result = await withNotFoundRetry(
+      async () => { calls++; return calls < 3 ? NOT_FOUND : OK },
+      3, 1000,
+      async () => {},
+    )
+    expect(calls).toBe(3)
+    expect(result).toEqual(OK)
+  })
+
+  it('does not retry a plain failure that is not the not_found shape', async () => {
+    const otherFailure: RepairAttempt = { ok: false, status: 404, data: { error: 'not_a_real_reason' } }
+    let calls = 0
+    const result = await withNotFoundRetry(
+      async () => { calls++; return otherFailure },
+      3, 1000,
+      async () => {},
+    )
+    expect(calls).toBe(1)
+    expect(result).toEqual(otherFailure)
   })
 })
 

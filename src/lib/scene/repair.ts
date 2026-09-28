@@ -68,6 +68,35 @@ export function createRepairBudget(maxPerBlock: number, maxKeys: number): { take
   }
 }
 
+/** One outcome of a repair POST, shaped for `withNotFoundRetry` to judge without re-reading a Response body (it can only be read once). */
+export type RepairAttempt = { ok: boolean; status: number; data: { code?: string; error?: string } }
+
+/**
+ * Retries `attempt` up to `tries` more times, `delayMs` apart, but only
+ * while it keeps answering the "not written yet" shape: 404 with
+ * `{ error: 'not_found' }`. `/api/scene/repair` answers exactly that when
+ * the assistant message it needs has not reached the database — it is
+ * persisted only in the chat route's `onFinish`, after the stream ends, so
+ * a diagram whose block fails fast can call repair before that write has
+ * landed. Any other result — success or a different failure — returns
+ * immediately, and none of these retries count as a repair attempt (the
+ * caller decides that, this function never touches an attempts counter).
+ * `wait` is injected so a test can run this without real delay.
+ */
+export async function withNotFoundRetry(
+  attempt: () => Promise<RepairAttempt>,
+  tries: number,
+  delayMs: number,
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<RepairAttempt> {
+  let result = await attempt()
+  for (let i = 0; i < tries && result.status === 404 && result.data.error === 'not_found'; i++) {
+    await wait(delayMs)
+    result = await attempt()
+  }
+  return result
+}
+
 export const REPAIR_SYSTEM = [
   DIAGRAM_GUIDE,
   '',

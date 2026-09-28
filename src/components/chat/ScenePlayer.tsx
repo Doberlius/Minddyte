@@ -2,7 +2,8 @@
 
 import { useContext, useEffect, useRef, useState } from 'react'
 import { buildFrameDoc } from '@/scene/frameDoc'
-import { acceptFrameMessage, shouldAutoRepair, type FrameErrorKind } from '@/scene/runtime/protocol'
+import { acceptFrameMessage, repairAction, shouldAutoRepair, type FrameErrorKind } from '@/scene/runtime/protocol'
+import { withNotFoundRetry, type RepairAttempt } from '@/lib/scene/repair'
 import { SceneContext } from './SceneContext'
 import { CodeBlock } from './CodeBlock'
 
@@ -18,6 +19,13 @@ type Phase =
   | { kind: 'failed'; error: { kind: FrameErrorKind; message: string } }
 
 const READY_TIMEOUT_MS = 10_000
+// The assistant message reaches the database only after its stream ends
+// (the chat route's onFinish). A block that fails fast can call repair
+// before that write lands, which answers 404 not_found — retried rather
+// than counted as a failed attempt, since the code never actually ran
+// against the model.
+const NOT_FOUND_RETRIES = 3
+const NOT_FOUND_DELAY_MS = 1000
 
 export const FAILURE_TITLE: Record<FrameErrorKind, string> = {
   error: 'Couldn’t draw this diagram',
@@ -53,6 +61,21 @@ export function ScenePlayer({ code, index }: { code: string; index: number }) {
   // Set only while a repaired run's success has not yet been persisted, so
   // the 'done' handler below knows there is something worth saving.
   const unsaved = useRef<string | null>(null)
+  // An auto-repair that is eligible but arrived while the reply was still
+  // streaming (spec §8 + the streaming race fix): held here until the
+  // ctx.streaming effect below sees streaming end, rather than spent on a
+  // request that would 404 because the message is not saved yet.
+  const pendingRepair = useRef(false)
+  // The message-listener effect below must NOT re-subscribe when streaming
+  // ends — doing that would reset its local `ready` flag and arm a fresh
+  // READY_TIMEOUT_MS timer against an iframe that is not being remounted
+  // (frameKey does not change just because streaming stopped), which would
+  // wrongly fail an already-working diagram 10s later. A ref lets the error
+  // handler read the current value without being a dependency.
+  const streamingRef = useRef(ctx.streaming)
+  useEffect(() => {
+    streamingRef.current = ctx.streaming
+  }, [ctx.streaming])
   // Spec §8: repair needs to know which message and which block to load the
   // failing code from — an old chat reopened without that context never
   // qualifies, automatically or via Try again.
@@ -69,26 +92,33 @@ export function ScenePlayer({ code, index }: { code: string; index: number }) {
     attempts.current += 1
     setRepairing(true)
     try {
-      const res = await fetch('/api/scene/repair', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: ctx.sessionId, messageId: ctx.messageId, blockIndex: index,
-          // The server always loads `code` (the original) from the database,
-          // never `current` — so the `error` sent here must describe THAT
-          // code, not whatever last ran. `failure.code !== code` means the
-          // failing run was itself a repaired attempt: its own error belongs
-          // in `previous` (Decision 3 — attempt 2 shows the model what
-          // attempt 1 tried), and `error` falls back to the original
-          // failure's message.
-          ...(failure.code !== code
-            ? { error: firstError.current ?? failure.error, previous: failure }
-            : { error: failure.error }),
-          ...(ctx.model ? { model: ctx.model } : {}),
-        }),
-      })
-      const data = (await res.json().catch(() => ({}))) as { code?: string; error?: string }
-      if (!res.ok || !data.code) throw new Error(data.error ?? `HTTP ${res.status}`)
+      const attempt = async (): Promise<RepairAttempt> => {
+        const res = await fetch('/api/scene/repair', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            sessionId: ctx.sessionId, messageId: ctx.messageId, blockIndex: index,
+            // The server always loads `code` (the original) from the database,
+            // never `current` — so the `error` sent here must describe THAT
+            // code, not whatever last ran. `failure.code !== code` means the
+            // failing run was itself a repaired attempt: its own error belongs
+            // in `previous` (Decision 3 — attempt 2 shows the model what
+            // attempt 1 tried), and `error` falls back to the original
+            // failure's message.
+            ...(failure.code !== code
+              ? { error: firstError.current ?? failure.error, previous: failure }
+              : { error: failure.error }),
+            ...(ctx.model ? { model: ctx.model } : {}),
+          }),
+        })
+        const data = (await res.json().catch(() => ({}))) as { code?: string; error?: string }
+        return { ok: res.ok, status: res.status, data }
+      }
+      // A 404 not_found here means the assistant message has not reached the
+      // database yet, not that the block does not exist — retried rather
+      // than treated as a failed run.
+      const { ok, status, data } = await withNotFoundRetry(attempt, NOT_FOUND_RETRIES, NOT_FOUND_DELAY_MS)
+      if (!ok || !data.code) throw new Error(data.error ?? `HTTP ${status}`)
       unsaved.current = data.code
       setCurrent(data.code)
       setPhase({ kind: 'loading' })
@@ -99,6 +129,16 @@ export function ScenePlayer({ code, index }: { code: string; index: number }) {
       setRepairing(false)
     }
   }
+
+  // Starts a repair that was held back because the reply was still
+  // streaming (spec §8 + the streaming race fix), the moment it stops.
+  useEffect(() => {
+    if (!ctx.streaming && pendingRepair.current) {
+      pendingRepair.current = false
+      void repair()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- repair() closes over refs and ctx read fresh on each call; only ctx.streaming's transition matters here
+  }, [ctx.streaming])
 
   useEffect(() => {
     if (!doc) return
@@ -128,8 +168,16 @@ export function ScenePlayer({ code, index }: { code: string; index: number }) {
         unsaved.current = null
         if (current === code) firstError.current = msg.message
         lastFailure.current = { code: current, error: msg.message }
-        if (shouldAutoRepair({ fresh: ctx.fresh, attempts: attempts.current, kind: msg.kind, canRepair })) void repair()
-        else setPhase({ kind: 'failed', error: { kind: msg.kind, message: msg.message } })
+        const shouldRepair = shouldAutoRepair({ fresh: ctx.fresh, attempts: attempts.current, kind: msg.kind, canRepair })
+        const action = repairAction({ shouldRepair, streaming: streamingRef.current })
+        if (action === 'now') void repair()
+        else if (action === 'wait') {
+          // Held until the reply finishes streaming (the effect above starts
+          // it); shown as "Fixing this diagram…" in the meantime, same as an
+          // in-flight repair, since one is about to start.
+          pendingRepair.current = true
+          setRepairing(true)
+        } else setPhase({ kind: 'failed', error: { kind: msg.kind, message: msg.message } })
       }
     }
     window.addEventListener('message', onMessage)
@@ -140,7 +188,7 @@ export function ScenePlayer({ code, index }: { code: string; index: number }) {
       window.removeEventListener('message', onMessage)
       clearTimeout(timer)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- repair()/canRepair close over refs and ctx already covered by ctx.fresh/ctx.sessionId/ctx.messageId not changing per-render
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- repair()/canRepair close over refs and ctx already covered by ctx.fresh/ctx.sessionId/ctx.messageId not changing per-render; ctx.streaming is read through streamingRef (see above) so this effect does not re-subscribe when it changes
   }, [doc, current, frameKey, ctx.fresh])
 
   const failed = phase.kind === 'failed' ? phase.error : null

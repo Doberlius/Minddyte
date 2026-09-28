@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { acceptFrameMessage, isFromFrame, shouldAutoRepair } from '@/scene/runtime/protocol'
+import { acceptFrameMessage, isFromFrame, repairAction, shouldAutoRepair } from '@/scene/runtime/protocol'
 import { classifyWorkerError } from '@/scene/runtime/run'
 import { workerScript } from '@/scene/runtime/wrap'
 
@@ -40,6 +40,19 @@ describe('shouldAutoRepair', () => {
     expect(shouldAutoRepair({ ...base, fresh: false })).toBe(false)
     expect(shouldAutoRepair({ ...base, kind: 'unsupported' })).toBe(false)
     expect(shouldAutoRepair({ ...base, canRepair: false })).toBe(false)
+  })
+})
+
+describe('repairAction', () => {
+  it('does nothing when repair is not warranted, regardless of streaming', () => {
+    expect(repairAction({ shouldRepair: false, streaming: true })).toBe('none')
+    expect(repairAction({ shouldRepair: false, streaming: false })).toBe('none')
+  })
+  it('repairs immediately once eligible and not streaming', () => {
+    expect(repairAction({ shouldRepair: true, streaming: false })).toBe('now')
+  })
+  it('holds an eligible repair while the reply is still streaming', () => {
+    expect(repairAction({ shouldRepair: true, streaming: true })).toBe('wait')
   })
 })
 

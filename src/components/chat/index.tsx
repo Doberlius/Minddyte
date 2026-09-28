@@ -419,8 +419,12 @@ export function NeuralChat({
         )}
 
         {!opening &&
-          messages.map((m) => {
+          messages.map((m, i) => {
             const text = m.parts.filter((p) => p.type === 'text').map((p) => p.text).join('')
+            // Only the LAST message can still be streaming, and only while
+            // useChat says so — otherwise the message is fully saved.
+            const isLast = i === messages.length - 1
+            const streaming = isLast && (status === 'streaming' || status === 'submitted')
             // The user's own message is shown exactly as typed, line breaks
             // kept: people type * _ # casually, without meaning formatting.
             // A model reply is markdown, and is rendered as markdown; it takes
@@ -437,7 +441,7 @@ export function NeuralChat({
               </div>
             ) : (
               <div key={m.id} style={{ alignSelf: 'stretch', minWidth: 0, fontSize: 13.5, lineHeight: 1.65, color: 'var(--ink2)' }}>
-                <SceneContext.Provider value={{ sessionId: sessionId ?? null, messageId: m.id, fresh: !loadedIds.current.has(m.id), model: model ?? null }}>
+                <SceneContext.Provider value={{ sessionId: sessionId ?? null, messageId: m.id, fresh: !loadedIds.current.has(m.id), model: model ?? null, streaming }}>
                   <Markdown text={text} />
                 </SceneContext.Provider>
               </div>
