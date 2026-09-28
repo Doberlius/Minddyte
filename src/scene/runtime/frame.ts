@@ -6,7 +6,8 @@
 import { runScene } from './run'
 import { captionAt, frameAt, totalDuration, type Visual } from './render'
 import type { FromFrame, ToFrame } from './protocol'
-import { BACKGROUND, LIMITS, type Scene } from '../types'
+import { withinLimits } from './limits'
+import { BACKGROUND, type Scene } from '../types'
 
 declare const katex: { renderToString(tex: string, o: { throwOnError: boolean; displayMode?: boolean }): string }
 
@@ -127,35 +128,6 @@ function tick(ts: number) {
   }
   lastTs = ts
   requestAnimationFrame(tick)
-}
-
-/**
- * Defense in depth: `createSceneBuilder` (lib.ts) already enforces LIMITS
- * while the worker BUILDS a scene, but `show()` here trusts whatever
- * `postMessage`'d back as `{ type: 'scene', scene }` without looking at it
- * again — and `scene` crosses from the worker to this frame as plain,
- * structurally-cloned data, not a value this frame constructed itself. A
- * scene this large would already have failed rendering slowly rather than
- * safely; re-checking it here, right before `show()` touches the DOM, is
- * what turns that into a clean `limits` error instead.
- *
- * The fourth check — total `create`/`change` op id references across every
- * step — catches a scene with few enough shapes to pass the shape-count
- * check but an unbounded number of animation ops referencing them, which
- * `createSceneBuilder` never separately bounds.
- */
-function withinLimits(s: Scene): boolean {
-  if (Object.keys(s.shapes).length > LIMITS.shapes) return false
-  if (s.steps.length > LIMITS.steps) return false
-  if (s.sliders.length > LIMITS.sliders) return false
-  let opIds = 0
-  for (const step of s.steps) {
-    for (const op of step.ops) {
-      if (op.op === 'create') opIds += op.ids.length
-      else if (op.op === 'change') opIds += 1
-    }
-  }
-  return opIds <= LIMITS.shapes
 }
 
 function show(next: Scene, autoplay: boolean) {

@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import { getDb, chatPointers, messages, nodes } from '../../db'
 import { FIXTURE_WORKSPACE_ID, newChat, truncateAll } from '../helpers/pglite'
 import { ingestUserMessage, persistMessage } from '@/services/graph'
-import { stripVisualize, blankVisualize } from '@/lib/scene/intent'
+import { stripVisualize, visualizePrefixLength } from '@/lib/scene/intent'
 import { canonicalKey } from '@/lib/text'
 
 beforeEach(truncateAll)
@@ -16,16 +16,17 @@ beforeEach(truncateAll)
  * Building pointers from the command-STRIPPED text — shorter than what was
  * actually stored — shifted every single offset for a `/visualize` message.
  *
- * The fix: `ingestUserMessage` takes a separate `pointerContent`, built by
- * blanking the command to a same-length filler (see `blankVisualize`) rather
- * than removing it, so offsets built from it still land on the same
- * characters in the stored row.
+ * The fix: `ingestUserMessage` takes `pointerShift`, a code-point count added
+ * to every offset built from `content` (`memoryDraft`, the already-stripped
+ * text — so `match_text` stays clean and extraction never sees "visualize"
+ * as a concept). The shift is `visualizePrefixLength(draft)`, the length of
+ * exactly what `stripVisualize` removed, which moves pointers built from the
+ * shorter text back onto the same characters in the longer stored row.
  */
 describe('a /visualize message keeps correct pointers into the stored text', () => {
   it('every pointer of the stored message matches the text at its own offset, and "visualize" is never a concept', async () => {
     const draft = '/visualize how a sine wave relates to the unit circle. Then show cosine too.'
     const memoryDraft = stripVisualize(draft)
-    const pointerContent = blankVisualize(draft)
 
     const chatId = await newChat()
     const messageId = await persistMessage({
@@ -35,7 +36,7 @@ describe('a /visualize message keeps correct pointers into the stored text', () 
     await ingestUserMessage({
       workspaceId: FIXTURE_WORKSPACE_ID, sessionId: chatId, messageId,
       content: memoryDraft,
-      pointerContent,
+      pointerShift: visualizePrefixLength(draft),
     })
 
     const db = await getDb()
@@ -45,36 +46,60 @@ describe('a /visualize message keeps correct pointers into the stored text', () 
     const rows = await db.select().from(chatPointers).where(eq(chatPointers.messageId, messageId))
     expect(rows.length).toBeGreaterThan(0)
 
-    // Pointers must be built from text whose offsets match the STORED row
-    // (retrieval.ts and forget.ts both read the real quote back with
-    // `Array.from(stored).slice(startChar, endChar)`). `matchText` is only
-    // ever a search index (schema.ts: "if it ever drifted, the failure would
-    // be a missed match, never a wrong quote") built from the blanked
-    // pointer-content, so it is compared against the SAME blanking applied
-    // to the stored row — proving the offsets this test's `matchText` came
-    // from are the same offsets that correctly address `stored`.
-    const blankedStoredChars = Array.from(blankVisualize(stored.content))
+    // The ORIGINAL requirement, taken literally: every pointer's offsets,
+    // read back from the STORED (unstripped) text, reproduce `matchText`
+    // exactly. `matchText` is `memoryDraft`'s own sentence — never the
+    // command — so the first pointer must start AFTER "/visualize " in the
+    // stored text, not at its beginning.
+    const storedChars = Array.from(stored.content)
     for (const row of rows) {
-      const blankedSlice = blankedStoredChars.slice(row.startChar, row.endChar).join('')
-      expect(blankedSlice).toBe(row.matchText)
+      const slice = storedChars.slice(row.startChar, row.endChar).join('')
+      expect(slice).toBe(row.matchText)
     }
 
-    // And the offsets must correctly address the REAL stored text, not a
-    // shifted position: the second sentence — entirely outside the blanked
-    // command — must be found at its pointer's offsets verbatim, and the
-    // first sentence's real text (after the command) must be there too.
-    const storedChars = Array.from(stored.content)
-    const second = rows.find((r) => storedChars.slice(r.startChar, r.endChar).join('').includes('Then show cosine too.'))
-    expect(second).toBeDefined()
-    expect(storedChars.slice(second!.startChar, second!.endChar).join('')).toBe('Then show cosine too.')
-
-    const first = rows.find((r) => storedChars.slice(r.startChar, r.endChar).join('').includes('how a sine wave'))
+    const first = rows.find((r) => r.matchText.includes('how a sine wave'))
     expect(first).toBeDefined()
-    expect(storedChars.slice(first!.startChar, first!.endChar).join('')).toContain(
-      'how a sine wave relates to the unit circle.',
-    )
+    expect(first!.matchText).toBe('how a sine wave relates to the unit circle.')
+    expect(first!.startChar).toBe(visualizePrefixLength(draft))
+
+    const second = rows.find((r) => r.matchText.includes('Then show cosine too.'))
+    expect(second).toBeDefined()
+    expect(second!.matchText).toBe('Then show cosine too.')
+
+    // No pointer's matchText (or stored slice) ever contains the command
+    // word itself.
+    for (const row of rows) {
+      expect(row.matchText).not.toMatch(/visualize/i)
+    }
 
     // "visualize" must never surface as a concept Node from a command word.
+    const [visualizeNode] = await db
+      .select()
+      .from(nodes)
+      .where(eq(nodes.canonicalKey, canonicalKey('visualize')))
+    expect(visualizeNode).toBeUndefined()
+  })
+
+  it('a bare "/visualize" (nothing left after stripping) writes zero pointer rows', async () => {
+    const draft = '/visualize'
+    const memoryDraft = stripVisualize(draft)
+    expect(memoryDraft).toBe('')
+
+    const chatId = await newChat()
+    const messageId = await persistMessage({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: chatId, role: 'user', content: draft,
+    })
+
+    await ingestUserMessage({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: chatId, messageId,
+      content: memoryDraft,
+      pointerShift: visualizePrefixLength(draft),
+    })
+
+    const db = await getDb()
+    const rows = await db.select().from(chatPointers).where(eq(chatPointers.messageId, messageId))
+    expect(rows).toHaveLength(0)
+
     const [visualizeNode] = await db
       .select()
       .from(nodes)

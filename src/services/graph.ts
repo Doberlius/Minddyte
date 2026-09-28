@@ -15,9 +15,9 @@ export type Skip = SkippedSpan & { messageId: string }
  */
 async function writePointers(
   tx: Tx,
-  input: { workspaceId: string; sessionId: string; messageId: string; content: string },
+  input: { workspaceId: string; sessionId: string; messageId: string; content: string; pointerShift?: number },
 ): Promise<Skip[]> {
-  const { rows, skipped } = pointerRows(input.content)
+  const { rows, skipped } = pointerRows(input.content, undefined, input.pointerShift ?? 0)
   if (rows.length > 0) {
     await tx
       .insert(chatPointers)
@@ -104,14 +104,17 @@ export async function ingestUserMessage(input: {
   /** The assistant message's own id — its pointers point into THAT row. */
   assistantMessageId?: string
   /**
-   * The text pointers are built from, when it differs from `content`.
-   * Pointers are offsets read back from the STORED row (retrieval.ts,
-   * forget.ts), so they must be built from text of the same length and
-   * shape as what was actually persisted — e.g. a `/visualize` command
-   * blanked to spaces rather than stripped. Defaults to `content` for every
-   * other caller.
+   * A code-point offset added to every pointer built from `content` — 0 for
+   * every caller except a `/visualize` user message. Pointers are offsets
+   * read back from the STORED row (retrieval.ts, forget.ts), but `content`
+   * here is `memoryDraft` (the command already stripped, so `match_text`
+   * stays clean and extraction never sees "visualize" as a concept — spec
+   * §3/§4.2) — shorter than what was actually persisted by exactly
+   * `visualizePrefixLength(draft)` characters. Passing that length as
+   * `pointerShift` moves every offset `content` produced back onto the same
+   * characters in the stored row.
    */
-  pointerContent?: string
+  pointerShift?: number
 }): Promise<{ skipped: Skip[] }> {
   const { auto } = extractConcepts(input.content)
 
@@ -184,9 +187,12 @@ export async function ingestUserMessage(input: {
     // transaction already threw for a foreign sessionId, so these writes
     // inherit that same proof rather than re-reading the session to get it.
     const skipped = [
-      ...(await writePointers(tx, { ...input, messageId: input.messageId, content: input.pointerContent ?? input.content })),
+      ...(await writePointers(tx, { ...input, messageId: input.messageId, content: input.content, pointerShift: input.pointerShift })),
       ...(input.assistantContent && input.assistantMessageId
-        ? await writePointers(tx, { ...input, messageId: input.assistantMessageId, content: input.assistantContent })
+        // The reply is never a `/visualize` command, so it never needs a shift
+        // — explicitly 0 rather than inheriting `input.pointerShift` from the
+        // spread below, which describes the USER message only.
+        ? await writePointers(tx, { ...input, messageId: input.assistantMessageId, content: input.assistantContent, pointerShift: 0 })
         : []),
     ]
 

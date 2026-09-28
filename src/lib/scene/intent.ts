@@ -4,6 +4,7 @@
  * knowledge graphs, and "the plot of Hamlet" is not a request to draw.
  */
 const COMMAND = /^\s*\/visualize\b/i
+const STRIP = /^\s*\/visualize\b\s*/i
 const ASKS_TO_SEE = /\b(show me|visuali[sz]e|animate|illustrate|draw (me |a |an )?|diagrams?)\b/i
 
 export function wantsDiagram(message: string): boolean {
@@ -12,24 +13,35 @@ export function wantsDiagram(message: string): boolean {
 
 /** The text memory reads: the leading /visualize word is a command, not a concept. */
 export function stripVisualize(message: string): string {
-  return COMMAND.test(message) ? message.replace(/^\s*\/visualize\b\s*/i, '') : message
+  return COMMAND.test(message) ? message.replace(STRIP, '') : message
 }
 
 /**
- * The text pointers are built from: same length as the STORED message, so
- * every offset `stripVisualize`'s shorter text would produce still lands on
- * the same character in the row the database actually has. The command word
- * (and any leading whitespace before it) is replaced rather than removed, so
- * nothing after it shifts.
+ * The code-point length of the exact prefix `stripVisualize` removes — 0 for
+ * anything that is not a `/visualize` command.
  *
- * The filler is NOT a space run, on purpose. `/visualize` is 10 characters,
- * so blanking it to spaces puts 10+ leading spaces at the very start of the
- * message — which CommonMark reads as an indented code block, swallowing the
- * entire first paragraph (every sentence in it) into one opaque `code` span
- * instead of per-sentence pointers. A digit run carries no Markdown meaning
- * at the start of a line (unlike `#`, `-`/`*`/`_`, or 4+ spaces) and keeps
- * remark parsing the rest of the message exactly as it would unblanked.
+ * Pointers are offsets read back from the STORED message (retrieval.ts,
+ * forget.ts), which still has the command in front, while extraction/title
+ * reads `stripVisualize`'s shorter text — so a pointer built from the
+ * stripped text lands `visualizePrefixLength(draft)` characters too early
+ * unless that many code points are added back to every offset
+ * (`pointerRows`'s `shift` parameter does exactly this).
+ *
+ * Safe to treat as a UTF-16 length too, not just a code-point count: the
+ * removed prefix is leading whitespace plus the literal word "/visualize"
+ * plus trailing whitespace, and every character `\s` can match there is a
+ * single UTF-16 code unit — this prefix can never contain a surrogate pair.
+ *
+ * (An earlier version of this fix instead built pointers from the STORED
+ * text with the command blanked out to a same-length filler. That worked
+ * for offsets, but made `match_text` — the pg_trgm search index — contain
+ * filler characters instead of clean words, and briefly (with a naive space
+ * filler) made remark misread the blanked run as CommonMark's indented-code
+ * syntax. Shifting offsets after building pointers from the already-clean
+ * `memoryDraft` avoids both: `match_text` is exactly what extraction sees,
+ * and nothing about the message's Markdown shape is disturbed.)
  */
-export function blankVisualize(message: string): string {
-  return message.replace(/^(\s*\/visualize\b)/i, (m) => '0'.repeat(m.length))
+export function visualizePrefixLength(message: string): number {
+  const m = STRIP.exec(message)
+  return m ? m[0].length : 0
 }

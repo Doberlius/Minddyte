@@ -60,10 +60,22 @@ export function chunkSpan(content: string, start: number, end: number, limit: nu
  * The limit skips code blocks and tables over it (ticket 05, Q11/Q13), and
  * splits a sentence over it into chunks (ticket 15). Ordinals count KEPT rows,
  * so a ±1 neighbour is always a real row.
+ *
+ * `shift` is a code-point offset added to every `startChar`/`endChar` after
+ * they are computed from `content`. It exists for exactly one caller: a
+ * `/visualize` user message. `content` there is `memoryDraft` (the command
+ * already stripped — spec §3: `/visualize` is a command, not a concept, and
+ * `matchText` should never contain it), but pointers are offsets read back
+ * from the STORED row, which still has the command in front. `shift` is the
+ * code-point length of the exact prefix `stripVisualize` removed — always
+ * ASCII/whitespace, so its code-point count and its `.length` agree — and
+ * adding it moves every offset `content` produced back onto the same
+ * characters in the stored text. Every other caller leaves it at 0.
  */
 export function pointerRows(
   content: string,
   limit: number = PROVISIONAL.spanCharLimit,
+  shift: number = 0,
 ): { rows: PointerRow[]; skipped: SkippedSpan[] } {
   const rows: PointerRow[] = []
   const skipped: SkippedSpan[] = []
@@ -97,8 +109,8 @@ export function pointerRows(
       rows.push({
         ordinal: rows.length,
         kind: span.kind,
-        startChar: toCodePoints(start),
-        endChar: toCodePoints(end),
+        startChar: toCodePoints(start) + shift,
+        endChar: toCodePoints(end) + shift,
         matchText: content.slice(start, end),
       })
     }
