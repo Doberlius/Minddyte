@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Markdown, markdownComponents } from '@/components/chat/Markdown'
+import { SceneContext } from '@/components/chat/SceneContext'
 import { InlineText } from '@/components/ui/InlineText'
 
 /**
@@ -11,6 +12,16 @@ import { InlineText } from '@/components/ui/InlineText'
  * the server (no browser needed) and check what a reader would see.
  */
 const md = (text: string) => renderToStaticMarkup(createElement(Markdown, { text }))
+
+/** Renders with SceneContext's `streaming` set, the way a live reply does (index.tsx). */
+const mdStreaming = (text: string, streaming: boolean) =>
+  renderToStaticMarkup(
+    createElement(
+      SceneContext.Provider,
+      { value: { sessionId: null, messageId: null, fresh: false, model: null, streaming } },
+      createElement(Markdown, { text }),
+    ),
+  )
 
 describe('Markdown (model replies)', () => {
   it('renders bold, italic and inline code without their markers', () => {
@@ -150,9 +161,34 @@ describe('scene blocks in a reply', () => {
   })
 
   it('shows "Drawing…" for a block that is still streaming', () => {
-    const html = md('Here:\n\n```scene\nplay(create(ax')
+    const html = mdStreaming('Here:\n\n```scene\nplay(create(ax', true)
     expect(html).toContain('Drawing…')
     expect(html).not.toContain('data-scene-index')
+  })
+
+  // Fix round 3: "Drawing…" used to show forever whenever remark found a
+  // `scene` fence that `findSceneBlocks` doesn't — a fence inside a
+  // blockquote, indented 4+ spaces under a list item, `- \`\`\`scene`, or a
+  // reply cut off before its closing fence — because it only ever checked
+  // "is this block matched", never whether the reply was still streaming.
+  // Once streaming is over, nothing more is coming: an unmatched block must
+  // fall back to an ordinary code block instead of spinning forever.
+  it('renders a scene fence inside a blockquote as a code block once streaming is done, not "Drawing…" forever', () => {
+    const html = mdStreaming('> ```scene\n> play(create(axes()))\n> ```', false)
+    expect(html).not.toContain('Drawing…')
+    expect(html).toMatch(/class="codeblock-lang">scene</)
+  })
+
+  it('renders an unclosed block as a code block once streaming is done, not "Drawing…" forever', () => {
+    const html = mdStreaming('Here:\n\n```scene\nplay(create(ax', false)
+    expect(html).not.toContain('Drawing…')
+    expect(html).toMatch(/class="codeblock-lang">scene</)
+  })
+
+  it('still shows "Drawing…" for an unclosed block WHILE streaming', () => {
+    const html = mdStreaming('Here:\n\n```scene\nplay(create(ax', true)
+    expect(html).toContain('Drawing…')
+    expect(html).not.toMatch(/class="codeblock-lang">scene</)
   })
 
   it(`renders at most ${2} players; later blocks stay code`, () => {

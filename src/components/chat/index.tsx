@@ -197,8 +197,15 @@ export function NeuralChat({
    * opened. Anything else — a message that just streamed in — arrived in
    * this page view, which is what a diagram needs to know before it
    * autoplays or self-repairs (spec §6, §8).
+   *
+   * State, not a ref: it used to be a ref read as `loadedIds.current.has(m.id)`
+   * inside the render below, and reading a ref during render is exactly what
+   * makes the React Compiler bail out of memoising this component ("Cannot
+   * access refs during render") — NeuralChat lost automatic memoisation
+   * entirely. Set alongside `setMessages` everywhere this loads or clears the
+   * transcript, so a render only ever reads state.
    */
-  const loadedIds = useRef<Set<string>>(new Set())
+  const [loadedIds, setLoadedIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (sessionId === undefined) return // the shell has not read localStorage yet
@@ -231,7 +238,7 @@ export function NeuralChat({
     setOpening(Boolean(sessionId))
 
     if (!sessionId) {
-      loadedIds.current = new Set()
+      setLoadedIds(new Set())
       setMessages([])
       return
     }
@@ -256,7 +263,7 @@ export function NeuralChat({
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('session_not_found'))))
       .then((chat: { messages?: StoredMessage[] }) => {
         if (!stillWanted()) return
-        loadedIds.current = new Set((chat.messages ?? []).map((m) => m.id))
+        setLoadedIds(new Set((chat.messages ?? []).map((m) => m.id)))
         setMessages(
           (chat.messages ?? []).map((m) => ({
             id: m.id,
@@ -441,7 +448,7 @@ export function NeuralChat({
               </div>
             ) : (
               <div key={m.id} style={{ alignSelf: 'stretch', minWidth: 0, fontSize: 13.5, lineHeight: 1.65, color: 'var(--ink2)' }}>
-                <SceneContext.Provider value={{ sessionId: sessionId ?? null, messageId: m.id, fresh: !loadedIds.current.has(m.id), model: model ?? null, streaming }}>
+                <SceneContext.Provider value={{ sessionId: sessionId ?? null, messageId: m.id, fresh: !loadedIds.has(m.id), model: model ?? null, streaming }}>
                   <Markdown text={text} />
                 </SceneContext.Provider>
               </div>

@@ -56,14 +56,18 @@ export async function POST(req: Request) {
   const code = await loadSceneBlock(target)
   if (code === null) return Response.json({ error: 'not_found' }, { status: 404 })
 
-  // Counted only once ownership is proven: a stranger probing ids spends
-  // their own attempts' worth of 404s, never another chat's budget.
+  // Resolved BEFORE the budget is spent: a model that is down (503) must not
+  // cost the block one of its limited repair attempts — there was never a
+  // real attempt to charge for.
+  const resolved = await resolveChatModel(body.model)
+  if (!resolved.ok) return Response.json({ error: resolved.error }, { status: resolved.status })
+
+  // Counted only once ownership is proven AND the model is known to be
+  // reachable: a stranger probing ids spends their own attempts' worth of
+  // 404s, never another chat's budget.
   if (!repairBudget.take(`${body.messageId}:${body.blockIndex}`)) {
     return Response.json({ error: 'repair_limit' }, { status: 429 })
   }
-
-  const resolved = await resolveChatModel(body.model)
-  if (!resolved.ok) return Response.json({ error: resolved.error }, { status: resolved.status })
 
   try {
     const { text } = await generateText({
@@ -72,6 +76,11 @@ export async function POST(req: Request) {
       prompt: repairPrompt({ code, error: body.error, previous: body.previous }),
       maxOutputTokens: MAX_REPAIR_TOKENS,
       providerOptions: { ollama: { options: { num_predict: MAX_REPAIR_TOKENS } } },
+      // A stuck local model (or a hung network call) must not leave this
+      // request's connection open indefinitely — the block already spent one
+      // of its limited repair attempts on this call, so it should also get a
+      // bounded amount of time to answer before giving up.
+      abortSignal: AbortSignal.timeout(60_000),
     })
     const fixed = extractSceneCode(text)
     if (!fixed || !isSingleSceneBody(fixed)) return Response.json({ error: 'no_block' }, { status: 502 })

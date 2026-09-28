@@ -103,6 +103,15 @@ export async function ingestUserMessage(input: {
   assistantContent?: string
   /** The assistant message's own id — its pointers point into THAT row. */
   assistantMessageId?: string
+  /**
+   * The text pointers are built from, when it differs from `content`.
+   * Pointers are offsets read back from the STORED row (retrieval.ts,
+   * forget.ts), so they must be built from text of the same length and
+   * shape as what was actually persisted — e.g. a `/visualize` command
+   * blanked to spaces rather than stripped. Defaults to `content` for every
+   * other caller.
+   */
+  pointerContent?: string
 }): Promise<{ skipped: Skip[] }> {
   const { auto } = extractConcepts(input.content)
 
@@ -175,7 +184,7 @@ export async function ingestUserMessage(input: {
     // transaction already threw for a foreign sessionId, so these writes
     // inherit that same proof rather than re-reading the session to get it.
     const skipped = [
-      ...(await writePointers(tx, { ...input, messageId: input.messageId, content: input.content })),
+      ...(await writePointers(tx, { ...input, messageId: input.messageId, content: input.pointerContent ?? input.content })),
       ...(input.assistantContent && input.assistantMessageId
         ? await writePointers(tx, { ...input, messageId: input.assistantMessageId, content: input.assistantContent })
         : []),

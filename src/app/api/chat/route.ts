@@ -9,7 +9,7 @@ import { requireWorkspace } from "@/server/workspace"
 import { describeSkip } from "@/lib/pointers"
 import { getCore } from "@/services/core"
 import { PROVISIONAL } from "@/lib/provisional"
-import { stripVisualize, wantsDiagram } from "@/lib/scene/intent"
+import { stripVisualize, blankVisualize, wantsDiagram } from "@/lib/scene/intent"
 import { DIAGRAM_GUIDE } from "@/lib/scene/guide"
 
 /**
@@ -186,6 +186,11 @@ export async function POST(req: Request) {
           // ingestUserMessage enforces that split.
           assistantContent: text,
           assistantMessageId: saved,
+          // Pointers are offsets into the STORED row (`draft`), not the
+          // command-stripped `memoryDraft` extraction reads — those two
+          // differ in length for a `/visualize ...` message. Blank the
+          // command in place so offsets still land on the same characters.
+          pointerContent: blankVisualize(draft),
         })
         // Ticket 05, Q14 — a block too large to index is a loss, and a loss
         // is never silent. Logged only: one block, not the whole message.

@@ -116,11 +116,21 @@ export function createSceneBuilder(sliderValues: Record<string, number>) {
       ids.push(text([px, py - 0.3], +v.toFixed(6), { tex: false, size: 0.26, color }))
     }
     const ty = niceStep(y1 - y0)
+    // A label is drawn CENTERED on the point given to `text()` (drawOne
+    // translates it -50%/-50%), so a fixed offset of 0.35 only clears the
+    // axis line for a short label — "-0.5" is wide enough that its right
+    // half still lands on top of the line. The offset now grows with the
+    // label's own character count, and 0.12 is added on top so the text's
+    // right edge sits fully left of the tick, never touching it, instead of
+    // just missing its own center point.
+    const tickLabelSize = 0.26
     for (let v = Math.ceil(y0 / ty) * ty; v <= y1 + 1e-9; v += ty) {
       if (Math.abs(v - oy) < 1e-9) continue
       const [px, py] = toScene([ox, v])
       ids.push(poly([[px - 0.08, py], [px + 0.08, py]], { stroke: color, width: 0.02 }))
-      ids.push(text([px - 0.35, py], +v.toFixed(6), { tex: false, size: 0.26, color }))
+      const label = String(+v.toFixed(6))
+      const halfWidth = (label.length * tickLabelSize * 0.6) / 2
+      ids.push(text([px - 0.12 - halfWidth, py], label, { tex: false, size: tickLabelSize, color }))
     }
     return {
       ids,

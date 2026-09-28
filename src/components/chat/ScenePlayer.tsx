@@ -19,6 +19,12 @@ type Phase =
   | { kind: 'failed'; error: { kind: FrameErrorKind; message: string } }
 
 const READY_TIMEOUT_MS = 10_000
+// The frame reports its own scrollHeight (frame.ts's ResizeObserver), which
+// a pathological or hostile scene (many sliders, a long caption, a huge
+// title) could inflate far past anything a chat reply should take up on
+// screen. Clamped here, on the page side, rather than trusted from the
+// sandboxed frame.
+const MAX_HEIGHT_PX = 1600
 // The assistant message reaches the database only after its stream ends
 // (the chat route's onFinish). A block that fails fast can call repair
 // before that write lands, which answers 404 not_found — retried rather
@@ -140,6 +146,18 @@ export function ScenePlayer({ code, index }: { code: string; index: number }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- repair() closes over refs and ctx read fresh on each call; only ctx.streaming's transition matters here
   }, [ctx.streaming])
 
+  // A failure forces the code open by DEFAULT — but as real `showCode`
+  // state, not a `showCode || failed` derived at render, which used to make
+  // the toggle button lie ("Code" while the code was actually showing) and
+  // made it impossible to hide the code while still failed (clicking it just
+  // flipped `showCode` behind the `|| failed` that kept it open regardless).
+  // This only fires on the loading→failed TRANSITION (`phase.kind` in the
+  // dependency array, not `phase` itself), so a later manual "Hide code"
+  // click sticks instead of being forced back open every render.
+  useEffect(() => {
+    if (phase.kind === 'failed') setShowCode(true)
+  }, [phase.kind])
+
   useEffect(() => {
     if (!doc) return
     let ready = false
@@ -149,7 +167,7 @@ export function ScenePlayer({ code, index }: { code: string; index: number }) {
       if (msg.type === 'ready') {
         ready = true
         frame.current?.contentWindow?.postMessage({ type: 'render', code: current, autoplay: ctx.fresh }, '*')
-      } else if (msg.type === 'height') setHeight(msg.px)
+      } else if (msg.type === 'height') setHeight(Math.min(msg.px, MAX_HEIGHT_PX))
       else if (msg.type === 'done') {
         setPhase({ kind: 'ready' })
         // A repaired run that just succeeded — save it so a reopened chat
@@ -220,11 +238,11 @@ export function ScenePlayer({ code, index }: { code: string; index: number }) {
         </div>
       )}
       <div className="scene-foot">
-        <button type="button" className="scene-code-toggle" aria-expanded={showCode || !!failed} onClick={() => setShowCode((v) => !v)}>
+        <button type="button" className="scene-code-toggle" aria-expanded={showCode} onClick={() => setShowCode((v) => !v)}>
           {showCode ? 'Hide code' : 'Code'}
         </button>
       </div>
-      {(showCode || failed) && (
+      {showCode && (
         <CodeBlock language="scene" code={current}>
           <code>{current}</code>
         </CodeBlock>

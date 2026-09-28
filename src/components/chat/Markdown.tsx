@@ -19,6 +19,7 @@ import { findSceneBlocks, type SceneBlock } from '@/lib/scene/blocks'
 import { LIMITS } from '@/scene/types'
 import { CodeBlock } from './CodeBlock'
 import { ScenePlayer } from './ScenePlayer'
+import { SceneContext } from './SceneContext'
 
 /**
  * A model reply, rendered as markdown: headings, lists, tables (GFM), quotes,
@@ -102,6 +103,7 @@ const SceneBlocksContext = createContext<SceneBlock[]>([])
  */
 const ScenePre: NonNullable<Components['pre']> = ({ node, children }) => {
   const scenes = useContext(SceneBlocksContext)
+  const { streaming } = useContext(SceneContext)
   const code = node?.children.find((c): c is Element => c.type === 'element' && c.tagName === 'code')
   if (!code) return <pre>{children}</pre>
   const language = languageOf(code)
@@ -111,7 +113,24 @@ const ScenePre: NonNullable<Components['pre']> = ({ node, children }) => {
     const index = scenes.findIndex((b) => offset !== undefined && b.start <= offset && offset < b.end)
     // Closed scene blocks only: a block still streaming has no closing fence
     // yet (no match here) and must never run half-written code.
-    if (index === -1) return <div className="scene-card is-pending">Drawing…</div>
+    //
+    // remark finds a `scene` fence in places `findSceneBlocks` deliberately
+    // does not (inside a blockquote, indented under a list item, a reply cut
+    // off before its closing fence — spec §6 scopes `findSceneBlocks` to the
+    // top level only). "Drawing…" is only ever true WHILE the reply is still
+    // streaming, because more fence characters may still arrive that turn
+    // this into a real, playable block. Once the reply is done streaming,
+    // nothing else is coming: a block still unmatched here is never going to
+    // resolve, so it falls through to an ordinary code block instead of an
+    // infinite spinner.
+    if (index === -1) {
+      if (streaming) return <div className="scene-card is-pending">Drawing…</div>
+      return (
+        <CodeBlock language="scene" code={plain}>
+          {children}
+        </CodeBlock>
+      )
+    }
     if (index < LIMITS.scenesPerReply) return <ScenePlayer code={scenes[index].code} index={index} />
   }
   // `children` is the <code> element react-markdown already built, with

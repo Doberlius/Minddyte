@@ -6,7 +6,7 @@
 import { runScene } from './run'
 import { captionAt, frameAt, totalDuration, type Visual } from './render'
 import type { FromFrame, ToFrame } from './protocol'
-import { BACKGROUND, type Scene } from '../types'
+import { BACKGROUND, LIMITS, type Scene } from '../types'
 
 declare const katex: { renderToString(tex: string, o: { throwOnError: boolean; displayMode?: boolean }): string }
 
@@ -129,6 +129,35 @@ function tick(ts: number) {
   requestAnimationFrame(tick)
 }
 
+/**
+ * Defense in depth: `createSceneBuilder` (lib.ts) already enforces LIMITS
+ * while the worker BUILDS a scene, but `show()` here trusts whatever
+ * `postMessage`'d back as `{ type: 'scene', scene }` without looking at it
+ * again — and `scene` crosses from the worker to this frame as plain,
+ * structurally-cloned data, not a value this frame constructed itself. A
+ * scene this large would already have failed rendering slowly rather than
+ * safely; re-checking it here, right before `show()` touches the DOM, is
+ * what turns that into a clean `limits` error instead.
+ *
+ * The fourth check — total `create`/`change` op id references across every
+ * step — catches a scene with few enough shapes to pass the shape-count
+ * check but an unbounded number of animation ops referencing them, which
+ * `createSceneBuilder` never separately bounds.
+ */
+function withinLimits(s: Scene): boolean {
+  if (Object.keys(s.shapes).length > LIMITS.shapes) return false
+  if (s.steps.length > LIMITS.steps) return false
+  if (s.sliders.length > LIMITS.sliders) return false
+  let opIds = 0
+  for (const step of s.steps) {
+    for (const op of step.ops) {
+      if (op.op === 'create') opIds += op.ids.length
+      else if (op.op === 'change') opIds += 1
+    }
+  }
+  return opIds <= LIMITS.shapes
+}
+
 function show(next: Scene, autoplay: boolean) {
   scene = next
   const total = totalDuration(next)
@@ -191,7 +220,7 @@ function init() {
   style.textContent = css
   document.head.appendChild(style)
   root.innerHTML = `<div class="stage"><svg viewBox="-8 -4.5 16 9" preserveAspectRatio="xMidYMid meet"><g transform="scale(1,-1)"></g></svg><div class="labels"></div><div class="title"></div></div>
-<div class="bar"><button class="play" aria-label="Play">▶</button><button class="replay" aria-label="Replay">↺</button><input class="scrub" type="range" min="0" max="1" step="0.01" value="0" aria-label="Scrub"><span class="caption"></span></div>
+<div class="bar"><button class="play" aria-label="Play">▶</button><button class="replay" aria-label="Replay">↺</button><input class="scrub" type="range" min="0" max="1" step="0.01" value="0" aria-label="Timeline position"><span class="caption" aria-live="polite"></span></div>
 <div class="sliders"></div><div class="note" role="status"></div>`
   document.body.appendChild(root)
 
@@ -231,7 +260,13 @@ function init() {
     const r = await runScene(code, values)
     if (myRenderGen !== renderGen) return // a NEWER render arrived meanwhile: only the last one may post done/error
     if (!r.ok) { sliderBox.inert = false; post({ type: 'error', kind: r.kind, message: r.message }); return }
-    show(r.scene as Scene, !!m.autoplay)
+    const sc = r.scene as Scene
+    if (!withinLimits(sc)) {
+      sliderBox.inert = false
+      post({ type: 'error', kind: 'limits', message: 'This diagram is too large.' })
+      return
+    }
+    show(sc, !!m.autoplay)
     post({ type: 'done' })
   })
 
