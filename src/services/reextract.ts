@@ -1,8 +1,6 @@
-import { and, eq, inArray } from 'drizzle-orm'
-import { messageNodes, messages, nodes, rejectedPhrases, sessionNodes, sessions } from '../../db/schema'
-import { extractConcepts } from '../lib/extract'
-import { canonicalKey } from '../lib/text'
-import { forgottenKeys, headlineCandidates, linkNode, recountNodes, rederiveHeadline, type Tx } from './links'
+import { and, eq } from 'drizzle-orm'
+import { messages, sessions } from '../../db/schema'
+import { recountNodes, rejectedKeys, relinkChat, type Tx } from './links'
 
 /**
  * Re-run today's extractor over every stored USER message and bring each
@@ -21,7 +19,8 @@ import { forgottenKeys, headlineCandidates, linkNode, recountNodes, rederiveHead
  * Existing links are not touched, so their last_referenced_at stays as it was.
  * Every headline is re-derived by the Q13 rule, which gives the same answer as
  * before for any chat the fixes did not change. Every concept it deletes is
- * logged: never destroy silently.
+ * logged: never destroy silently. The per-chat work is `relinkChat` (links.ts),
+ * shared with deleteTurn. Chats with no user messages are skipped, as before.
  */
 export async function reextractNodes(tx: Tx): Promise<void> {
   const chats = await tx
@@ -30,82 +29,23 @@ export async function reextractNodes(tx: Tx): Promise<void> {
     .orderBy(sessions.createdAt, sessions.id)
 
   const touched = new Map<string, Set<string>>()
-  const touch = (workspaceId: string, nodeId: string) => {
-    const set = touched.get(workspaceId) ?? new Set<string>()
-    set.add(nodeId)
-    touched.set(workspaceId, set)
-  }
   const rejectedByWorkspace = new Map<string, Set<string>>()
 
   for (const chat of chats) {
-    const said = await tx
-      .select({ id: messages.id, content: messages.content })
+    const [hasUser] = await tx
+      .select({ id: messages.id })
       .from(messages)
       .where(and(eq(messages.sessionId, chat.id), eq(messages.role, 'user')))
-      .orderBy(messages.createdAt, messages.id)
-    if (said.length === 0) continue
-
-    const skip = await forgottenKeys(tx, chat.id)
+      .limit(1)
+    if (!hasUser) continue
     let rejected = rejectedByWorkspace.get(chat.workspaceId)
     if (!rejected) {
-      const rows = await tx
-        .select({ phrase: rejectedPhrases.phrase })
-        .from(rejectedPhrases)
-        .where(eq(rejectedPhrases.workspaceId, chat.workspaceId))
-      rejected = new Set(rows.map((r) => canonicalKey(r.phrase)).filter(Boolean))
+      rejected = await rejectedKeys(tx, chat.workspaceId)
       rejectedByWorkspace.set(chat.workspaceId, rejected)
     }
-
-    const want = new Map<string, { label: string; messageIds: string[] }>()
-    for (const m of said) {
-      for (const label of extractConcepts(m.content).auto) {
-        const key = canonicalKey(label)
-        if (!key || skip.has(key)) continue
-        const entry = want.get(key) ?? { label, messageIds: [] }
-        entry.messageIds.push(m.id)
-        want.set(key, entry)
-      }
-    }
-    // Ingest links the headline even when only the TITLE yields it.
-    const headline = headlineCandidates(said[0].content).find((l) => {
-      const k = canonicalKey(l)
-      return k && !skip.has(k)
-    })
-    if (headline && !want.has(canonicalKey(headline))) want.set(canonicalKey(headline), { label: headline, messageIds: [] })
-
-    const have = await tx
-      .select({ id: nodes.id, key: nodes.canonicalKey })
-      .from(sessionNodes)
-      .innerJoin(nodes, eq(nodes.id, sessionNodes.nodeId))
-      .where(eq(sessionNodes.sessionId, chat.id))
-    const haveByKey = new Map(have.map((h) => [h.key, h.id]))
-    const chatMessages = tx.select({ id: messages.id }).from(messages).where(eq(messages.sessionId, chat.id))
-
-    for (const h of have) {
-      if (want.has(h.key)) continue
-      await tx.delete(sessionNodes).where(and(eq(sessionNodes.sessionId, chat.id), eq(sessionNodes.nodeId, h.id)))
-      await tx.delete(messageNodes).where(and(eq(messageNodes.nodeId, h.id), inArray(messageNodes.messageId, chatMessages)))
-      touch(chat.workspaceId, h.id)
-    }
-
-    for (const [key, entry] of want) {
-      let nodeId = haveByKey.get(key) ?? null
-      if (!nodeId) {
-        if (rejected.has(key)) continue
-        nodeId = await linkNode(tx, chat.workspaceId, chat.id, entry.label)
-        if (!nodeId) continue
-        touch(chat.workspaceId, nodeId)
-      }
-      for (const messageId of entry.messageIds) {
-        await tx.insert(messageNodes).values({ messageId, nodeId }).onConflictDoNothing()
-      }
-    }
-
-    // Kept links are recounted too: an old count can be wrong even where the
-    // link itself was right (the recount test pins this).
-    for (const id of haveByKey.values()) touch(chat.workspaceId, id)
-
-    await rederiveHeadline(tx, chat.workspaceId, chat.id)
+    const set = touched.get(chat.workspaceId) ?? new Set<string>()
+    for (const id of await relinkChat(tx, chat.workspaceId, chat.id, rejected)) set.add(id)
+    touched.set(chat.workspaceId, set)
   }
 
   for (const [workspaceId, ids] of touched) {

@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
 import { getDb, forgotten, messageNodes, messages, nodes, rejectedPhrases, sessionNodes, sessions } from '../../db'
 import { FIXTURE_WORKSPACE_ID as WS, newChat, truncateAll } from '../helpers/pglite'
-import { persistMessage } from '@/services/graph'
+import { persistMessage, ingestUserMessage } from '@/services/graph'
+import { relinkChat, rejectedKeys } from '@/services/links'
 import { createChat } from '@/services/dbApi'
 import { newWorkspaceId } from '@/lib/workspace'
 import { reextractNodes } from '@/services/reextract'
@@ -214,5 +215,24 @@ describe('reextractNodes', () => {
     await run()
 
     expect(await state(a)).toEqual({ linked: [], headline: null })
+  })
+})
+
+describe('relinkChat', () => {
+  it('unlinks everything and clears the headline when a chat has no user messages left', async () => {
+    const chat = await newChat('Kafka')
+    const workspaceId = WS
+    const messageId = await persistMessage({ workspaceId, sessionId: chat, role: 'user', content: 'Tell me about Kafka partitions.' })
+    await ingestUserMessage({ workspaceId, sessionId: chat, messageId, content: 'Tell me about Kafka partitions.' })
+    const db = await getDb()
+    expect((await db.select().from(sessionNodes).where(eq(sessionNodes.sessionId, chat))).length).toBeGreaterThan(0)
+
+    await db.execute(sql`delete from messages where session_id = ${chat}`)
+    const touched = await db.transaction(async (tx) => relinkChat(tx, workspaceId, chat, await rejectedKeys(tx, workspaceId)))
+
+    expect(touched.length).toBeGreaterThan(0)
+    expect(await db.select().from(sessionNodes).where(eq(sessionNodes.sessionId, chat))).toEqual([])
+    const [row] = await db.select({ h: sessions.headlineNodeId }).from(sessions).where(eq(sessions.id, chat))
+    expect(row.h).toBeNull()
   })
 })
