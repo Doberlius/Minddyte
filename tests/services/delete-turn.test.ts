@@ -88,6 +88,8 @@ describe('deleteTurn', () => {
     const db = await getDb()
     const ids = await nodesOf(gone.userId)
     const before = await db.select({ id: nodes.id, n: nodes.chatCount }).from(nodes).where(inArray(nodes.id, ids))
+    expect(before.length).toBeGreaterThan(0)
+    for (const b of before) expect(b.n).toBe(2)
     await deleteTurn(ws, chat, gone.userId)
     const after = await db.select({ id: nodes.id, n: nodes.chatCount }).from(nodes).where(inArray(nodes.id, ids))
     expect(after.length).toBe(before.length)
