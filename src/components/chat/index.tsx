@@ -15,6 +15,7 @@ import { ModelPicker } from './ModelPicker'
 import { SceneContext } from './SceneContext'
 import { ForgetDialog } from '@/components/forget/ForgetDialog'
 import { classifyChatFailure } from '@/lib/chat-error'
+import { newUuid } from '@/lib/uuid'
 import type { ChatSummary } from '@/components/layout/Sidebar'
 
 type StoredMessage = { id: string; role: 'user' | 'assistant'; content: string }
@@ -124,7 +125,7 @@ export function NeuralChat({
     // The database stores your message under this same id (message-actions
     // ticket 01), so the delete button can name it before any reload. The
     // reply's id is chosen by the server and streamed back, as before.
-    generateId: () => crypto.randomUUID(),
+    generateId: newUuid,
     // ai-sdk's transport wraps any non-2xx response in a plain Error whose
     // `message` IS the raw response body text (see HttpChatTransport: `throw
     // new Error(await response.text())`) — so the ONLY way to tell "your
