@@ -7,7 +7,7 @@ import { retrieveContext } from '@/services/retrieval'
 import { forgetConcept } from '@/services/forget'
 import { renameChat } from '@/services/dbApi'
 import { newWorkspaceId } from '@/lib/workspace'
-import { deleteTurn, turnAt } from '@/services/turns'
+import { deleteTurn, removeMessages, turnAt } from '@/services/turns'
 
 beforeEach(truncateAll)
 const ws = FIXTURE_WORKSPACE_ID
@@ -162,5 +162,24 @@ describe('deleteTurn', () => {
     expect(await deleteTurn(ws, chat, o.userId)).toBeNull()
     expect(await messageIds(chat)).toEqual([t.userId, t.replyId])
     expect(await messageIds(other)).toEqual([o.userId, o.replyId])
+  })
+})
+
+describe('removeMessages', () => {
+  it('runs inside the caller’s transaction: a throw rolls back the removal and the caller’s own write', async () => {
+    const chat = await newChat('C')
+    const t = await turn(chat, 'Tell me about Kafka partitions.', 'Sure.')
+    const db = await getDb()
+    const [before] = await db.select({ title: sessions.title }).from(sessions).where(eq(sessions.id, chat))
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.update(sessions).set({ title: 'Changed in the same transaction' }).where(eq(sessions.id, chat))
+        await removeMessages(tx, ws, chat, [t.userId, t.replyId])
+        throw new Error('rollback')
+      }),
+    ).rejects.toThrow('rollback')
+    expect(await messageIds(chat)).toEqual([t.userId, t.replyId])
+    const [row] = await db.select({ title: sessions.title }).from(sessions).where(eq(sessions.id, chat))
+    expect(row.title).toBe(before.title)
   })
 })

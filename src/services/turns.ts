@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import { getDb, messages, sessionNodes, sessions } from '../../db'
-import { recountNodes, rejectedKeys, relinkChat } from './links'
+import { recountNodes, rejectedKeys, relinkChat, type Tx } from './links'
 
 /**
  * Message-actions ticket 01, Q4: a turn is a user message and the assistant
@@ -43,11 +43,21 @@ export async function deleteTurn(workspaceId: string, sessionId: string, message
     if (i === -1) return null
     const turn = turnAt(all, i)
 
-    // Read BEFORE the delete: afterwards nothing points at these concepts.
-    const held = await tx.select({ nodeId: sessionNodes.nodeId }).from(sessionNodes).where(eq(sessionNodes.sessionId, sessionId))
-    await tx.delete(messages).where(inArray(messages.id, turn))
-    const touched = await relinkChat(tx, workspaceId, sessionId, await rejectedKeys(tx, workspaceId))
-    await recountNodes(tx, workspaceId, [...new Set([...held.map((h) => h.nodeId), ...touched])])
+    await removeMessages(tx, workspaceId, sessionId, turn)
     return turn
   })
+}
+
+/**
+ * Remove these messages of one chat, and everything memory built from them
+ * (Q6), inside the caller's transaction. Shared by deleteTurn (ticket 01) and
+ * ticket 02's edit/regenerate swap. The caller has already proved the chat is
+ * this workspace's and that every id belongs to it.
+ */
+export async function removeMessages(tx: Tx, workspaceId: string, sessionId: string, ids: string[]): Promise<void> {
+  // Read BEFORE the delete: afterwards nothing points at these concepts.
+  const held = await tx.select({ nodeId: sessionNodes.nodeId }).from(sessionNodes).where(eq(sessionNodes.sessionId, sessionId))
+  await tx.delete(messages).where(inArray(messages.id, ids))
+  const touched = await relinkChat(tx, workspaceId, sessionId, await rejectedKeys(tx, workspaceId))
+  await recountNodes(tx, workspaceId, [...new Set([...held.map((h) => h.nodeId), ...touched])])
 }
