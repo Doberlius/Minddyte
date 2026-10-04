@@ -215,9 +215,12 @@ export async function ingestUserMessage(input: {
         ? await linkNode(tx, input.workspaceId, input.sessionId, headlineLabel)
         : null
 
+      // The title only replaces the new-chat name. A chat emptied by deleting
+      // every turn (message-actions ticket 01) counts its next message as the
+      // first again, but a name the user chose for it stays.
       await tx
         .update(sessions)
-        .set({ title, headlineNodeId })
+        .set({ title: sql`case when ${sessions.title} = ${deriveTitle("")} then ${title} else ${sessions.title} end`, headlineNodeId })
         .where(and(eq(sessions.id, input.sessionId), eq(sessions.workspaceId, input.workspaceId)))
     }
 

@@ -137,8 +137,12 @@ describe('forgetting never freezes a read (final review, fix 1)', () => {
 })
 
 describe('a title that mentions a forgotten concept (ticket 10, F2/F4/F5)', () => {
+  // A chat's first message names it (deriveTitle, in ingestUserMessage) only
+  // while it still has the new-chat name, as every real chat does: a name the
+  // user chose is never replaced (message-actions ticket 01). So these tests
+  // start from newChat() and choose their titles through the first message.
   it('is replaced by a neutral heading for the model', async () => {
-    const a = await newChat('A')
+    const a = await newChat()
     await turn(a, 'We run Kafka and PostgreSQL in production.', 'PostgreSQL handles the writes. Kafka carries the events.')
     const b = await newChat('B')
     // Control: before forgetting, the real title is sent.
@@ -149,11 +153,8 @@ describe('a title that mentions a forgotten concept (ticket 10, F2/F4/F5)', () =
     expect((await ask(b, 'what did we decide?', [a])).chats.map((c) => c.title)).toEqual([HIDDEN_TITLE])
   })
 
-  // A chat's first message always becomes its title (deriveTitle, in
-  // ingestUserMessage), whatever newChat() was given. So these tests choose
-  // their titles through the first message.
   it('stays when the title does not mention the forgotten concept', async () => {
-    const a = await newChat('A')
+    const a = await newChat()
     await turn(a, 'PostgreSQL handles our storage.', 'Good choice.')
     await turn(a, 'We also run Kafka.', 'Kafka carries the events.')
     const b = await newChat('B')
@@ -164,7 +165,7 @@ describe('a title that mentions a forgotten concept (ticket 10, F2/F4/F5)', () =
 
   // Review Focus 3.
   it("another chat's forgotten concept leaves this title alone", async () => {
-    const a = await newChat('A')
+    const a = await newChat()
     await turn(a, 'Tell me about Kafka.', 'Kafka carries the events.')
     const c = await newChat('C')
     await turn(c, 'Tell me about Kafka.', 'Kafka carries the events.')

@@ -7,16 +7,33 @@ import { retrieveContext } from '@/services/retrieval'
 import { forgetConcept } from '@/services/forget'
 import { renameChat } from '@/services/dbApi'
 import { newWorkspaceId } from '@/lib/workspace'
+import { deriveTitle } from '@/lib/text'
+import { stripVisualize } from '@/lib/scene/intent'
 import { deleteTurn, removeMessages, turnAt } from '@/services/turns'
 
 beforeEach(truncateAll)
 const ws = FIXTURE_WORKSPACE_ID
 
+/**
+ * Turn order is (created_at, id), and back-to-back inserts here can share a
+ * created_at (the clock's resolution is coarser than two statements), which
+ * left the order to the random id and made these tests flaky. In the app a
+ * reply is saved seconds after its question. So each message saved here gets
+ * its own later time, one second apart.
+ */
+let clock = Date.UTC(2026, 0, 1)
+beforeEach(() => { clock = Date.UTC(2026, 0, 1) })
+async function save(input: Parameters<typeof persistMessage>[0]) {
+  const id = await persistMessage(input)
+  await (await getDb()).update(messages).set({ createdAt: new Date((clock += 1000)) }).where(eq(messages.id, id))
+  return id
+}
+
 async function turn(chatId: string, user: string, reply?: string) {
-  const userId = await persistMessage({ workspaceId: ws, sessionId: chatId, role: 'user', content: user })
+  const userId = await save({ workspaceId: ws, sessionId: chatId, role: 'user', content: user })
   const replyId = reply === undefined
     ? undefined
-    : await persistMessage({ workspaceId: ws, sessionId: chatId, role: 'assistant', content: reply, modelUsed: 'test' })
+    : await save({ workspaceId: ws, sessionId: chatId, role: 'assistant', content: reply, modelUsed: 'test' })
   await ingestUserMessage({ workspaceId: ws, sessionId: chatId, messageId: userId, content: user, assistantContent: reply, assistantMessageId: replyId })
   return { userId, replyId: replyId! }
 }
@@ -119,6 +136,56 @@ describe('deleteTurn', () => {
     expect(after.t).toBe('My own name')
     expect(after.h).not.toBe(before.h)
     if (after.h) expect(await linked(chat)).toContain(after.h)
+  })
+
+  // Ticket 01, the user's answer to final-review I3 (option a): an automatic
+  // title IS the first message, and titles reach other chats as memory, so a
+  // title that is still automatic follows the new first message. A title the
+  // user chose never changes.
+  const titleOf = async (chatId: string) =>
+    (await (await getDb()).select({ t: sessions.title }).from(sessions).where(eq(sessions.id, chatId)))[0].t
+
+  it('renames an automatic title from the new first message when the first turn goes', async () => {
+    const chat = await newChat()
+    const first = await turn(chat, 'Tell me about Kafka partitions.', 'Sure.')
+    await turn(chat, 'Tell me about Redis caching.', 'Sure.')
+    expect(await titleOf(chat)).toBe(deriveTitle('Tell me about Kafka partitions.'))
+    await deleteTurn(ws, chat, first.userId)
+    expect(await titleOf(chat)).toBe(deriveTitle('Tell me about Redis caching.'))
+  })
+
+  it('keeps an automatic title when a later turn goes', async () => {
+    const chat = await newChat()
+    await turn(chat, 'Tell me about Kafka partitions.', 'Sure.')
+    const later = await turn(chat, 'Tell me about Redis caching.', 'Sure.')
+    await deleteTurn(ws, chat, later.userId)
+    expect(await titleOf(chat)).toBe(deriveTitle('Tell me about Kafka partitions.'))
+  })
+
+  it('resets an automatic title to the new-chat name when every turn goes', async () => {
+    const chat = await newChat()
+    const only = await turn(chat, 'Tell me about Kafka partitions.', 'Sure.')
+    await deleteTurn(ws, chat, only.userId)
+    expect(await titleOf(chat)).toBe('New Session')
+  })
+
+  it('reads a /visualize first message the way the title was made from it', async () => {
+    const chat = await newChat()
+    const said = '/visualize Kafka partitions'
+    const userId = await save({ workspaceId: ws, sessionId: chat, role: 'user', content: said })
+    await ingestUserMessage({ workspaceId: ws, sessionId: chat, messageId: userId, content: stripVisualize(said) })
+    await turn(chat, 'Tell me about Redis caching.', 'Sure.')
+    await deleteTurn(ws, chat, userId)
+    expect(await titleOf(chat)).toBe(deriveTitle('Tell me about Redis caching.'))
+  })
+
+  it('keeps a renamed title when a first message is sent into an emptied chat', async () => {
+    const chat = await newChat()
+    const only = await turn(chat, 'Tell me about Kafka partitions.', 'Sure.')
+    expect(await renameChat(ws, chat, 'Mine')).toBe(true)
+    await deleteTurn(ws, chat, only.userId)
+    await turn(chat, 'Tell me about Redis caching.', 'Sure.')
+    expect(await titleOf(chat)).toBe('Mine')
   })
 
   it('leaves an empty chat when its only turn is deleted', async () => {
