@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto"
 import { streamText, convertToModelMessages, type UIMessage } from "ai"
 import { resolveChatModel } from "@/server/model"
 import { retrieveContext } from "@/services/retrieval"
-import { persistMessage, ingestUserMessage } from "@/services/graph"
+import { persistMessage, finishTurn } from "@/services/graph"
+import { isUuidV4 } from "@/lib/workspace"
 import { sessionExists } from "@/services/dbApi"
 import { buildSystemPrompt, buildCoreBlock } from "@/lib/prompt"
 import { requireWorkspace } from "@/server/workspace"
@@ -132,9 +133,10 @@ export async function POST(req: Request) {
     )
   }
 
-  // 1. persist the user message
+  // 1. persist the user message, under the id the browser already shows
+  // (message-actions ticket 01), so a delete can name it without a reload.
   const messageId = await persistMessage({
-    workspaceId, sessionId, role: "user", content: draft,
+    workspaceId, sessionId, role: "user", content: draft, id: isUuidV4(last.id) ? last.id : undefined,
   })
 
   // 2. retrieve against the PREVIOUS graph state, then call the model
@@ -177,26 +179,23 @@ export async function POST(req: Request) {
     // 3-6. Graph writes happen AFTER the stream. Spec §4.5.
     onFinish: async ({ text }) => {
       try {
-        const saved = await persistMessage({
-          workspaceId, sessionId, role: "assistant", content: text, modelUsed: modelId, id: assistantMessageId,
-        })
-        const { skipped } = await ingestUserMessage({
-          workspaceId, sessionId, messageId, content: memoryDraft,
-          // Pointers take both roles; extraction stays user-only (spec §4.2).
-          // ingestUserMessage enforces that split.
-          assistantContent: text,
-          assistantMessageId: saved,
-          // Pointers are offsets into the STORED row (`draft`), not the
-          // command-stripped `memoryDraft` extraction reads — those two
-          // differ in length for a `/visualize ...` message by exactly the
-          // length of the command `stripVisualize` removed. Pointers are
-          // built from the clean `memoryDraft` (so `match_text` never
-          // contains "/visualize"), then shifted back onto `draft`'s offsets.
+        // Pointers are offsets into the STORED row (`draft`), not the
+        // command-stripped `memoryDraft` extraction reads — those two
+        // differ in length for a `/visualize ...` message by exactly the
+        // length of the command `stripVisualize` removed. Pointers are
+        // built from the clean `memoryDraft` (so `match_text` never
+        // contains "/visualize"), then shifted back onto `draft`'s offsets.
+        const done = await finishTurn({
+          workspaceId, sessionId, messageId, memoryDraft, text, modelId, assistantMessageId,
           pointerShift: visualizePrefixLength(draft),
         })
+        if (!done) {
+          console.warn(`[chat] reply not saved: its question ${messageId} was deleted while it streamed`)
+          return
+        }
         // Ticket 05, Q14 — a block too large to index is a loss, and a loss
         // is never silent. Logged only: one block, not the whole message.
-        for (const s of skipped) console.warn(`[chat] ${describeSkip(sessionId, s.messageId, s)}`)
+        for (const s of done.skipped) console.warn(`[chat] ${describeSkip(sessionId, s.messageId, s)}`)
       } catch (err) {
         // Spec §4.5 — the write path runs after the stream, so a failure here must
         // never break the answer the user already received. But it must not vanish

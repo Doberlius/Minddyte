@@ -67,17 +67,55 @@ export async function persistMessage(input: {
     throw new Error(`No chat ${input.sessionId} in this workspace.`)
   }
 
-  const [row] = await db
-    .insert(messages)
-    .values({
-      ...(input.id ? { id: input.id } : {}),
-      sessionId: input.sessionId,
-      role: input.role,
-      content: input.content,
-      modelUsed: input.modelUsed ?? null,
-    })
-    .returning({ id: messages.id })
+  const values = {
+    sessionId: input.sessionId,
+    role: input.role,
+    content: input.content,
+    modelUsed: input.modelUsed ?? null,
+  }
+  // The browser chooses the user message's id (message-actions ticket 01), so
+  // it can name the message in a delete without a reload. An id already taken
+  // — a replayed request, an old tab — must not fail the send: it gets a fresh
+  // id, and that one message is only addressable after a reload.
+  if (input.id) {
+    const [row] = await db.insert(messages).values({ ...values, id: input.id }).onConflictDoNothing().returning({ id: messages.id })
+    if (row) return row.id
+  }
+  const [row] = await db.insert(messages).values(values).returning({ id: messages.id })
   return row.id
+}
+
+/**
+ * The route's after-stream write (spec §4.5): save the reply, then index the
+ * turn. Skipped entirely when the question is no longer there — deleted while
+ * the reply streamed (message-actions ticket 01) — so a reply never outlives
+ * its question. Returns null when skipped.
+ */
+export async function finishTurn(input: {
+  workspaceId: string
+  sessionId: string
+  messageId: string
+  memoryDraft: string
+  text: string
+  modelId: string
+  assistantMessageId: string
+  pointerShift: number
+}): Promise<{ skipped: Skip[] } | null> {
+  const db = await getDb()
+  const [still] = await db.select({ id: messages.id }).from(messages).where(eq(messages.id, input.messageId))
+  if (!still) return null
+  const saved = await persistMessage({
+    workspaceId: input.workspaceId, sessionId: input.sessionId, role: 'assistant',
+    content: input.text, modelUsed: input.modelId, id: input.assistantMessageId,
+  })
+  return ingestUserMessage({
+    workspaceId: input.workspaceId, sessionId: input.sessionId, messageId: input.messageId,
+    content: input.memoryDraft,
+    // Pointers take both roles; extraction stays user-only (spec §4.2).
+    assistantContent: input.text,
+    assistantMessageId: saved,
+    pointerShift: input.pointerShift,
+  })
 }
 
 /**

@@ -118,6 +118,10 @@ export function NeuralChat({
 
   const { messages, sendMessage, status, setMessages, clearError } = useChat({
     transport: new DefaultChatTransport({ api: '/api/chat' }),
+    // The database stores your message under this same id (message-actions
+    // ticket 01), so the delete button can name it before any reload. The
+    // reply's id is chosen by the server and streamed back, as before.
+    generateId: () => crypto.randomUUID(),
     // ai-sdk's transport wraps any non-2xx response in a plain Error whose
     // `message` IS the raw response body text (see HttpChatTransport: `throw
     // new Error(await response.text())`) — so the ONLY way to tell "your
