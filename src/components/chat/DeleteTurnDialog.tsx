@@ -37,8 +37,22 @@ export function DeleteTurnDialog({
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null
     cancel.current?.focus()
-    return () => opener?.focus?.()
+    return () => {
+      // After a successful delete the opener (the trash button of the removed
+      // message) is no longer in the page; focus the composer instead of <body>.
+      if (opener?.isConnected) opener.focus()
+      else document.getElementById('chat-composer')?.focus()
+    }
   }, [])
+
+  // Cancel is `disabled` while busy, and the "already gone" render removes the
+  // Delete button that held focus. Focusing right after setBusy(false) would run
+  // before React re-renders, so wait for the render where busy turns false.
+  const wasBusy = useRef(false)
+  useEffect(() => {
+    if (wasBusy.current && !busy) cancel.current?.focus()
+    wasBusy.current = busy
+  }, [busy])
 
   function requestClose() {
     if (!busy) onClose()
@@ -61,7 +75,6 @@ export function DeleteTurnDialog({
       setFailed(true)
     }
     setBusy(false)
-    cancel.current?.focus()
   }
 
   function onKeyDown(event: React.KeyboardEvent) {
