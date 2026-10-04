@@ -127,6 +127,17 @@ get got make made use using used way ways thing things best good need want like 
 kind sort work works working go goes set`.split(/\s+/))
 
 /**
+ * Small talk: greetings, thanks, acknowledgements and politeness (ticket 19).
+ * Kept apart from READ_FILLER because ticket 18's measured numbers depend on
+ * that list exactly. Left off on purpose, as each can name a topic: fine,
+ * right, correct, true, help. English only (ticket 19, Q6).
+ */
+const SMALL_TALK = new Set(`hi hello hey hiya yo morning evening bye goodbye cya
+thanks thank thx ty cheers appreciate appreciated
+ok okay k kk cool great nice awesome perfect sure yes yeah yep yup nope alright gotcha
+please pls lol haha hmm oh ah wow`.split(/\s+/))
+
+/**
  * The draft's content words, for rare-word coverage reach (ticket 18).
  * Lowercased; a possessive 's dropped; identifiers such as
  * `min.insync.replicas` kept whole; filler and 1-character words dropped;
@@ -137,7 +148,7 @@ export function contentTokens(draft: string): string[] {
   const words = draft.toLowerCase().replace(/['’]s\b/g, '').match(/[\p{L}\p{N}][\p{L}\p{N}._\-]*[\p{L}\p{N}]|[\p{L}\p{N}]/gu) ?? []
   const out: string[] = []
   for (const w of words) {
-    if (w.length < 2 || READ_FILLER.has(w) || out.includes(w)) continue
+    if (w.length < 2 || READ_FILLER.has(w) || SMALL_TALK.has(w) || out.includes(w)) continue
     out.push(w)
     if (out.length === PROVISIONAL.reachMaxWords) break
   }

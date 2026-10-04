@@ -169,6 +169,33 @@ describe('reach by text', () => {
     expect(chats[0].why).toMatch(/matches words "crash", "journal"/)
   })
 
+  // Ticket 19: a draft with no content words left — small talk, or a follow-up
+  // that names no topic — runs no text search at all. Both reach paths must be
+  // skipped: "thanks" is in this chat (coverage would reach it), and "hi"
+  // shares 2 of its 3 trigrams with "his"/"history" (0.67 >= the 0.5 backup).
+  it('does not reach on small talk or a follow-up that names no topic', async () => {
+    const a = await newChat('History')
+    await turn(a, 'Thanks for the history lesson!', 'His history of the empire is long, and his high court held it together.')
+    const b = await newChat('B')
+    for (const draftText of ['hi', 'thanks', 'hello there', 'ok thanks', '👍', 'can you explain more?']) {
+      const { chats } = await retrieveContext({
+        workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'explore', taggedChatIds: [], draftText,
+      })
+      expect(chats, draftText).toEqual([])
+    }
+  })
+
+  // Ticket 19, Q2: the small-talk fix must not touch a genuine one-word question.
+  it('still reaches a chat with a lone rare word', async () => {
+    const a = await newChat('Kafka')
+    await turn(a, 'Ordering?', 'Kafka partition ordering is guaranteed only within one partition.')
+    const b = await newChat('B')
+    const { chats } = await retrieveContext({
+      workspaceId: FIXTURE_WORKSPACE_ID, sessionId: b, mode: 'explore', taggedChatIds: [], draftText: 'Kafka?',
+    })
+    expect(chats.map((c) => c.id)).toEqual([a])
+  })
+
   // The backup: a typo'd draft has almost no exact content words, but the
   // whole draft still looks like the chat (word_similarity >= 0.5).
   it('still reaches a typo-ridden draft through the whole-draft backup', async () => {

@@ -272,10 +272,14 @@ async function wordHits(workspaceId: string, sessionId: string, words: string[])
 /**
  * Text reach (ticket 18): rare-word coverage, plus the whole-draft backup
  * (>= reachWordSimilarity) and the unchanged exact-phrase promotion.
+ *
+ * A draft with no content words — small talk, or a follow-up that names no
+ * topic — searches nothing (ticket 19). The backup must be skipped too: "hi"
+ * shares 2 of its 3 trigrams with "his", which clears the 0.5 backup.
  */
 async function textHits(workspaceId: string, sessionId: string, draft: string): Promise<TextHit[]> {
-  if (!draft) return []
   const words = contentTokens(draft)
+  if (!words.length) return []
   const { chatsByWord, meta, otherChats } = await wordHits(workspaceId, sessionId, words)
   const whole = await wholeDraftHits(workspaceId, sessionId, draft)
   const covered = coverageReach(words, chatsByWord, otherChats)

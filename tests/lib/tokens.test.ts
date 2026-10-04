@@ -98,6 +98,19 @@ describe('contentTokens', () => {
     expect(contentTokens('')).toEqual([])
   })
 
+  // Ticket 19: greetings, thanks and acknowledgements never name a topic.
+  it('drops small talk, alone or mixed into a question', () => {
+    expect(contentTokens('hi')).toEqual([])
+    expect(contentTokens('Thanks!')).toEqual([])
+    expect(contentTokens('ok cool, yeah')).toEqual([])
+    expect(contentTokens('ok thanks, and what about Kafka partitions?')).toEqual(['kafka', 'partitions'])
+  })
+
+  // Ticket 19, Q5: left off the list on purpose — each can name a topic.
+  it('keeps words that only look like small talk', () => {
+    expect(contentTokens('fine right correct true help')).toEqual(['fine', 'right', 'correct', 'true', 'help'])
+  })
+
   it('de-duplicates, keeping first-seen order', () => {
     expect(contentTokens('Kafka kafka KAFKA partitions')).toEqual(['kafka', 'partitions'])
   })
