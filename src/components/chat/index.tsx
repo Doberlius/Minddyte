@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport } from 'ai'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, Trash2 } from 'lucide-react'
+import { DeleteTurnDialog } from './DeleteTurnDialog'
 import { AtPicker } from './AtPicker'
 import { CommandPicker } from './CommandPicker'
 import { ForgetPicker } from './ForgetPicker'
@@ -58,6 +59,8 @@ export function NeuralChat({
    * null when no confirmation is showing.
    */
   const [forgetKey, setForgetKey] = useState<string | null>(null)
+  /** The message whose delete confirmation is open, and whether a reply goes with it. */
+  const [deleting, setDeleting] = useState<{ id: string; hasReply: boolean } | null>(null)
   /**
    * Why the last send did not go through.
    *
@@ -223,6 +226,7 @@ export function NeuralChat({
     setShowHelp(false)
     setShowForget(false)
     setForgetKey(null)
+    setDeleting(null)
 
     /**
      * Decided HERE, once, for every path out of this effect — not left to the
@@ -441,20 +445,40 @@ export function NeuralChat({
             // A model reply is markdown, and is rendered as markdown; it takes
             // the whole column, so code blocks and tables have room, and
             // minWidth 0 lets them scroll inside it instead of widening it.
+            const busy = status !== 'ready'
+            const next = messages[i + 1]
+            const prev = messages[i - 1]
+            const hasReply = m.role === 'user' ? next?.role === 'assistant' : prev?.role === 'user'
+            const actions = !busy && sessionId && (
+              <div className="msg-actions">
+                <button
+                  className="msg-act"
+                  aria-label={hasReply ? 'Delete this message and its reply' : 'Delete this message'}
+                  title="Delete"
+                  onClick={() => setDeleting({ id: m.id, hasReply })}
+                >
+                  <Trash2 size={13} aria-hidden="true" />
+                </button>
+              </div>
+            )
             return m.role === 'user' ? (
-              <div key={m.id} style={{
-                alignSelf: 'flex-end', maxWidth: 640, fontSize: 13.5, lineHeight: 1.65,
-                background: 'var(--white)', border: '1px solid var(--border)',
-                borderRadius: 14, padding: '11px 15px', color: 'var(--ink)',
-                whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
-              }}>
-                {text}
+              <div key={m.id} className="msg msg-user">
+                <div style={{
+                  fontSize: 13.5, lineHeight: 1.65,
+                  background: 'var(--white)', border: '1px solid var(--border)',
+                  borderRadius: 14, padding: '11px 15px', color: 'var(--ink)',
+                  whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
+                }}>
+                  {text}
+                </div>
+                {actions}
               </div>
             ) : (
-              <div key={m.id} style={{ alignSelf: 'stretch', minWidth: 0, fontSize: 13.5, lineHeight: 1.65, color: 'var(--ink2)' }}>
+              <div key={m.id} className="msg msg-assistant" style={{ fontSize: 13.5, lineHeight: 1.65, color: 'var(--ink2)' }}>
                 <SceneContext.Provider value={{ sessionId: sessionId ?? null, messageId: m.id, fresh: !loadedIds.has(m.id), model: model ?? null, streaming }}>
                   <Markdown text={text} />
                 </SceneContext.Provider>
+                {actions}
               </div>
             )
           })}
@@ -572,6 +596,22 @@ export function NeuralChat({
           conceptKey={forgetKey}
           onForgotten={onChatsChanged}
           onClose={() => setForgetKey(null)}
+        />
+      )}
+
+      {/* Delete one turn (message-actions ticket 01). The chat list is asked
+          for again, because the chat's concept count may have dropped. */}
+      {deleting && sessionId && (
+        <DeleteTurnDialog
+          key={deleting.id}
+          chatId={sessionId}
+          messageId={deleting.id}
+          hasReply={deleting.hasReply}
+          onDeleted={(ids) => {
+            setMessages((now) => now.filter((x) => !ids.includes(x.id)))
+            onChatsChanged()
+          }}
+          onClose={() => setDeleting(null)}
         />
       )}
     </div>
