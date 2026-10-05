@@ -1,4 +1,5 @@
 import type { UIMessage } from 'ai'
+import { stripVisualize } from '@/lib/scene/intent'
 
 /**
  * What the model is told about a user message's quote (Q19). The text comes
@@ -27,7 +28,7 @@ export function withQuote(text: string, quote: QuoteForModel | null): string {
   if (quote.kind === 'deleted') return `Replying to a deleted message.\n\n${text}`
   const heading = quote.role === 'assistant' ? 'Replying to your earlier reply:' : 'Replying to my earlier message:'
   const quoted = cap(quote.text, quote.kind === 'part' ? PART_CAP : WHOLE_CAP)
-    .split(/\r?\n/)
+    .split(/\r\n|\r|\n/)
     .map((line) => `> ${line}`)
     .join('\n')
   return `${heading}\n${quoted}\n\n${text}`
@@ -52,4 +53,24 @@ export function withQuotes(messages: UIMessage[], quotes: Map<string, QuoteForMo
       : [...m.parts.slice(0, first), merged, ...m.parts.slice(first).filter((p) => p.type !== 'text')]
     return { ...m, parts }
   })
+}
+
+/**
+ * The chat route's three texts for a turn, from the browser's `messages`
+ * (the last one is the message being sent) and the quotes read for them
+ * (`quotesForModel`). The route takes all three from here and nowhere else:
+ * - `draft`: what was typed in the last message, stored as its `content` (Q17);
+ * - `memoryDraft`: `draft` without a leading `/visualize`, the only text
+ *   retrieval, extraction and pointers read (spec §3). A quote never reaches
+ *   either (Q16);
+ * - `history`: what the model reads, every quoted user message with its quote
+ *   in front (`withQuotes`, Q19).
+ */
+export function turnText(
+  messages: UIMessage[],
+  quotes: Map<string, QuoteForModel>,
+): { draft: string; memoryDraft: string; history: UIMessage[] } {
+  const last = messages[messages.length - 1]
+  const draft = last?.parts?.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('') ?? ''
+  return { draft, memoryDraft: stripVisualize(draft), history: withQuotes(messages, quotes) }
 }

@@ -6,14 +6,14 @@ import { persistMessage, finishTurn } from "@/services/graph"
 import { isUuidV4 } from "@/lib/workspace"
 import { sessionExists } from "@/services/dbApi"
 import { checkQuote, discardUnanswered, planTurn, quotesForModel } from "@/services/turns"
-import { withQuotes } from "@/lib/quote-prompt"
+import { turnText } from "@/lib/quote-prompt"
 import type { QuoteRef } from "@/lib/quote"
 import { buildSystemPrompt, buildCoreBlock } from "@/lib/prompt"
 import { requireWorkspace } from "@/server/workspace"
 import { describeSkip } from "@/lib/pointers"
 import { getCore } from "@/services/core"
 import { PROVISIONAL } from "@/lib/provisional"
-import { stripVisualize, visualizePrefixLength, wantsDiagram } from "@/lib/scene/intent"
+import { visualizePrefixLength, wantsDiagram } from "@/lib/scene/intent"
 import { DIAGRAM_GUIDE } from "@/lib/scene/guide"
 
 /**
@@ -114,11 +114,6 @@ export async function POST(req: Request) {
   if (!last || last.role !== "user") {
     return Response.json({ error: "last message must be a user message" }, { status: 400 })
   }
-  const draft = last?.parts?.filter((p) => p.type === "text").map((p) => p.text).join("") ?? ""
-
-  // Spec §3: what memory reads. `/visualize` is a command, not a concept; the
-  // stored message keeps exactly what was typed.
-  const memoryDraft = stripVisualize(draft)
 
   // A browser can hold a sessionId for a chat the database no longer has —
   // db:reset, a deleted chat, a restored export all look identical from here.
@@ -157,6 +152,22 @@ export async function POST(req: Request) {
     if (!checked.ok) return Response.json({ error: "bad_quote", message: checked.message }, { status: 400 })
     quote = checked.quote
   }
+
+  // Q19: the model reads every quoted user message with its quote in front.
+  // The quoted text comes from the database, never from the browser. The
+  // message being sent uses the quote just checked: a new turn's saved id can
+  // differ from the browser's, and an edit's row still holds the old version.
+  const quotes = await quotesForModel(
+    workspaceId,
+    sessionId,
+    messages.filter((m) => m.role === "user").map((m) => m.id),
+    plan.kind === "regenerate" ? undefined : { id: last.id, quote },
+  )
+  // The turn's three texts, from one place (`turnText`) and nowhere else:
+  // `draft` is what was typed and is what gets stored; `memoryDraft` is what
+  // memory reads (spec §3: no `/visualize` command; Q16: never the quote);
+  // `history` is what the model reads.
+  const { draft, memoryDraft, history } = turnText(messages, quotes)
 
   // 1. A new turn saves its question now, under the id the browser shows
   // (ticket 01). An edit or a regenerate saves nothing until the new reply is
@@ -209,25 +220,11 @@ export async function POST(req: Request) {
   // never discarded (see discardIfUnanswered below).
   let answered = false
 
-  // Q19: the model reads every quoted user message with its quote in front
-  // (`withQuote`). The quoted text comes from the database, never from the
-  // browser. The message being sent uses the quote just checked: a new turn's
-  // saved id can differ from the browser's, and an edit's row still holds the
-  // old version. `messages` itself is left untouched, and memory keeps reading
-  // `draft` / `memoryDraft`, the typed text alone (Q16).
-  const quotes = await quotesForModel(
-    workspaceId,
-    sessionId,
-    messages.filter((m) => m.role === "user").map((m) => m.id),
-    plan.kind === "regenerate" ? undefined : { id: last.id, quote },
-  )
-  const history = await convertToModelMessages(withQuotes(messages, quotes))
-
   const result = streamText({
     model: resolved.model,
     system: systemPrompt,
     ...(stopWithBrowser ? { abortSignal: req.signal } : {}),
-    messages: history,
+    messages: await convertToModelMessages(history),
     // maxOutputTokens alone does NOT reach ollama.com/api. The provider maps
     // it to `max_tokens`, the OpenAI-compatible field; this endpoint is
     // Ollama's native one and reads `num_predict` out of `options` instead,

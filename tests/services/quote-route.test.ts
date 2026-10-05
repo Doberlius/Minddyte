@@ -8,9 +8,9 @@ import { finishTurn, ingestUserMessage, persistMessage } from '@/services/graph'
 import { createChat } from '@/services/dbApi'
 import { retrieveContext } from '@/services/retrieval'
 import { checkQuote, deleteTurn, quotesForModel } from '@/services/turns'
-import { withQuotes } from '@/lib/quote-prompt'
+import { turnText } from '@/lib/quote-prompt'
 import { newWorkspaceId } from '@/lib/workspace'
-import { stripVisualize, visualizePrefixLength } from '@/lib/scene/intent'
+import { visualizePrefixLength } from '@/lib/scene/intent'
 
 beforeEach(truncateAll)
 const ws = FIXTURE_WORKSPACE_ID
@@ -164,28 +164,33 @@ describe('a quote sent with a message never reaches memory (Q16, Q17)', () => {
     await ingestUserMessage({ workspaceId: ws, sessionId: elsewhere.id, messageId: elsewhereId, content: QUOTED_REPLY })
 
     const chat = await newChat('C')
-    await save({ workspaceId: ws, sessionId: chat, role: 'user', content: 'What do brewers use?' })
+    const askId = await save({ workspaceId: ws, sessionId: chat, role: 'user', content: 'What do brewers use?' })
     const replyId = await save({ workspaceId: ws, sessionId: chat, role: 'assistant', content: QUOTED_REPLY, modelUsed: 'test' })
 
-    // What the browser sends: the quote rides in the last message's metadata.
+    // What the browser sends: the history, the quote riding in the last message's metadata.
     const last: UIMessage = {
       id: randomUUID(), role: 'user', metadata: { quote: { replyToId: replyId, start: null, end: null } },
       parts: [{ type: 'text', text: TYPED }],
     }
+    const sent: UIMessage[] = [
+      { id: askId, role: 'user', parts: [{ type: 'text', text: 'What do brewers use?' }] },
+      { id: replyId, role: 'assistant', parts: [{ type: 'text', text: QUOTED_REPLY }] },
+      last,
+    ]
 
-    // The route, step by step, for a new turn.
+    // The route's calls for a new turn, with the texts from the route's own helper.
     const checked = await checkQuote(ws, chat, (last.metadata as { quote?: unknown }).quote ?? null)
     if (!checked.ok) throw new Error('quote refused')
-    const draft = last.parts.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('')
-    const memoryDraft = stripVisualize(draft)
+    const quotes = await quotesForModel(ws, chat, sent.filter((m) => m.role === 'user').map((m) => m.id), { id: last.id, quote: checked.quote })
+    const { draft, memoryDraft, history } = turnText(sent, quotes)
     const messageId = await persistMessage({ workspaceId: ws, sessionId: chat, role: 'user', content: draft, id: last.id, quote: checked.quote })
 
     // The model DOES see the quote...
-    const view = withQuotes([last], await quotesForModel(ws, chat, [last.id], { id: last.id, quote: checked.quote }))
-    const modelText = view[0].parts.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('')
+    const modelText = history[history.length - 1].parts.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('')
     expect(modelText).toContain(RARE)
-    // ...but the message the route reads its draft from is untouched.
-    expect(last.parts).toEqual([{ type: 'text', text: TYPED }])
+    // ...but memory's texts do not.
+    expect(draft).toBe(TYPED)
+    expect(memoryDraft).toBe(TYPED)
 
     const { chats } = await retrieveContext({ workspaceId: ws, sessionId: chat, mode: 'explore', taggedChatIds: [], draftText: memoryDraft })
     expect(chats.map((c) => c.id)).not.toContain(elsewhere.id)

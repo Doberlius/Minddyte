@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { UIMessage } from 'ai'
-import { withQuote, withQuotes, type QuoteForModel } from '@/lib/quote-prompt'
+import { turnText, withQuote, withQuotes, type QuoteForModel } from '@/lib/quote-prompt'
 
 describe('withQuote (Q19)', () => {
   it('leaves the text unchanged with no quote', () => {
@@ -20,6 +20,11 @@ describe('withQuote (Q19)', () => {
   it('prefixes every line of a multi-line quote', () => {
     const quote: QuoteForModel = { kind: 'part', role: 'assistant', text: 'one\ntwo\r\n\nfour' }
     expect(withQuote('ok', quote)).toBe('Replying to your earlier reply:\n> one\n> two\n> \n> four\n\nok')
+  })
+
+  it('prefixes a line ended by a lone \\r too', () => {
+    const quote: QuoteForModel = { kind: 'part', role: 'assistant', text: 'one\rtwo' }
+    expect(withQuote('ok', quote)).toBe('Replying to your earlier reply:\n> one\n> two\n\nok')
   })
 
   it('says a deleted target is gone, with no text', () => {
@@ -97,5 +102,48 @@ describe('withQuotes: the model view of a history', () => {
       { type: 'text', text: 'Replying to a deleted message.\n\n' },
       { type: 'file', mediaType: 'image/png', url: 'data:,' },
     ])
+  })
+})
+
+describe('turnText: what the route stores, what memory reads, what the model reads', () => {
+  const QUOTED = 'Zymurgy kettles ferment slowly.'
+  const messages = (): UIMessage[] => [
+    { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: QUOTED }] },
+    {
+      id: 'u2', role: 'user', metadata: { quote: { replyToId: 'a1', start: null, end: null } },
+      parts: [{ type: 'text', text: '/visualize ' }, { type: 'text', text: 'Kafka partitions' }],
+    },
+  ]
+  const quotes = new Map<string, QuoteForModel>([['u2', { kind: 'whole', role: 'assistant', text: QUOTED }]])
+  const textOf = (m: UIMessage) => m.parts.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('')
+
+  it('keeps draft and memoryDraft to the typed text, with none of the quoted text', () => {
+    const { draft, memoryDraft } = turnText(messages(), quotes)
+    expect(draft).toBe('/visualize Kafka partitions')
+    expect(memoryDraft).toBe('Kafka partitions')
+    for (const t of [draft, memoryDraft]) {
+      expect(t).not.toContain('Zymurgy')
+      expect(t).not.toContain('Replying to')
+    }
+  })
+
+  it('gives the model the last user message with its quote in front', () => {
+    const { history } = turnText(messages(), quotes)
+    expect(textOf(history[history.length - 1])).toBe(
+      'Replying to your earlier reply:\n> Zymurgy kettles ferment slowly.\n\n/visualize Kafka partitions',
+    )
+  })
+
+  it('changes nothing it was given', () => {
+    const given = messages()
+    const copy = structuredClone(given)
+    turnText(given, quotes)
+    expect(given).toEqual(copy)
+  })
+
+  it('reads an empty draft when the last message has no text', () => {
+    const { draft, memoryDraft } = turnText([{ id: 'u', role: 'user', parts: [] }], new Map())
+    expect(draft).toBe('')
+    expect(memoryDraft).toBe('')
   })
 })
