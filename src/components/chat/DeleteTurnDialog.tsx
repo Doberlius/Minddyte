@@ -139,14 +139,12 @@ export function DeleteTurnDialog({
             </button>
             {!gone && (
               <span className="forget-pair">
-                <span id="delete-turn-noundo" className="forget-noundo">No undo</span>
                 <button
                   className="forget-go"
                   onClick={remove}
                   // Not `disabled` while the request runs: that would throw
                   // focus out of the dialog. `remove()` ignores a second press.
                   aria-disabled={busy || undefined}
-                  aria-describedby="delete-turn-noundo"
                 >
                   Delete
                 </button>
