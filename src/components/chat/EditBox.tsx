@@ -44,6 +44,7 @@ export function EditBox({
         ref={box}
         className="composer-box"
         value={text}
+        aria-describedby={removes > 1 ? 'msg-edit-note' : undefined}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
@@ -55,7 +56,7 @@ export function EditBox({
           }
         }}
       />
-      {removes > 1 && <p className="msg-edit-note">Saving will remove the {removes} messages after this one.</p>}
+      {removes > 1 && <p id="msg-edit-note" className="msg-edit-note">Saving will remove the {removes} messages after this one.</p>}
       <div className="msg-edit-actions">
         <button className="tour-back" onClick={onCancel}>Cancel</button>
         <button className="btn-send" onClick={() => changed && onSave(clean)} disabled={!changed}>Save</button>
