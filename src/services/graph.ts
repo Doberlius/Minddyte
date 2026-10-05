@@ -4,6 +4,7 @@ import { extractConcepts } from "@/lib/extract"
 import { deriveTitle, canonicalKey } from "@/lib/text"
 import { pointerRows, type SkippedSpan } from "@/lib/pointers"
 import { linkNode, forgottenKeys, headlineCandidates, type Tx } from "./links"
+import { removeMessages } from "./turns"
 
 export type Skip = SkippedSpan & { messageId: string }
 
@@ -101,16 +102,33 @@ export async function finishTurn(input: {
   modelId: string
   assistantMessageId: string
   pointerShift: number
+  /** Message-actions ticket 02: the messages an edit or regenerate replaces, removed first, in this transaction. */
+  cut?: string[]
+  /** An edit's new question, saved under `messageId` (the browser keeps the id), at the time the request arrived. */
+  question?: { content: string; createdAt: Date }
 }): Promise<{ skipped: Skip[] } | null> {
   const db = await getDb()
   return db.transaction(async (tx) => {
     // Inside the transaction: a question deleted after this check cannot leave
     // a saved reply behind (ticket 01's residual window, closed by ticket 02).
-    const [question] = await tx
-      .select({ createdAt: messages.createdAt })
-      .from(messages)
-      .where(and(eq(messages.id, input.messageId), eq(messages.sessionId, input.sessionId)))
-    if (!question) return null
+    // The cut goes first; for an edit it includes the old version of this message (same id).
+    if (input.cut?.length) await removeMessages(tx, input.workspaceId, input.sessionId, input.cut)
+    let askedAt: Date
+    if (input.question) {
+      await tx.insert(messages).values({
+        id: input.messageId, sessionId: input.sessionId, role: 'user',
+        content: input.question.content, createdAt: input.question.createdAt,
+      })
+      askedAt = input.question.createdAt
+    } else {
+      const [question] = await tx
+        .select({ createdAt: messages.createdAt })
+        .from(messages)
+        .where(and(eq(messages.id, input.messageId), eq(messages.sessionId, input.sessionId)))
+      if (!question) return null
+      askedAt = question.createdAt
+    }
+    // A regenerate's question was already ingested; re-ingesting is safe (onConflictDoNothing, linkNode counts only new links, only "New Session" is retitled).
     // Explicitly after the question: two rows saved close together can share
     // a created_at, and (created_at, id) would then order them by a random id.
     // assistantMessageId is server-generated (randomUUID in the route), so it needs no collision fallback.
@@ -119,7 +137,7 @@ export async function finishTurn(input: {
       .values({
         id: input.assistantMessageId, sessionId: input.sessionId, role: 'assistant',
         content: input.text, modelUsed: input.modelId,
-        createdAt: new Date(Math.max(Date.now(), question.createdAt.getTime() + 1)),
+        createdAt: new Date(Math.max(Date.now(), askedAt.getTime() + 1)),
       })
       .returning({ id: messages.id })
     return ingestInTx(tx, {
