@@ -151,6 +151,10 @@ export async function POST(req: Request) {
     ? await persistMessage({ workspaceId, sessionId, role: "user", content: draft, id: isUuidV4(last.id) ? last.id : undefined })
     : last.id
 
+  // A new turn's question is saved. If anything below throws before the stream
+  // is returned, nobody will ever answer it and the browser shows a failed
+  // send, so the saved copy goes too, and the error still ends as a 500.
+  try {
   // 2. retrieve against the PREVIOUS graph state, then call the model
   let chats: Awaited<ReturnType<typeof retrieveContext>>["chats"] = []
   try {
@@ -205,7 +209,7 @@ export async function POST(req: Request) {
     providerOptions: { ollama: { options: { num_predict: MAX_OUTPUT_TOKENS } } },
     // 3-6. Graph writes happen AFTER the stream. Spec §4.5.
     onFinish: async ({ text, finishReason }) => {
-      // An `error` part still records a step (ai 7522-7524, 7581), so this runs
+      // An `error` part still records a step (the `error`-part step recording in ai 6.0.189), so this runs
       // with partial (or empty) text. The browser shows a failed send: save nothing.
       if (finishReason === "error") {
         console.warn(`[chat] ${plan.kind} not saved: the model failed mid-reply`)
@@ -258,20 +262,20 @@ export async function POST(req: Request) {
    * and measured with a mock model for each ending:
    * - `toUIMessageStreamResponse({ onFinish })` runs exactly once however the
    *   stream ends: from the flush AND the cancel hook of the last transform,
-   *   behind a `finishCalled` guard (lines 5969, 6016-6020).
+   *   behind a `finishCalled` guard (the transformer's `flush` and `cancel`).
    * - It runs AFTER streamText's own `onFinish` has resolved: that one is
-   *   awaited in the event processor's flush (`notify`, line 6918), and the
-   *   stream this response reads is piped through that processor (line 7012).
+   *   awaited in the event processor's flush (`notify`), and the
+   *   stream this response reads is piped through that processor.
    *   So on success `answered` is already true here. Measured: success gives
    *   streamText.onFinish, then this with answered = true.
    * - A provider failure before any text (a rejected doStream) becomes an
-   *   `error` part (line 7706), no step is recorded, and streamText skips its
-   *   onFinish (line 6870). This still runs, with answered = false.
-   * - A stream that throws mid-reply errors the pipe (line 6994): neither
+   *   `error` part, no step is recorded, and streamText skips its
+   *   onFinish (the event processor's `flush` checks for a recorded step). This still runs, with answered = false.
+   * - A stream that throws mid-reply errors the pipe: neither
    *   streamText `onFinish` nor `onError` runs, only this, via the cancel
    *   hook. That is why streamText's `onError` plus a flag would not do.
    * - An `error` part, before any text or mid-reply, still records a step
-   *   (lines 7522-7524, 7581), so streamText's onFinish runs with
+   *   (the `error`-part step recording), so streamText's onFinish runs with
    *   finishReason "error" and empty or partial text. It returns before
    *   setting `answered`, saving nothing, so this runs with answered = false
    *   and the question is discarded: the browser shows a failed send too.
@@ -306,4 +310,11 @@ export async function POST(req: Request) {
     generateMessageId: () => assistantMessageId,
     ...(plan.kind === "new" ? { onFinish: discardIfUnanswered } : {}),
   })
+  } catch (err) {
+    if (plan.kind === "new") {
+      try { await discardUnanswered(workspaceId, sessionId, messageId) }
+      catch (e) { console.error(`[chat] could not discard the unanswered question ${messageId}`, e) }
+    }
+    throw err
+  }
 }
