@@ -435,10 +435,13 @@ export function NeuralChat({
             setFailure('That conversation no longer exists. Send again to start a new one.')
           })
       }
-      else if (!chat && sentFrom.current) {
+      else if (!chat) {
         // The reply belongs to a chat you left for New chat. It must not stay on
         // this blank screen, where useChat would send it as history with the
-        // new chat's first message.
+        // new chat's first message. No other reply can land here: a send from
+        // New chat names its new chat (shownChat) before it starts. Not tested
+        // on `sentFrom`: leaving the chat resets it to undefined, which once
+        // made this branch dead.
         setMessages([])
         setLoadedIds(new Set())
       }
