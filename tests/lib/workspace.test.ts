@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   COOKIE_MAX_AGE,
   WORKSPACE_COOKIE,
   isWorkspaceId,
   newWorkspaceId,
+  workspaceCookieOptions,
 } from '@/lib/workspace'
 
 /**
@@ -54,5 +55,37 @@ describe('workspace identity', () => {
 
   it('expires the cookie after 30 days', () => {
     expect(COOKIE_MAX_AGE).toBe(30 * 24 * 60 * 60)
+  })
+})
+
+describe('workspaceCookieOptions', () => {
+  const original = process.env.NODE_ENV
+  afterEach(() => {
+    ;(process.env as Record<string, string | undefined>).NODE_ENV = original
+  })
+  const setEnv = (v: string) => {
+    ;(process.env as Record<string, string | undefined>).NODE_ENV = v
+  }
+
+  it('is not secure on a development server, so http works', () => {
+    setEnv('development')
+    expect(workspaceCookieOptions()).toEqual({
+      httpOnly: true,
+      sameSite: 'lax',
+      maxAge: COOKIE_MAX_AGE,
+      path: '/',
+      secure: false,
+    })
+  })
+
+  it('is secure in production', () => {
+    setEnv('production')
+    expect(workspaceCookieOptions()).toEqual({
+      httpOnly: true,
+      sameSite: 'lax',
+      maxAge: COOKIE_MAX_AGE,
+      path: '/',
+      secure: true,
+    })
   })
 })

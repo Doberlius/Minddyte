@@ -21,7 +21,31 @@ export const COOKIE_MAX_AGE = 30 * 24 * 60 * 60
  * records this as considered rather than forgotten.
  */
 export function newWorkspaceId(): string {
-  return randomUUID()
+  // The global Web Crypto, present in Node and in the edge runtime alike.
+  return globalThis.crypto.randomUUID()
+}
+
+/**
+ * The cookie's flags, for every writer (`requireWorkspace` and the
+ * middleware). Called, not a constant, so `secure` reads NODE_ENV when it is
+ * used.
+ */
+export function workspaceCookieOptions() {
+  return {
+    httpOnly: true,
+    // Secure unless this is explicitly a development server. Written as
+    // `!== 'development'` rather than `=== 'production'` on purpose: the
+    // first is wrong only when someone deliberately says development, the
+    // second is wrong whenever NODE_ENV is unset, misspelled, or says
+    // something like "staging" — and being wrong there means the id that
+    // separates two visitors' conversations travels in the clear. Next sets
+    // NODE_ENV=development for `next dev` itself, so nothing has to be
+    // configured for a developer to get a working cookie over http.
+    secure: process.env.NODE_ENV !== 'development',
+    sameSite: 'lax' as const,
+    maxAge: COOKIE_MAX_AGE,
+    path: '/',
+  }
 }
 
 const V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
