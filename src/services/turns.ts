@@ -3,6 +3,7 @@ import { getDb, messages, sessionNodes, sessions } from '../../db'
 import { recountNodes, rejectedKeys, relinkChat, type Tx } from './links'
 import { deriveTitle } from '@/lib/text'
 import { stripVisualize } from '@/lib/scene/intent'
+import { isUuidV4 } from '@/lib/workspace'
 
 /**
  * Message-actions ticket 01, Q4: a turn is a user message and the assistant
@@ -94,4 +95,62 @@ async function retitle(tx: Tx, sessionId: string, oldFirstContent: string): Prom
     .update(sessions)
     .set({ title: deriveTitle(stripVisualize(next?.content ?? '')) })
     .where(eq(sessions.id, sessionId))
+}
+
+export type TurnPlan =
+  | { kind: 'new' }
+  | { kind: 'edit' | 'regenerate'; cut: string[] }
+  | { kind: 'refused'; status: 400 | 404; error: string; message: string }
+
+const NOT_FOUND: TurnPlan = {
+  kind: 'refused', status: 404, error: 'message_not_found',
+  message: 'This message isn’t saved yet, or was deleted. Reload the chat, then try again.',
+}
+const refuse = (message: string): TurnPlan => ({ kind: 'refused', status: 400, error: 'bad_request', message })
+
+/**
+ * What a chat request is (message-actions ticket 02), read from AI SDK's
+ * `trigger` and `messageId`: a new turn; an edit (`submit-message` naming
+ * your own message, which the browser keeps under the same id); or a
+ * regenerate (`regenerate-message` naming a reply). For an edit or a
+ * regenerate, `cut` is that message and everything after it — removed only
+ * when the new reply is saved (Q9). Writes nothing. Only your own messages
+ * can be edited (Q3). "Not yours" and "not there" give the same 404.
+ */
+export async function planTurn(
+  workspaceId: string,
+  sessionId: string,
+  req: { trigger?: unknown; messageId?: unknown; lastId: string },
+): Promise<TurnPlan> {
+  const trigger = req.trigger ?? 'submit-message'
+  if (trigger !== 'submit-message' && trigger !== 'regenerate-message') return refuse('That kind of request is not supported.')
+  if (req.messageId == null) {
+    return trigger === 'submit-message' ? { kind: 'new' } : refuse('Say which reply to regenerate.')
+  }
+  if (typeof req.messageId !== 'string') return refuse('A message id must be text.')
+  if (!isUuidV4(req.messageId)) return NOT_FOUND
+
+  const db = await getDb()
+  const [owned] = await db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(and(eq(sessions.id, sessionId), eq(sessions.workspaceId, workspaceId)))
+  if (!owned) return NOT_FOUND
+  const all = await db
+    .select({ id: messages.id, role: messages.role })
+    .from(messages)
+    .where(eq(messages.sessionId, sessionId))
+    .orderBy(asc(messages.createdAt), asc(messages.id))
+  const i = all.findIndex((m) => m.id === req.messageId)
+  if (i === -1) return NOT_FOUND
+  const cut = all.slice(i).map((m) => m.id)
+
+  if (trigger === 'submit-message') {
+    if (all[i].role !== 'user') return refuse('Only your own messages can be edited.')
+    if (req.messageId !== req.lastId) return refuse('The edited message must be the one sent.')
+    return { kind: 'edit', cut }
+  }
+  if (all[i].role !== 'assistant') return refuse('Only a reply can be regenerated.')
+  if (all[i - 1]?.role !== 'user' || all[i - 1].id !== req.lastId) return refuse('The question for this reply must be the last message sent.')
+  return { kind: 'regenerate', cut }
 }
