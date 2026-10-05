@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 
 /**
  * Everything about a workspace's identity that does not need a request.
