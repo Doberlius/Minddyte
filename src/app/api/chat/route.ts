@@ -5,7 +5,9 @@ import { retrieveContext } from "@/services/retrieval"
 import { persistMessage, finishTurn } from "@/services/graph"
 import { isUuidV4 } from "@/lib/workspace"
 import { sessionExists } from "@/services/dbApi"
-import { discardUnanswered, planTurn } from "@/services/turns"
+import { checkQuote, discardUnanswered, planTurn, quotesForModel } from "@/services/turns"
+import { withQuotes } from "@/lib/quote-prompt"
+import type { QuoteRef } from "@/lib/quote"
 import { buildSystemPrompt, buildCoreBlock } from "@/lib/prompt"
 import { requireWorkspace } from "@/server/workspace"
 import { describeSkip } from "@/lib/pointers"
@@ -143,12 +145,25 @@ export async function POST(req: Request) {
   const plan = await planTurn(workspaceId, sessionId, { trigger, messageId: actedOn, lastId: last.id, expectCut })
   if (plan.kind === "refused") return Response.json({ error: plan.error, message: plan.message }, { status: plan.status })
 
+  // Reply-to ticket 03. The quote rides in the last message's metadata and is
+  // checked before anything is saved: one that does not name a message of
+  // this chat with a valid range is refused, and nothing is written. Only its
+  // reference is kept; the quoted text is always read from the database. A
+  // regenerate sends none: its question's quote is already saved.
+  let quote: QuoteRef | null = null
+  if (plan.kind !== "regenerate") {
+    const raw = (last.metadata as { quote?: unknown } | null | undefined)?.quote ?? null
+    const checked = await checkQuote(workspaceId, sessionId, raw, plan.kind === "edit" ? plan.cut : [])
+    if (!checked.ok) return Response.json({ error: "bad_quote", message: checked.message }, { status: 400 })
+    quote = checked.quote
+  }
+
   // 1. A new turn saves its question now, under the id the browser shows
   // (ticket 01). An edit or a regenerate saves nothing until the new reply is
   // in (Q9): the edited question at finish, and a regenerate's question is
   // already there. Its id is the browser's, which planTurn checked.
   const messageId = plan.kind === "new"
-    ? await persistMessage({ workspaceId, sessionId, role: "user", content: draft, id: isUuidV4(last.id) ? last.id : undefined })
+    ? await persistMessage({ workspaceId, sessionId, role: "user", content: draft, id: isUuidV4(last.id) ? last.id : undefined, quote })
     : last.id
 
   // A new turn's question is saved. If anything below throws before the stream
@@ -194,11 +209,25 @@ export async function POST(req: Request) {
   // never discarded (see discardIfUnanswered below).
   let answered = false
 
+  // Q19: the model reads every quoted user message with its quote in front
+  // (`withQuote`). The quoted text comes from the database, never from the
+  // browser. The message being sent uses the quote just checked: a new turn's
+  // saved id can differ from the browser's, and an edit's row still holds the
+  // old version. `messages` itself is left untouched, and memory keeps reading
+  // `draft` / `memoryDraft`, the typed text alone (Q16).
+  const quotes = await quotesForModel(
+    workspaceId,
+    sessionId,
+    messages.filter((m) => m.role === "user").map((m) => m.id),
+    plan.kind === "regenerate" ? undefined : { id: last.id, quote },
+  )
+  const history = await convertToModelMessages(withQuotes(messages, quotes))
+
   const result = streamText({
     model: resolved.model,
     system: systemPrompt,
     ...(stopWithBrowser ? { abortSignal: req.signal } : {}),
-    messages: await convertToModelMessages(messages),
+    messages: history,
     // maxOutputTokens alone does NOT reach ollama.com/api. The provider maps
     // it to `max_tokens`, the OpenAI-compatible field; this endpoint is
     // Ollama's native one and reads `num_predict` out of `options` instead,
@@ -233,7 +262,7 @@ export async function POST(req: Request) {
           workspaceId, sessionId, messageId, memoryDraft, text, modelId, assistantMessageId,
           pointerShift: visualizePrefixLength(draft),
           cut: plan.kind === "new" ? undefined : plan.cut,
-          question: plan.kind === "edit" ? { content: draft, createdAt: arrivedAt } : undefined,
+          question: plan.kind === "edit" ? { content: draft, createdAt: arrivedAt, quote } : undefined,
         })
         if (!done) {
           console.warn(`[chat] ${plan.kind} not saved: its question, or a message it replaces, changed while the reply streamed`)
