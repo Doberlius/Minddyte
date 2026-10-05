@@ -15,7 +15,7 @@ import { Markdown } from './Markdown'
 import { ModelPicker } from './ModelPicker'
 import { SceneContext } from './SceneContext'
 import { ForgetDialog } from '@/components/forget/ForgetDialog'
-import { classifyChatFailure } from '@/lib/chat-error'
+import { classifyChatFailure, GENERIC, type ChatFailure } from '@/lib/chat-error'
 import { newUuid } from '@/lib/uuid'
 import type { ChatSummary } from '@/components/layout/Sidebar'
 
@@ -72,9 +72,29 @@ export function NeuralChat({
    * What the screen showed before an edit or a regenerate. AI SDK cuts the
    * transcript optimistically, but the server swaps nothing until the new
    * reply is saved (Q9) — so a failed request puts this back, and an edit's
-   * text back in its box. Cleared once a reply has landed.
+   * text back in its box. Cleared once a reply has landed, and on a chat
+   * switch: it belongs to the chat it was taken in.
    */
-  const undo = useRef<{ snapshot: UIMessage[]; editing?: { id: string; draft: string } } | null>(null)
+  const undo = useRef<{ sessionId: string; snapshot: UIMessage[]; editing?: { id: string; draft: string } } | null>(null)
+  /**
+   * The chat on screen, and the chat the request in flight was sent from.
+   * Refs because `onError` is a callback useChat holds on to: it cannot see a
+   * later render's `sessionId`. A request can fail after you have opened
+   * another chat, and its failure must not touch that chat's transcript.
+   */
+  const shownChat = useRef(sessionId)
+  const sentFrom = useRef<string | null>(null)
+  useEffect(() => {
+    shownChat.current = sessionId
+  }, [sessionId])
+  /** The id of the element to focus after the next render (ticket 02's buttons). */
+  const focusNext = useRef<string | null>(null)
+  useEffect(() => {
+    const id = focusNext.current
+    if (!id) return
+    focusNext.current = null
+    document.getElementById(id)?.focus()
+  })
   /**
    * Why the last send did not go through.
    *
@@ -147,19 +167,14 @@ export function NeuralChat({
     onError: (err) => {
       const failed = classifyChatFailure(err.message)
 
-      // An edit or a regenerate: the server swapped nothing (Q9), so the screen
-      // goes back to what it was, and an edit's text back into its box.
-      const pending = undo.current
-      undo.current = null
-      if (pending) {
-        setMessages(pending.snapshot)
-        if (pending.editing) setEditing(pending.editing)
-        if (failed.kind === 'session_not_found') {
-          onSessionChange(null)
-          setFailure('That conversation no longer exists. Send again to start a new one.')
-        } else setFailure(failed.message)
+      // Sent from a chat you have since left. The transcript on screen is
+      // another chat's, so there is nothing here to take back out or restore.
+      if (sentFrom.current !== shownChat.current) {
+        undo.current = null
         return
       }
+
+      if (undoCut(failed)) return
 
       // NOTE: recovering the status does NOT happen here. See the effect below.
 
@@ -256,6 +271,7 @@ export function NeuralChat({
     setForgetKey(null)
     setDeleting(null)
     setEditing(null)
+    undo.current = null
     setRegenConfirm(null)
 
     /**
@@ -421,30 +437,66 @@ export function NeuralChat({
       // Claimed before the switch, so the load effect leaves the message that
       // is about to appear alone.
       loadedFor.current = sid
+      // Shown from now on; the mirror effect would only catch up after the
+      // render, and a fast failure must not read as another chat's.
+      shownChat.current = sid
       onSessionChange(sid)
       onChatsChanged() // the row exists now; show it rather than after the reply
     }
 
+    sentFrom.current = sid
     sendMessage({ text }, { body: turnBody(sid) })
     setInput('')
   }
 
+  /**
+   * Put back what an edit or a regenerate cut, after its request failed: the
+   * server swapped nothing (Q9), so the screen goes back to what it was, and
+   * an edit's text back into its box. False when there is nothing of this
+   * chat's to restore, and the failure is an ordinary send's.
+   */
+  function undoCut(failed: ChatFailure): boolean {
+    const pending = undo.current
+    undo.current = null
+    if (!pending || pending.sessionId !== shownChat.current) return false
+    setMessages(pending.snapshot)
+    if (pending.editing) setEditing(pending.editing)
+    if (failed.kind === 'session_not_found') {
+      onSessionChange(null)
+      setFailure('That conversation no longer exists. Send again to start a new one.')
+    } else if (!pending.editing && failed.message === GENERIC) {
+      // The generic sentence talks about text in the box; a regenerate has none.
+      setFailure('The reply couldn’t be regenerated. Try again.')
+    } else setFailure(failed.message)
+    return true
+  }
+
   function saveEdit(id: string, text: string) {
     if (!sessionId || status !== 'ready') return
-    undo.current = { snapshot: messages, editing: { id, draft: text } }
+    undo.current = { sessionId, snapshot: messages, editing: { id, draft: text } }
+    sentFrom.current = sessionId
     setEditing(null)
     setFailure(null)
+    focusNext.current = 'chat-composer'
     // AI SDK keeps this message's id, drops everything after it, and sends
     // trigger 'submit-message' with messageId — the server reads it as an edit.
-    void sendMessage({ text, messageId: id }, { body: turnBody(sessionId) })
+    // It rejects only on a throw before the request (an id it does not hold);
+    // a failed request goes to onError instead.
+    sendMessage({ text, messageId: id }, { body: turnBody(sessionId) })
+      .catch(() => undoCut({ kind: 'other', message: GENERIC }))
   }
 
   function regen(id: string) {
     if (!sessionId || status !== 'ready') return
-    undo.current = { snapshot: messages }
+    undo.current = { sessionId, snapshot: messages }
+    sentFrom.current = sessionId
+    setEditing(null)
     setRegenConfirm(null)
     setFailure(null)
-    void regenerate({ messageId: id, body: turnBody(sessionId) })
+    // The button that was pressed hides while the reply streams.
+    focusNext.current = 'chat-composer'
+    regenerate({ messageId: id, body: turnBody(sessionId) })
+      .catch(() => undoCut({ kind: 'other', message: GENERIC }))
   }
 
   return (
@@ -499,12 +551,12 @@ export function NeuralChat({
             const actions = !busy && sessionId && (
               <div className="msg-actions">
                 {m.role === 'user' ? (
-                  <button className="msg-act" aria-label="Edit this message" title="Edit"
+                  <button id={`edit-${m.id}`} className="msg-act" aria-label="Edit this message" title="Edit"
                     onClick={() => { setRegenConfirm(null); setEditing({ id: m.id, draft: text }) }}>
                     <Pencil size={13} aria-hidden="true" />
                   </button>
                 ) : (
-                  <button className="msg-act" aria-label="Regenerate this reply" title="Regenerate"
+                  <button id={`regen-${m.id}`} className="msg-act" aria-label="Regenerate this reply" title="Regenerate"
                     onClick={() => (later > 0 ? setRegenConfirm(m.id) : regen(m.id))}>
                     <RotateCcw size={13} aria-hidden="true" />
                   </button>
@@ -527,7 +579,10 @@ export function NeuralChat({
                     draft={editing.draft}
                     removes={later}
                     onSave={(t) => saveEdit(m.id, t)}
-                    onCancel={() => setEditing(null)}
+                    onCancel={() => {
+                      setEditing(null)
+                      focusNext.current = `edit-${m.id}`
+                    }}
                   />
                 ) : (
                   <>
@@ -553,7 +608,10 @@ export function NeuralChat({
                   <p className="msg-edit-note" role="status">
                     Regenerating will remove {later === 1 ? 'the message' : `the ${later} messages`} after this one.
                     <button className="msg-link" onClick={() => regen(m.id)}>Regenerate</button>
-                    <button className="msg-link" onClick={() => setRegenConfirm(null)}>Cancel</button>
+                    <button className="msg-link" onClick={() => {
+                      setRegenConfirm(null)
+                      focusNext.current = `regen-${m.id}`
+                    }}>Cancel</button>
                   </p>
                 )}
               </div>

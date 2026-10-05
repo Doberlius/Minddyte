@@ -19,7 +19,7 @@ export type ChatFailure =
   /** Anything else, with something the person can actually read. */
   | { kind: 'other'; message: string }
 
-const GENERIC = 'The message could not be sent. Your text is still in the box — try again.'
+export const GENERIC = 'The message could not be sent. Your text is still in the box — try again.'
 
 type ErrorBody = { error?: unknown; message?: unknown }
 
