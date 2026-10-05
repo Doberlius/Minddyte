@@ -1,5 +1,5 @@
 import { getDb, sessions, messages, nodes, sessionNodes, chatPointers } from "../../db"
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import type { GraphNode, ViewGraph } from "@/types/graph"
 import { recountNodes } from "./links"
 import { notForgottenSql } from "@/lib/mentions"
@@ -137,7 +137,7 @@ export async function loadChat(workspaceId: string, sessionId: string) {
     // omitted-by-exception, so a column this doesn't ask for stays out by
     // default rather than by memory.
     columns: { id: true, title: true, headlineNodeId: true },
-    with: { messages: { orderBy: messages.createdAt } },
+    with: { messages: { orderBy: [asc(messages.createdAt), asc(messages.id)] } },
   })
 }
 

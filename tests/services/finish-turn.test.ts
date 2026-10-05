@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
+import { loadChat } from '@/services/dbApi'
 import { getDb, messages, chatPointers } from '../../db'
 import { FIXTURE_WORKSPACE_ID, newChat, truncateAll } from '../helpers/pglite'
 import { finishTurn, persistMessage } from '@/services/graph'
@@ -48,5 +49,39 @@ describe('finishTurn', () => {
     expect(await finish(chat, userId)).toBeNull()
     const db = await getDb()
     expect(await db.select().from(messages).where(eq(messages.sessionId, chat))).toEqual([])
+  })
+})
+
+describe('finishTurn, as one transaction (message-actions ticket 02)', () => {
+  it('orders the reply after its question even when both are saved at once', async () => {
+    for (let n = 0; n < 10; n++) {
+      await truncateAll()
+      const chat = await newChat()
+      const userId = await persistMessage({ workspaceId: ws, sessionId: chat, role: 'user', content: 'Tell me about Kafka partitions.' })
+      const replyId = randomUUID()
+      expect(await finishTurn({ workspaceId: ws, sessionId: chat, messageId: userId, memoryDraft: 'Tell me about Kafka partitions.', text: 'Partitions keep order.', modelId: 'test', assistantMessageId: replyId, pointerShift: 0 })).not.toBeNull()
+      expect((await loadChat(ws, chat))!.messages.map((m) => m.id)).toEqual([userId, replyId])
+    }
+  })
+
+  it('saves no reply when indexing fails', async () => {
+    const chat = await newChat()
+    const userId = await persistMessage({ workspaceId: ws, sessionId: chat, role: 'user', content: 'Tell me about Kafka partitions.' })
+    const replyId = randomUUID()
+    // A foreign workspace makes ingest's ownership check throw, after the reply's insert.
+    await expect(finishTurn({ workspaceId: randomUUID(), sessionId: chat, messageId: userId, memoryDraft: 'x', text: 'y', modelId: 'test', assistantMessageId: replyId, pointerShift: 0 })).rejects.toThrow()
+    const db = await getDb()
+    expect(await db.select().from(messages).where(eq(messages.id, replyId))).toEqual([])
+  })
+})
+
+describe('loadChat order', () => {
+  it('breaks a created_at tie by id', async () => {
+    const chat = await newChat()
+    const a = await persistMessage({ workspaceId: ws, sessionId: chat, role: 'user', content: 'one' })
+    const b = await persistMessage({ workspaceId: ws, sessionId: chat, role: 'assistant', content: 'two' })
+    const db = await getDb()
+    await db.execute(sql`update messages set created_at = '2026-01-01T00:00:00Z' where session_id = ${chat}`)
+    expect((await loadChat(ws, chat))!.messages.map((m) => m.id)).toEqual([a, b].sort())
   })
 })
