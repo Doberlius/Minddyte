@@ -21,6 +21,18 @@ import type { ChatSummary } from '@/components/layout/Sidebar'
 
 type StoredMessage = { id: string; role: 'user' | 'assistant'; content: string }
 
+/** The stored transcript as the screen holds it. The one mapping, for opening a chat and for reloading one. */
+function toUIMessages(stored: StoredMessage[] | undefined): UIMessage[] {
+  return (stored ?? []).map((m) => ({
+    id: m.id,
+    role: m.role,
+    parts: [{ type: 'text' as const, text: m.content }],
+  }))
+}
+
+const SWAP_SAVED_NOTHING =
+  'This chat changed in another tab, so that change wasn’t saved. Showing the chat as it is now.'
+
 /** One tag, on disk, so a choice survives a reload the way the open chat does. */
 const MODEL_KEY = 'minddyte.modelId'
 
@@ -84,6 +96,11 @@ export function NeuralChat({
    */
   const shownChat = useRef(sessionId)
   const sentFrom = useRef<string | null | undefined>(null)
+  /** What the request in flight was, and the message it concerns (a new send: the user's own message). */
+  const sentKind = useRef<'new' | 'edit' | 'regenerate'>('new')
+  const sentId = useRef<string | null>(null)
+  /** Set before a deliberate switch to no chat, so the switch does not wipe the line explaining it. */
+  const keepFailureOnSwitch = useRef(false)
   useEffect(() => {
     shownChat.current = sessionId
   }, [sessionId])
@@ -183,11 +200,19 @@ export function NeuralChat({
       // transcript — but the text itself is never thrown away. The standing
       // rule is not to silently discard what someone typed, so it goes back in
       // the box, ready to send again.
+      // After part of a reply has streamed, the last message is the reply (or
+      // an empty one the stream started), so both halves go: every trailing
+      // reply, then the question. Only that question's text goes back in the box.
       setMessages((prev) => {
-        const sent = prev[prev.length - 1]
-        const text = sent?.parts.filter((p) => p.type === 'text').map((p) => p.text).join('') ?? ''
-        if (text) setInput(text)
-        return prev.slice(0, -1)
+        let end = prev.length
+        while (end > 0 && prev[end - 1].role === 'assistant') end--
+        if (end === 0) return prev
+        const sent = prev[end - 1]
+        if (sent.id === sentId.current) {
+          const text = sent.parts.filter((p) => p.type === 'text').map((p) => p.text).join('')
+          if (text) setInput(text)
+        }
+        return prev.slice(0, end - 1)
       })
 
       if (failed.kind === 'session_not_found') {
@@ -195,6 +220,7 @@ export function NeuralChat({
         // restored export all look the same from here). Forget it so the very
         // next send lazily creates a fresh one instead of retrying the same
         // dead id forever.
+        keepFailureOnSwitch.current = true
         onSessionChange(null)
         setFailure('That conversation no longer exists. Send again to start a new one.')
         return
@@ -265,7 +291,8 @@ export function NeuralChat({
     // Tags, any failure, and an open /help card all belong to the chat you
     // were in, not the one you just opened.
     setTagged([])
-    setFailure(null)
+    if (keepFailureOnSwitch.current) keepFailureOnSwitch.current = false
+    else setFailure(null)
     setShowHelp(false)
     setShowForget(false)
     setForgetKey(null)
@@ -322,13 +349,7 @@ export function NeuralChat({
       .then((chat: { messages?: StoredMessage[] }) => {
         if (!stillWanted()) return
         setLoadedIds(new Set((chat.messages ?? []).map((m) => m.id)))
-        setMessages(
-          (chat.messages ?? []).map((m) => ({
-            id: m.id,
-            role: m.role,
-            parts: [{ type: 'text' as const, text: m.content }],
-          })),
-        )
+        setMessages(toUIMessages(chat.messages))
       })
       .catch(() => {
         if (!stillWanted()) return
@@ -369,14 +390,39 @@ export function NeuralChat({
    * the stream ends is what turns it into the sentence you actually typed.
    */
   const streamed = useRef(false)
+  const latest = useRef(messages)
+  useEffect(() => {
+    latest.current = messages
+  }, [messages])
   useEffect(() => {
     if (status === 'streaming') streamed.current = true
     else if (streamed.current && status === 'ready') {
       streamed.current = false
       undo.current = null
       onChatsChanged()
+      // The screen may now differ from the database: an edit or regenerate
+      // swaps on the server only if its reply saved, and a reply sent from a
+      // chat you have left was never put on this one's screen. Ask the server.
+      const chat = shownChat.current
+      const swapped = sentKind.current !== 'new'
+      const fromElsewhere = sentFrom.current !== chat
+      if (chat && (swapped || fromElsewhere)) {
+        const last = latest.current[latest.current.length - 1]
+        const expected = swapped && !fromElsewhere && last?.role === 'assistant' ? last.id : null
+        fetch(`/api/sessions/${chat}`)
+          .then((r) => (r.ok ? r.json() : Promise.reject(new Error('reload'))))
+          .then((body: { messages?: StoredMessage[] }) => {
+            if (shownChat.current !== chat) return
+            setLoadedIds(new Set((body.messages ?? []).map((m) => m.id)))
+            setMessages(toUIMessages(body.messages))
+            if (expected && !(body.messages ?? []).some((m) => m.id === expected)) {
+              setFailure(SWAP_SAVED_NOTHING)
+            }
+          })
+          .catch(() => {})
+      }
     }
-  }, [status, onChatsChanged])
+  }, [status, onChatsChanged, setMessages])
 
   /**
    * Run a command instead of sending it. The one path for both the / menu and
@@ -449,7 +495,9 @@ export function NeuralChat({
     }
 
     sentFrom.current = sid
-    sendMessage({ text }, { body: turnBody(sid) })
+    sentKind.current = 'new'
+    sentId.current = newUuid()
+    sendMessage({ id: sentId.current, role: 'user', parts: [{ type: 'text', text }] }, { body: turnBody(sid) })
     setInput('')
   }
 
@@ -468,6 +516,7 @@ export function NeuralChat({
     if (failed.kind === 'session_not_found') {
       // The switch below clears the transcript; the composer keeps what was typed.
       if (pending.editing) setInput(pending.editing.draft)
+      keepFailureOnSwitch.current = true
       onSessionChange(null)
       setFailure('That conversation no longer exists. Send again to start a new one.')
     } else if (!pending.editing && failed.message === GENERIC) {
@@ -481,6 +530,8 @@ export function NeuralChat({
     if (!sessionId || status !== 'ready') return
     undo.current = { sessionId, snapshot: messages, editing: { id, draft: text } }
     sentFrom.current = sessionId
+    sentKind.current = 'edit'
+    sentId.current = id
     setEditing(null)
     setFailure(null)
     focusNext.current = 'chat-composer'
@@ -506,6 +557,8 @@ export function NeuralChat({
     if (!sessionId || status !== 'ready') return
     undo.current = { sessionId, snapshot: messages }
     sentFrom.current = sessionId
+    sentKind.current = 'regenerate'
+    sentId.current = id
     setEditing(null)
     setRegenConfirm(null)
     setFailure(null)
