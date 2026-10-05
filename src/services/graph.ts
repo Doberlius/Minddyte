@@ -113,6 +113,7 @@ export async function finishTurn(input: {
     if (!question) return null
     // Explicitly after the question: two rows saved close together can share
     // a created_at, and (created_at, id) would then order them by a random id.
+    // assistantMessageId is server-generated (randomUUID in the route), so it needs no collision fallback.
     const [saved] = await tx
       .insert(messages)
       .values({

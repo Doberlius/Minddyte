@@ -68,9 +68,16 @@ describe('finishTurn, as one transaction (message-actions ticket 02)', () => {
     const chat = await newChat()
     const userId = await persistMessage({ workspaceId: ws, sessionId: chat, role: 'user', content: 'Tell me about Kafka partitions.' })
     const replyId = randomUUID()
-    // A foreign workspace makes ingest's ownership check throw, after the reply's insert.
-    await expect(finishTurn({ workspaceId: randomUUID(), sessionId: chat, messageId: userId, memoryDraft: 'x', text: 'y', modelId: 'test', assistantMessageId: replyId, pointerShift: 0 })).rejects.toThrow()
     const db = await getDb()
+    // A real trigger makes indexing fail after the reply's insert (truncateAll leaves triggers, so drop it).
+    await db.execute(sql`create or replace function fail_pointers() returns trigger language plpgsql as $$ begin raise exception 'indexing failed'; end $$`)
+    await db.execute(sql`create trigger fail_pointers before insert on chat_pointers for each row execute function fail_pointers()`)
+    try {
+      await expect(finishTurn({ workspaceId: ws, sessionId: chat, messageId: userId, memoryDraft: 'Tell me about Kafka partitions.', text: 'Partitions keep order within a partition.', modelId: 'test', assistantMessageId: replyId, pointerShift: 0 })).rejects.toThrow()
+    } finally {
+      await db.execute(sql`drop trigger if exists fail_pointers on chat_pointers`)
+      await db.execute(sql`drop function if exists fail_pointers()`)
+    }
     expect(await db.select().from(messages).where(eq(messages.id, replyId))).toEqual([])
   })
 })
