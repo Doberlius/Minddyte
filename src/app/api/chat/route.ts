@@ -92,7 +92,7 @@ export async function POST(req: Request) {
   const workspaceId = await requireWorkspace()
 
   const {
-    messages, sessionId, taggedChatIds = [], mode = "explore", model, trigger, messageId: actedOn,
+    messages, sessionId, taggedChatIds = [], mode = "explore", model, trigger, messageId: actedOn, expectCut,
   }: {
     messages: UIMessage[]
     sessionId: string
@@ -101,6 +101,7 @@ export async function POST(req: Request) {
     model?: string
     trigger?: unknown
     messageId?: unknown
+    expectCut?: unknown
   } = await req.json()
 
   const resolved = await resolveChatModel(model)
@@ -139,7 +140,7 @@ export async function POST(req: Request) {
   // Message-actions ticket 02. Recorded on arrival: an edited question is
   // saved later, at finish, but belongs at the moment it was sent.
   const arrivedAt = new Date()
-  const plan = await planTurn(workspaceId, sessionId, { trigger, messageId: actedOn, lastId: last.id })
+  const plan = await planTurn(workspaceId, sessionId, { trigger, messageId: actedOn, lastId: last.id, expectCut })
   if (plan.kind === "refused") return Response.json({ error: plan.error, message: plan.message }, { status: plan.status })
 
   // 1. A new turn saves its question now, under the id the browser shows
@@ -175,9 +176,16 @@ export async function POST(req: Request) {
   // the diagram player names this message when it asks for a repair.
   const assistantMessageId = randomUUID()
 
+  // Final review F2. An edit or a regenerate stops when the browser leaves:
+  // the browser has already put the old messages back and said it failed, so
+  // the swap must not happen behind its back (Q9). A new turn keeps going,
+  // as before: its question is already saved, and the reply belongs with it.
+  const stopWithBrowser = plan.kind !== "new"
+
   const result = streamText({
     model: resolved.model,
     system: systemPrompt,
+    ...(stopWithBrowser ? { abortSignal: req.signal } : {}),
     messages: await convertToModelMessages(messages),
     // maxOutputTokens alone does NOT reach ollama.com/api. The provider maps
     // it to `max_tokens`, the OpenAI-compatible field; this endpoint is
@@ -189,6 +197,12 @@ export async function POST(req: Request) {
     providerOptions: { ollama: { options: { num_predict: MAX_OUTPUT_TOKENS } } },
     // 3-6. Graph writes happen AFTER the stream. Spec §4.5.
     onFinish: async ({ text }) => {
+      // AI SDK 6 drops every chunk once the signal aborts, but a reply whose
+      // last step finished just before the abort still reaches onFinish.
+      if (stopWithBrowser && req.signal.aborted) {
+        console.warn(`[chat] ${plan.kind} not saved: the browser left before the reply was sent`)
+        return
+      }
       try {
         // Pointers are offsets into the STORED row (`draft`), not the
         // command-stripped `memoryDraft` extraction reads — those two

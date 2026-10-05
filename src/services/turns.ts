@@ -100,11 +100,15 @@ async function retitle(tx: Tx, sessionId: string, oldFirstContent: string): Prom
 export type TurnPlan =
   | { kind: 'new' }
   | { kind: 'edit' | 'regenerate'; cut: string[] }
-  | { kind: 'refused'; status: 400 | 404; error: string; message: string }
+  | { kind: 'refused'; status: 400 | 404 | 409; error: string; message: string }
 
 const NOT_FOUND: TurnPlan = {
   kind: 'refused', status: 404, error: 'message_not_found',
   message: 'This message isn’t saved yet, or was deleted. Reload the chat, then try again.',
+}
+const CHAT_CHANGED: TurnPlan = {
+  kind: 'refused', status: 409, error: 'chat_changed',
+  message: 'This chat changed in another tab. Reload it, then try again.',
 }
 const refuse = (message: string): TurnPlan => ({ kind: 'refused', status: 400, error: 'bad_request', message })
 
@@ -116,11 +120,16 @@ const refuse = (message: string): TurnPlan => ({ kind: 'refused', status: 400, e
  * regenerate, `cut` is that message and everything after it — removed only
  * when the new reply is saved (Q9). Writes nothing. Only your own messages
  * can be edited (Q3). "Not yours" and "not there" give the same 404.
+ *
+ * `expectCut` is the cut as the browser shows it (final review F1): its
+ * warning and confirm counted those messages. If another tab added or removed
+ * any, the cut here differs and the request is refused with 409, rather than
+ * removing messages nobody was warned about.
  */
 export async function planTurn(
   workspaceId: string,
   sessionId: string,
-  req: { trigger?: unknown; messageId?: unknown; lastId: string },
+  req: { trigger?: unknown; messageId?: unknown; lastId: string; expectCut?: unknown },
 ): Promise<TurnPlan> {
   const trigger = req.trigger ?? 'submit-message'
   if (trigger !== 'submit-message' && trigger !== 'regenerate-message') return refuse('That kind of request is not supported.')
@@ -128,6 +137,8 @@ export async function planTurn(
     return trigger === 'submit-message' ? { kind: 'new' } : refuse('Say which reply to regenerate.')
   }
   if (typeof req.messageId !== 'string') return refuse('A message id must be text.')
+  const expectCut = req.expectCut
+  if (!Array.isArray(expectCut) || !expectCut.every((id) => typeof id === 'string')) return refuse('Reload the chat, then try again.')
   if (!isUuidV4(req.messageId)) return NOT_FOUND
 
   const db = await getDb()
@@ -144,13 +155,14 @@ export async function planTurn(
   const i = all.findIndex((m) => m.id === req.messageId)
   if (i === -1) return NOT_FOUND
   const cut = all.slice(i).map((m) => m.id)
+  const changed = cut.length !== expectCut.length || cut.some((id, n) => id !== expectCut[n])
 
   if (trigger === 'submit-message') {
     if (all[i].role !== 'user') return refuse('Only your own messages can be edited.')
     if (req.messageId !== req.lastId) return refuse('The edited message must be the one sent.')
-    return { kind: 'edit', cut }
+    return changed ? CHAT_CHANGED : { kind: 'edit', cut }
   }
   if (all[i].role !== 'assistant') return refuse('Only a reply can be regenerated.')
   if (all[i - 1]?.role !== 'user' || all[i - 1].id !== req.lastId) return refuse('The question for this reply must be the last message sent.')
-  return { kind: 'regenerate', cut }
+  return changed ? CHAT_CHANGED : { kind: 'regenerate', cut }
 }

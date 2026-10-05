@@ -462,6 +462,8 @@ export function NeuralChat({
     setMessages(pending.snapshot)
     if (pending.editing) setEditing(pending.editing)
     if (failed.kind === 'session_not_found') {
+      // The switch below clears the transcript; the composer keeps what was typed.
+      if (pending.editing) setInput(pending.editing.draft)
       onSessionChange(null)
       setFailure('That conversation no longer exists. Send again to start a new one.')
     } else if (!pending.editing && failed.message === GENERIC) {
@@ -482,8 +484,18 @@ export function NeuralChat({
     // trigger 'submit-message' with messageId — the server reads it as an edit.
     // It rejects only on a throw before the request (an id it does not hold);
     // a failed request goes to onError instead.
-    sendMessage({ text, messageId: id }, { body: turnBody(sessionId) })
+    sendMessage({ text, messageId: id }, { body: { ...turnBody(sessionId), expectCut: shownFrom(id) } })
       .catch(() => undoCut({ kind: 'other', message: GENERIC }))
+  }
+
+  /**
+   * The cut as this browser shows it: the target and every message after it
+   * (final review F1). The warning and the confirm counted these; the server
+   * refuses with 409 if its cut differs, because another tab changed the chat.
+   */
+  function shownFrom(id: string): string[] {
+    const i = messages.findIndex((m) => m.id === id)
+    return i === -1 ? [] : messages.slice(i).map((m) => m.id)
   }
 
   function regen(id: string) {
@@ -495,7 +507,7 @@ export function NeuralChat({
     setFailure(null)
     // The button that was pressed hides while the reply streams.
     focusNext.current = 'chat-composer'
-    regenerate({ messageId: id, body: turnBody(sessionId) })
+    regenerate({ messageId: id, body: { ...turnBody(sessionId), expectCut: shownFrom(id) } })
       .catch(() => undoCut({ kind: 'other', message: GENERIC }))
   }
 

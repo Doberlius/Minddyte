@@ -26,9 +26,14 @@ async function turn(chatId: string, user: string, reply: string) {
   return { userId, replyId }
 }
 const order = async (chat: string) => (await loadChat(ws, chat))!.messages.map((m) => ({ id: m.id, content: m.content }))
+/** The cut a browser showing this chat expects: the target and everything after it (final review F1). */
+const shownFrom = async (chat: string, id: string) => {
+  const ids = (await order(chat)).map((m) => m.id)
+  return ids.slice(ids.indexOf(id))
+}
 
 async function edit(chat: string, messageId: string, content: string, reply: string) {
-  const plan = await planTurn(ws, chat, { trigger: 'submit-message', messageId, lastId: messageId })
+  const plan = await planTurn(ws, chat, { trigger: 'submit-message', messageId, lastId: messageId, expectCut: await shownFrom(chat, messageId) })
   if (plan.kind !== 'edit') throw new Error(`expected an edit, got ${plan.kind}`)
   const replyId = randomUUID()
   const done = await finishTurn({
@@ -38,7 +43,7 @@ async function edit(chat: string, messageId: string, content: string, reply: str
   return { done, replyId }
 }
 async function regenerate(chat: string, replyOf: string, question: string, reply: string) {
-  const plan = await planTurn(ws, chat, { trigger: 'regenerate-message', messageId: replyOf, lastId: question })
+  const plan = await planTurn(ws, chat, { trigger: 'regenerate-message', messageId: replyOf, lastId: question, expectCut: await shownFrom(chat, replyOf) })
   if (plan.kind !== 'regenerate') throw new Error(`expected a regenerate, got ${plan.kind}`)
   const [q] = await (await getDb()).select({ content: messages.content }).from(messages).where(eq(messages.id, question))
   const replyId = randomUUID()
@@ -116,7 +121,7 @@ describe('regenerate (ticket 02)', () => {
   it('saves nothing when the question was deleted while the reply streamed', async () => {
     const chat = await newChat()
     const t1 = await turn(chat, 'Tell me about Redis caching.', 'Redis caches hot keys.')
-    const plan = await planTurn(ws, chat, { trigger: 'regenerate-message', messageId: t1.replyId, lastId: t1.userId })
+    const plan = await planTurn(ws, chat, { trigger: 'regenerate-message', messageId: t1.replyId, lastId: t1.userId, expectCut: await shownFrom(chat, t1.replyId) })
     if (plan.kind !== 'regenerate') throw new Error('expected a regenerate')
     await deleteTurn(ws, chat, t1.userId)
     const done = await finishTurn({
@@ -133,7 +138,7 @@ describe('a question deleted while the reply streamed (fix round 1)', () => {
     const chat = await newChat()
     const t1 = await turn(chat, 'Tell me about Redis caching.', 'Redis caches hot keys.')
     const t2 = await turn(chat, 'Tell me about Kafka partitions.', 'Partitions keep order.')
-    const plan = await planTurn(ws, chat, { trigger: 'regenerate-message', messageId: t1.replyId, lastId: t1.userId })
+    const plan = await planTurn(ws, chat, { trigger: 'regenerate-message', messageId: t1.replyId, lastId: t1.userId, expectCut: await shownFrom(chat, t1.replyId) })
     if (plan.kind !== 'regenerate') throw new Error('expected a regenerate')
     await deleteTurn(ws, chat, t1.userId)
     const done = await finishTurn({
@@ -151,7 +156,7 @@ describe('a question deleted while the reply streamed (fix round 1)', () => {
     const chat = await newChat()
     const t1 = await turn(chat, 'Tell me about Redis caching.', 'Redis caches hot keys.')
     const t2 = await turn(chat, 'Tell me about Kafka partitions.', 'Partitions keep order.')
-    const plan = await planTurn(ws, chat, { trigger: 'submit-message', messageId: t2.userId, lastId: t2.userId })
+    const plan = await planTurn(ws, chat, { trigger: 'submit-message', messageId: t2.userId, lastId: t2.userId, expectCut: await shownFrom(chat, t2.userId) })
     if (plan.kind !== 'edit') throw new Error('expected an edit')
     await deleteTurn(ws, chat, t2.userId)
     const done = await finishTurn({
@@ -169,7 +174,7 @@ describe('a question deleted while the reply streamed (fix round 1)', () => {
     const chat = await newChat()
     const t1 = await turn(chat, 'Tell me about Redis caching.', 'Redis caches hot keys.')
     const t2 = await turn(chat, 'Tell me about Kafka partitions.', 'Partitions keep order.')
-    const plan = await planTurn(ws, chat, { trigger: 'submit-message', messageId: t2.userId, lastId: t2.userId })
+    const plan = await planTurn(ws, chat, { trigger: 'submit-message', messageId: t2.userId, lastId: t2.userId, expectCut: await shownFrom(chat, t2.userId) })
     if (plan.kind !== 'edit') throw new Error('expected an edit')
     // Another tab dates a message ahead of the clock after the plan was made and before the reply finishes.
     await (await getDb()).update(messages).set({ createdAt: new Date(Date.now() + 3_600_000) }).where(eq(messages.id, t1.replyId))
