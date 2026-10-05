@@ -5,6 +5,7 @@ import { retrieveContext } from "@/services/retrieval"
 import { persistMessage, finishTurn } from "@/services/graph"
 import { isUuidV4 } from "@/lib/workspace"
 import { sessionExists } from "@/services/dbApi"
+import { planTurn } from "@/services/turns"
 import { buildSystemPrompt, buildCoreBlock } from "@/lib/prompt"
 import { requireWorkspace } from "@/server/workspace"
 import { describeSkip } from "@/lib/pointers"
@@ -91,13 +92,15 @@ export async function POST(req: Request) {
   const workspaceId = await requireWorkspace()
 
   const {
-    messages, sessionId, taggedChatIds = [], mode = "explore", model,
+    messages, sessionId, taggedChatIds = [], mode = "explore", model, trigger, messageId: actedOn,
   }: {
     messages: UIMessage[]
     sessionId: string
     taggedChatIds?: string[]
     mode?: "focus" | "explore"
     model?: string
+    trigger?: unknown
+    messageId?: unknown
   } = await req.json()
 
   const resolved = await resolveChatModel(model)
@@ -133,11 +136,19 @@ export async function POST(req: Request) {
     )
   }
 
-  // 1. persist the user message, under the id the browser already shows
-  // (message-actions ticket 01), so a delete can name it without a reload.
-  const messageId = await persistMessage({
-    workspaceId, sessionId, role: "user", content: draft, id: isUuidV4(last.id) ? last.id : undefined,
-  })
+  // Message-actions ticket 02. Recorded on arrival: an edited question is
+  // saved later, at finish, but belongs at the moment it was sent.
+  const arrivedAt = new Date()
+  const plan = await planTurn(workspaceId, sessionId, { trigger, messageId: actedOn, lastId: last.id })
+  if (plan.kind === "refused") return Response.json({ error: plan.error, message: plan.message }, { status: plan.status })
+
+  // 1. A new turn saves its question now, under the id the browser shows
+  // (ticket 01). An edit or a regenerate saves nothing until the new reply is
+  // in (Q9): the edited question at finish, and a regenerate's question is
+  // already there. Its id is the browser's, which planTurn checked.
+  const messageId = plan.kind === "new"
+    ? await persistMessage({ workspaceId, sessionId, role: "user", content: draft, id: isUuidV4(last.id) ? last.id : undefined })
+    : last.id
 
   // 2. retrieve against the PREVIOUS graph state, then call the model
   let chats: Awaited<ReturnType<typeof retrieveContext>>["chats"] = []
@@ -188,9 +199,11 @@ export async function POST(req: Request) {
         const done = await finishTurn({
           workspaceId, sessionId, messageId, memoryDraft, text, modelId, assistantMessageId,
           pointerShift: visualizePrefixLength(draft),
+          cut: plan.kind === "new" ? undefined : plan.cut,
+          question: plan.kind === "edit" ? { content: draft, createdAt: arrivedAt } : undefined,
         })
         if (!done) {
-          console.warn(`[chat] reply not saved: its question ${messageId} was deleted while it streamed`)
+          console.warn(`[chat] reply not saved: its question ${messageId} is gone`)
           return
         }
         // Ticket 05, Q14 — a block too large to index is a loss, and a loss
