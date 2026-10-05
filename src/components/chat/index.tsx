@@ -99,6 +99,8 @@ export function NeuralChat({
   /** What the request in flight was, and the message it concerns (a new send: the user's own message). */
   const sentKind = useRef<'new' | 'edit' | 'regenerate'>('new')
   const sentId = useRef<string | null>(null)
+  /** Bumped by every send, so a reload that finishes after a newer send knows to stand down. */
+  const sendCount = useRef(0)
   /** Set before a deliberate switch to no chat, so the switch does not wipe the line explaining it. */
   const keepFailureOnSwitch = useRef(false)
   useEffect(() => {
@@ -208,10 +210,10 @@ export function NeuralChat({
         while (end > 0 && prev[end - 1].role === 'assistant') end--
         if (end === 0) return prev
         const sent = prev[end - 1]
-        if (sent.id === sentId.current) {
-          const text = sent.parts.filter((p) => p.type === 'text').map((p) => p.text).join('')
-          if (text) setInput(text)
-        }
+        // Not this request's question: change nothing.
+        if (sent.id !== sentId.current) return prev
+        const text = sent.parts.filter((p) => p.type === 'text').map((p) => p.text).join('')
+        if (text) setInput(text)
         return prev.slice(0, end - 1)
       })
 
@@ -409,20 +411,32 @@ export function NeuralChat({
       if (chat && (swapped || fromElsewhere)) {
         const last = latest.current[latest.current.length - 1]
         const expected = swapped && !fromElsewhere && last?.role === 'assistant' ? last.id : null
+        const token = sendCount.current
+        const stale = () => shownChat.current !== chat || sendCount.current !== token
         fetch(`/api/sessions/${chat}`)
-          .then((r) => (r.ok ? r.json() : Promise.reject(new Error('reload'))))
+          .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status === 404 ? 'session_not_found' : 'reload'))))
           .then((body: { messages?: StoredMessage[] }) => {
-            if (shownChat.current !== chat) return
-            setLoadedIds(new Set((body.messages ?? []).map((m) => m.id)))
+            if (stale()) return
+            // Only ids already loaded stay loaded. What arrived in this page
+            // view (the reply that just streamed) must stay fresh: flipping it
+            // would re-run a diagram's listener effect, whose ready timer then
+            // never gets the iframe's ready message again.
+            setLoadedIds((prev) => new Set((body.messages ?? []).map((m) => m.id).filter((id) => prev.has(id))))
             setMessages(toUIMessages(body.messages))
             if (expected && !(body.messages ?? []).some((m) => m.id === expected)) {
               setFailure(SWAP_SAVED_NOTHING)
             }
           })
-          .catch(() => {})
+          .catch((e: Error) => {
+            if (stale() || e.message !== 'session_not_found') return
+            // Deleted in another tab while the reply streamed.
+            keepFailureOnSwitch.current = true
+            onSessionChange(null)
+            setFailure('That conversation no longer exists. Send again to start a new one.')
+          })
       }
     }
-  }, [status, onChatsChanged, setMessages])
+  }, [status, onChatsChanged, setMessages, onSessionChange])
 
   /**
    * Run a command instead of sending it. The one path for both the / menu and
@@ -496,6 +510,7 @@ export function NeuralChat({
 
     sentFrom.current = sid
     sentKind.current = 'new'
+    sendCount.current++
     sentId.current = newUuid()
     sendMessage({ id: sentId.current, role: 'user', parts: [{ type: 'text', text }] }, { body: turnBody(sid) })
     setInput('')
@@ -531,6 +546,7 @@ export function NeuralChat({
     undo.current = { sessionId, snapshot: messages, editing: { id, draft: text } }
     sentFrom.current = sessionId
     sentKind.current = 'edit'
+    sendCount.current++
     sentId.current = id
     setEditing(null)
     setFailure(null)
@@ -558,6 +574,7 @@ export function NeuralChat({
     undo.current = { sessionId, snapshot: messages }
     sentFrom.current = sessionId
     sentKind.current = 'regenerate'
+    sendCount.current++
     sentId.current = id
     setEditing(null)
     setRegenConfirm(null)
