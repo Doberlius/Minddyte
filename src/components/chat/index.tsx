@@ -83,7 +83,7 @@ export function NeuralChat({
    * another chat, and its failure must not touch that chat's transcript.
    */
   const shownChat = useRef(sessionId)
-  const sentFrom = useRef<string | null>(null)
+  const sentFrom = useRef<string | null | undefined>(null)
   useEffect(() => {
     shownChat.current = sessionId
   }, [sessionId])
@@ -273,6 +273,10 @@ export function NeuralChat({
     setEditing(null)
     undo.current = null
     setRegenConfirm(null)
+    // Final review F6: a request sent before this switch matches no chat, not
+    // even after you come back to the one it was sent from, so its failure is
+    // ignored rather than read as an ordinary send's.
+    sentFrom.current = undefined
 
     /**
      * Decided HERE, once, for every path out of this effect — not left to the

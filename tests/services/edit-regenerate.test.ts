@@ -186,6 +186,39 @@ describe('a question deleted while the reply streamed (fix round 1)', () => {
     expect((await order(chat)).map((m) => m.id)).toEqual([t1.userId, t1.replyId, t2.userId, replyId])
   })
 
+  it('a second swap of the same cut saves nothing (final review F4)', async () => {
+    const chat = await newChat()
+    const t1 = await turn(chat, 'Tell me about Redis caching.', 'Redis caches hot keys.')
+    const plan = async () => {
+      const p = await planTurn(ws, chat, { trigger: 'regenerate-message', messageId: t1.replyId, lastId: t1.userId, expectCut: [t1.replyId] })
+      if (p.kind !== 'regenerate') throw new Error('expected a regenerate')
+      return p
+    }
+    const [first, second] = [await plan(), await plan()]
+    const finish = (cut: string[], text: string) => finishTurn({
+      workspaceId: ws, sessionId: chat, messageId: t1.userId, memoryDraft: 'Tell me about Redis caching.', text, modelId: 'test',
+      assistantMessageId: randomUUID(), pointerShift: 0, cut,
+    })
+    expect(await finish(first.cut, 'First answer.')).not.toBeNull()
+    expect(await finish(second.cut, 'Second answer.')).toBeNull()
+    expect((await order(chat)).map((m) => m.content)).toEqual(['Tell me about Redis caching.', 'First answer.'])
+  })
+
+  it('a regenerated reply sorts after a remaining message dated in the future (final review F5)', async () => {
+    const chat = await newChat()
+    const t1 = await turn(chat, 'Tell me about Redis caching.', 'Redis caches hot keys.')
+    const t2 = await turn(chat, 'Tell me about Kafka partitions.', 'Partitions keep order.')
+    const plan = await planTurn(ws, chat, { trigger: 'regenerate-message', messageId: t2.replyId, lastId: t2.userId, expectCut: [t2.replyId] })
+    if (plan.kind !== 'regenerate') throw new Error('expected a regenerate')
+    await (await getDb()).update(messages).set({ createdAt: new Date(Date.now() + 3_600_000) }).where(eq(messages.id, t1.replyId))
+    const replyId = randomUUID()
+    await finishTurn({
+      workspaceId: ws, sessionId: chat, messageId: t2.userId, memoryDraft: 'q', text: 'Sure.', modelId: 'test',
+      assistantMessageId: replyId, pointerShift: 0, cut: plan.cut,
+    })
+    expect((await order(chat)).map((m) => m.id).at(-1)).toBe(replyId)
+  })
+
   it('editing a later message leaves an automatic title alone', async () => {
     const chat = await newChat()
     await turn(chat, 'Tell me about Redis caching.', 'Sure.')

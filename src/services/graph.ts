@@ -1,5 +1,5 @@
 import { getDb, messages, sessions, messageNodes, chatPointers } from "../../db"
-import { eq, and, sql, max } from "drizzle-orm"
+import { eq, and, sql, max, inArray } from "drizzle-orm"
 import { extractConcepts } from "@/lib/extract"
 import { deriveTitle, canonicalKey } from "@/lib/text"
 import { pointerRows, type SkippedSpan } from "@/lib/pointers"
@@ -117,16 +117,31 @@ export async function finishTurn(input: {
       .from(messages)
       .where(and(eq(messages.id, input.messageId), eq(messages.sessionId, input.sessionId)))
     if (!question) return null
-    // Then the cut; for an edit it includes the old version of this message (same id).
-    if (input.cut?.length) await removeMessages(tx, input.workspaceId, input.sessionId, input.cut)
-    let askedAt = question.createdAt
-    if (input.question) {
-      // Sorts after whatever remains, even if another tab added a turn mid-stream or the clock stepped back.
+    if (input.cut?.length) {
+      // Final review F4: every message of the cut must still be here. One
+      // already gone means another request swapped it first; saving this
+      // reply as well would leave two answers to one question.
+      const present = await tx
+        .select({ id: messages.id })
+        .from(messages)
+        .where(and(inArray(messages.id, input.cut), eq(messages.sessionId, input.sessionId)))
+      if (present.length !== new Set(input.cut).size) return null
+      // Then the cut; for an edit it includes the old version of this message (same id).
+      await removeMessages(tx, input.workspaceId, input.sessionId, input.cut)
+    }
+    // After the cut, the new turn sorts after whatever remains, even if another
+    // tab dated a message ahead or the clock stepped back (final review F5:
+    // a regenerate's reply too, not only an edit's question).
+    let floor = 0
+    if (input.cut?.length) {
       const [{ latest }] = await tx
         .select({ latest: max(messages.createdAt) })
         .from(messages)
         .where(eq(messages.sessionId, input.sessionId))
-      const floor = latest ? new Date(latest).getTime() + 1 : 0
+      floor = latest ? new Date(latest).getTime() + 1 : 0
+    }
+    let askedAt = question.createdAt
+    if (input.question) {
       askedAt = new Date(Math.max(input.question.createdAt.getTime(), floor))
       await tx.insert(messages).values({
         id: input.messageId, sessionId: input.sessionId, role: 'user',
@@ -142,7 +157,7 @@ export async function finishTurn(input: {
       .values({
         id: input.assistantMessageId, sessionId: input.sessionId, role: 'assistant',
         content: input.text, modelUsed: input.modelId,
-        createdAt: new Date(Math.max(Date.now(), askedAt.getTime() + 1)),
+        createdAt: new Date(Math.max(Date.now(), askedAt.getTime() + 1, floor)),
       })
       .returning({ id: messages.id })
     return ingestInTx(tx, {
