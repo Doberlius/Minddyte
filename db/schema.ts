@@ -50,6 +50,16 @@ export const messages = pgTable("messages", {
   role: text("role").notNull(),
   content: text("content").notNull(),
   modelUsed: text("model_used"),
+  // A reply-to quote (Q17). NO foreign key on purpose: when the quoted message
+  // is deleted its id must stay behind, so the reply can say "replying to a
+  // deleted message" (Q18). A cascade or SET NULL would erase that. Safe
+  // because ids are random v4 and never reused. The server checks that the
+  // target is in the same chat when the quote is written. quote_start and
+  // quote_end are code-point offsets into the target's content (both null =
+  // the whole message); the quote never changes this row's own `content`.
+  replyToId: uuid("reply_to_id"),
+  quoteStart: integer("quote_start"),
+  quoteEnd: integer("quote_end"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   check("messages_role_check", sql`${t.role} in ('user', 'assistant')`),

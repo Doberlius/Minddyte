@@ -3,6 +3,7 @@ import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import type { GraphNode, ViewGraph } from "@/types/graph"
 import { recountNodes } from "./links"
 import { notForgottenSql } from "@/lib/mentions"
+import { quotedText } from "@/lib/quote"
 
 /**
  * The whole graph, shaped for the Brain and the Archive.
@@ -124,9 +125,26 @@ export async function listChats(workspaceId: string) {
     .orderBy(desc(sessions.updatedAt))
 }
 
+/** A message's quote as the browser reads it. `role` and `preview` are null when the target is gone. */
+export type LoadedQuote = {
+  replyToId: string
+  start: number | null
+  end: number | null
+  role: "user" | "assistant" | null
+  preview: string | null
+}
+
+/** The quoted text's first line, cut to 80 code points with `…` when cut. */
+function quotePreview(content: string, start: number | null, end: number | null): string {
+  const firstLine = quotedText(content, start, end).trimStart().split(/\r?\n/, 1)[0]
+  const points = Array.from(firstLine)
+  return points.length > PREVIEW_CAP ? points.slice(0, PREVIEW_CAP).join("") + "…" : firstLine
+}
+const PREVIEW_CAP = 80
+
 export async function loadChat(workspaceId: string, sessionId: string) {
   const db = await getDb()
-  return db.query.sessions.findFirst({
+  const chat = await db.query.sessions.findFirst({
     where: and(eq(sessions.id, sessionId), eq(sessions.workspaceId, workspaceId)),
     // `workspaceId` never appears in a URL or a response body — that is the
     // whole point of keeping it in an HttpOnly cookie instead. GET
@@ -139,6 +157,38 @@ export async function loadChat(workspaceId: string, sessionId: string) {
     columns: { id: true, title: true, headlineNodeId: true },
     with: { messages: { orderBy: [asc(messages.createdAt), asc(messages.id)] } },
   })
+  if (!chat) return chat
+
+  // One extra query for every quote's target, scoped to THIS chat: a quote
+  // never resolves a message from another chat, and a deleted target simply
+  // is not found (messages.reply_to_id has no foreign key, Q18).
+  const targetIds = [...new Set(chat.messages.flatMap((m) => (m.replyToId ? [m.replyToId] : [])))]
+  const targets = new Map<string, { role: string; content: string }>()
+  if (targetIds.length > 0) {
+    const found = await db
+      .select({ id: messages.id, role: messages.role, content: messages.content })
+      .from(messages)
+      .where(and(eq(messages.sessionId, sessionId), inArray(messages.id, targetIds)))
+    for (const t of found) targets.set(t.id, t)
+  }
+
+  return {
+    ...chat,
+    messages: chat.messages.map(({ replyToId, quoteStart, quoteEnd, ...m }) => {
+      let quote: LoadedQuote | null = null
+      if (replyToId) {
+        const target = targets.get(replyToId)
+        quote = {
+          replyToId,
+          start: quoteStart,
+          end: quoteEnd,
+          role: target ? (target.role as "user" | "assistant") : null,
+          preview: target ? quotePreview(target.content, quoteStart, quoteEnd) : null,
+        }
+      }
+      return { ...m, quote }
+    }),
+  }
 }
 
 /**

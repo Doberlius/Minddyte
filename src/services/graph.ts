@@ -5,6 +5,7 @@ import { deriveTitle, canonicalKey } from "@/lib/text"
 import { pointerRows, type SkippedSpan } from "@/lib/pointers"
 import { linkNode, forgottenKeys, headlineCandidates, type Tx } from "./links"
 import { removeMessages } from "./turns"
+import type { QuoteRef } from "@/lib/quote"
 
 export type Skip = SkippedSpan & { messageId: string }
 
@@ -41,6 +42,29 @@ export async function rewritePointers(
   return writePointers(tx, input)
 }
 
+/**
+ * The one way a user row is built (Q23: an edit keeps its quote). A quote
+ * adds columns only; `content` is exactly what was typed (Q17).
+ */
+export function userMessageRow(input: {
+  id?: string
+  sessionId: string
+  content: string
+  createdAt?: Date
+  quote?: QuoteRef | null
+}): typeof messages.$inferInsert {
+  return {
+    ...(input.id ? { id: input.id } : {}),
+    sessionId: input.sessionId,
+    role: "user",
+    content: input.content,
+    ...(input.createdAt ? { createdAt: input.createdAt } : {}),
+    replyToId: input.quote?.replyToId ?? null,
+    quoteStart: input.quote?.start ?? null,
+    quoteEnd: input.quote?.end ?? null,
+  }
+}
+
 export async function persistMessage(input: {
   workspaceId: string
   sessionId: string
@@ -49,6 +73,8 @@ export async function persistMessage(input: {
   modelUsed?: string
   /** Chosen by the caller when the browser must know it in advance (the chat route). */
   id?: string
+  /** The message this one replies to (a user message only). The caller has already validated it. */
+  quote?: QuoteRef | null
 }): Promise<string> {
   const db = await getDb()
 
@@ -68,12 +94,9 @@ export async function persistMessage(input: {
     throw new Error(`No chat ${input.sessionId} in this workspace.`)
   }
 
-  const values = {
-    sessionId: input.sessionId,
-    role: input.role,
-    content: input.content,
-    modelUsed: input.modelUsed ?? null,
-  }
+  const values: typeof messages.$inferInsert = input.role === "user"
+    ? { ...userMessageRow({ sessionId: input.sessionId, content: input.content, quote: input.quote }), modelUsed: input.modelUsed ?? null }
+    : { sessionId: input.sessionId, role: input.role, content: input.content, modelUsed: input.modelUsed ?? null }
   // The browser chooses the user message's id (message-actions ticket 01), so
   // it can name the message in a delete without a reload. An id already taken
   // — a replayed request, an old tab — must not fail the send: it gets a fresh
@@ -105,7 +128,7 @@ export async function finishTurn(input: {
   /** Message-actions ticket 02: the messages an edit or regenerate replaces, removed first, in this transaction. */
   cut?: string[]
   /** An edit's new question, saved under `messageId` (the browser keeps the id), at the time the request arrived. */
-  question?: { content: string; createdAt: Date }
+  question?: { content: string; createdAt: Date; quote?: QuoteRef | null }
 }): Promise<{ skipped: Skip[] } | null> {
   const db = await getDb()
   return db.transaction(async (tx) => {
@@ -146,10 +169,10 @@ export async function finishTurn(input: {
     let askedAt = question.createdAt
     if (input.question) {
       askedAt = new Date(Math.max(input.question.createdAt.getTime(), floor))
-      await tx.insert(messages).values({
-        id: input.messageId, sessionId: input.sessionId, role: 'user',
-        content: input.question.content, createdAt: askedAt,
-      })
+      await tx.insert(messages).values(userMessageRow({
+        id: input.messageId, sessionId: input.sessionId,
+        content: input.question.content, createdAt: askedAt, quote: input.question.quote,
+      }))
     }
     // A regenerate's question was already ingested; re-ingesting is safe (onConflictDoNothing, linkNode counts only new links, only "New Session" is retitled).
     // Explicitly after the question: two rows saved close together can share
