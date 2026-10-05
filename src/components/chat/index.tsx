@@ -435,6 +435,13 @@ export function NeuralChat({
             setFailure('That conversation no longer exists. Send again to start a new one.')
           })
       }
+      else if (!chat && sentFrom.current) {
+        // The reply belongs to a chat you left for New chat. It must not stay on
+        // this blank screen, where useChat would send it as history with the
+        // new chat's first message.
+        setMessages([])
+        setLoadedIds(new Set())
+      }
     }
   }, [status, onChatsChanged, setMessages, onSessionChange])
 
@@ -638,7 +645,7 @@ export function NeuralChat({
               <div className="msg-actions">
                 {m.role === 'user' ? (
                   <button id={`edit-${m.id}`} className="msg-act" aria-label="Edit this message" title="Edit"
-                    onClick={() => { setRegenConfirm(null); setEditing({ id: m.id, draft: text }) }}>
+                    onClick={() => { sendCount.current++; setRegenConfirm(null); setEditing({ id: m.id, draft: text }) }}>
                     <Pencil size={13} aria-hidden="true" />
                   </button>
                 ) : (
@@ -829,6 +836,7 @@ export function NeuralChat({
           messageId={deleting.id}
           hasReply={deleting.hasReply}
           onDeleted={(ids) => {
+            sendCount.current++ // an in-flight reload must not put the deleted rows back
             setMessages((now) => now.filter((x) => !ids.includes(x.id)))
             onChatsChanged()
           }}
