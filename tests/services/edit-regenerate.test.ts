@@ -127,3 +127,68 @@ describe('regenerate (ticket 02)', () => {
     expect(await order(chat)).toEqual([])
   })
 })
+
+describe('a question deleted while the reply streamed (fix round 1)', () => {
+  it('a regenerate whose question vanished removes nothing else', async () => {
+    const chat = await newChat()
+    const t1 = await turn(chat, 'Tell me about Redis caching.', 'Redis caches hot keys.')
+    const t2 = await turn(chat, 'Tell me about Kafka partitions.', 'Partitions keep order.')
+    const plan = await planTurn(ws, chat, { trigger: 'regenerate-message', messageId: t1.replyId, lastId: t1.userId })
+    if (plan.kind !== 'regenerate') throw new Error('expected a regenerate')
+    await deleteTurn(ws, chat, t1.userId)
+    const done = await finishTurn({
+      workspaceId: ws, sessionId: chat, messageId: t1.userId, memoryDraft: 'x', text: 'y', modelId: 'test',
+      assistantMessageId: randomUUID(), pointerShift: 0, cut: plan.cut,
+    })
+    expect(done).toBeNull()
+    expect(await order(chat)).toEqual([
+      { id: t2.userId, content: 'Tell me about Kafka partitions.' },
+      { id: t2.replyId, content: 'Partitions keep order.' },
+    ])
+  })
+
+  it('an edit whose question vanished does not bring it back', async () => {
+    const chat = await newChat()
+    const t1 = await turn(chat, 'Tell me about Redis caching.', 'Redis caches hot keys.')
+    const t2 = await turn(chat, 'Tell me about Kafka partitions.', 'Partitions keep order.')
+    const plan = await planTurn(ws, chat, { trigger: 'submit-message', messageId: t2.userId, lastId: t2.userId })
+    if (plan.kind !== 'edit') throw new Error('expected an edit')
+    await deleteTurn(ws, chat, t2.userId)
+    const done = await finishTurn({
+      workspaceId: ws, sessionId: chat, messageId: t2.userId, memoryDraft: 'z', text: 'y', modelId: 'test',
+      assistantMessageId: randomUUID(), pointerShift: 0, cut: plan.cut, question: { content: 'z', createdAt: new Date() },
+    })
+    expect(done).toBeNull()
+    expect(await order(chat)).toEqual([
+      { id: t1.userId, content: 'Tell me about Redis caching.' },
+      { id: t1.replyId, content: 'Redis caches hot keys.' },
+    ])
+  })
+
+  it('an edited question sorts after a remaining message dated in the future', async () => {
+    const chat = await newChat()
+    const t1 = await turn(chat, 'Tell me about Redis caching.', 'Redis caches hot keys.')
+    const t2 = await turn(chat, 'Tell me about Kafka partitions.', 'Partitions keep order.')
+    const plan = await planTurn(ws, chat, { trigger: 'submit-message', messageId: t2.userId, lastId: t2.userId })
+    if (plan.kind !== 'edit') throw new Error('expected an edit')
+    // Another tab dates a message ahead of the clock after the plan was made and before the reply finishes.
+    await (await getDb()).update(messages).set({ createdAt: new Date(Date.now() + 3_600_000) }).where(eq(messages.id, t1.replyId))
+    const replyId = randomUUID()
+    await finishTurn({
+      workspaceId: ws, sessionId: chat, messageId: t2.userId, memoryDraft: 'q', text: 'Sure.', modelId: 'test',
+      assistantMessageId: replyId, pointerShift: 0, cut: plan.cut, question: { content: 'q', createdAt: new Date() },
+    })
+    expect((await order(chat)).map((m) => m.id)).toEqual([t1.userId, t1.replyId, t2.userId, replyId])
+  })
+
+  it('editing a later message leaves an automatic title alone', async () => {
+    const chat = await newChat()
+    await turn(chat, 'Tell me about Redis caching.', 'Sure.')
+    const t2 = await turn(chat, 'Tell me about Kafka partitions.', 'Sure.')
+    const db = await getDb()
+    const title = async () => (await db.select({ t: sessions.title }).from(sessions).where(eq(sessions.id, chat)))[0].t
+    const before = await title()
+    await edit(chat, t2.userId, 'Tell me about Postgres vacuum.', 'Sure.')
+    expect(await title()).toBe(before)
+  })
+})

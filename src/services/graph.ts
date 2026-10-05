@@ -1,5 +1,5 @@
 import { getDb, messages, sessions, messageNodes, chatPointers } from "../../db"
-import { eq, and, sql } from "drizzle-orm"
+import { eq, and, sql, max } from "drizzle-orm"
 import { extractConcepts } from "@/lib/extract"
 import { deriveTitle, canonicalKey } from "@/lib/text"
 import { pointerRows, type SkippedSpan } from "@/lib/pointers"
@@ -109,24 +109,29 @@ export async function finishTurn(input: {
 }): Promise<{ skipped: Skip[] } | null> {
   const db = await getDb()
   return db.transaction(async (tx) => {
-    // Inside the transaction: a question deleted after this check cannot leave
-    // a saved reply behind (ticket 01's residual window, closed by ticket 02).
-    // The cut goes first; for an edit it includes the old version of this message (same id).
+    // First, before any write: the message must still exist. Returning null
+    // COMMITS the transaction, so a missing question must leave nothing cut
+    // or saved (a question deleted mid-stream, for an edit or a regenerate).
+    const [question] = await tx
+      .select({ createdAt: messages.createdAt })
+      .from(messages)
+      .where(and(eq(messages.id, input.messageId), eq(messages.sessionId, input.sessionId)))
+    if (!question) return null
+    // Then the cut; for an edit it includes the old version of this message (same id).
     if (input.cut?.length) await removeMessages(tx, input.workspaceId, input.sessionId, input.cut)
-    let askedAt: Date
+    let askedAt = question.createdAt
     if (input.question) {
+      // Sorts after whatever remains, even if another tab added a turn mid-stream or the clock stepped back.
+      const [{ latest }] = await tx
+        .select({ latest: max(messages.createdAt) })
+        .from(messages)
+        .where(eq(messages.sessionId, input.sessionId))
+      const floor = latest ? new Date(latest).getTime() + 1 : 0
+      askedAt = new Date(Math.max(input.question.createdAt.getTime(), floor))
       await tx.insert(messages).values({
         id: input.messageId, sessionId: input.sessionId, role: 'user',
-        content: input.question.content, createdAt: input.question.createdAt,
+        content: input.question.content, createdAt: askedAt,
       })
-      askedAt = input.question.createdAt
-    } else {
-      const [question] = await tx
-        .select({ createdAt: messages.createdAt })
-        .from(messages)
-        .where(and(eq(messages.id, input.messageId), eq(messages.sessionId, input.sessionId)))
-      if (!question) return null
-      askedAt = question.createdAt
     }
     // A regenerate's question was already ingested; re-ingesting is safe (onConflictDoNothing, linkNode counts only new links, only "New Session" is retitled).
     // Explicitly after the question: two rows saved close together can share
