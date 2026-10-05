@@ -178,8 +178,10 @@ export async function POST(req: Request) {
 
   // Final review F2. An edit or a regenerate stops when the browser leaves:
   // the browser has already put the old messages back and said it failed, so
-  // the swap must not happen behind its back (Q9). A new turn keeps going,
-  // as before: its question is already saved, and the reply belongs with it.
+  // the swap must not happen behind its back (Q9). A new turn passes no
+  // signal, but its reply is not saved either once the browser leaves:
+  // generation stalls when the response stream is cancelled (measured). Its
+  // question was saved first, so the question stays and the reply is lost.
   const stopWithBrowser = plan.kind !== "new"
 
   // Set the moment the model has finished its reply, before it is saved. The
@@ -202,7 +204,13 @@ export async function POST(req: Request) {
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     providerOptions: { ollama: { options: { num_predict: MAX_OUTPUT_TOKENS } } },
     // 3-6. Graph writes happen AFTER the stream. Spec §4.5.
-    onFinish: async ({ text }) => {
+    onFinish: async ({ text, finishReason }) => {
+      // An `error` part still records a step (ai 7522-7524, 7581), so this runs
+      // with partial (or empty) text. The browser shows a failed send: save nothing.
+      if (finishReason === "error") {
+        console.warn(`[chat] ${plan.kind} not saved: the model failed mid-reply`)
+        return
+      }
       answered = true
       // AI SDK 6 drops every chunk once the signal aborts, but a reply whose
       // last step finished just before the abort still reaches onFinish.
@@ -262,8 +270,11 @@ export async function POST(req: Request) {
    * - A stream that throws mid-reply errors the pipe (line 6994): neither
    *   streamText `onFinish` nor `onError` runs, only this, via the cancel
    *   hook. That is why streamText's `onError` plus a flag would not do.
-   * - An `error` part mid-reply still records the step, so streamText's
-   *   onFinish runs with the partial text and saves it: answered, kept.
+   * - An `error` part, before any text or mid-reply, still records a step
+   *   (lines 7522-7524, 7581), so streamText's onFinish runs with
+   *   finishReason "error" and empty or partial text. It returns before
+   *   setting `answered`, saving nothing, so this runs with answered = false
+   *   and the question is discarded: the browser shows a failed send too.
    * - `isAborted` only reports an abort part from `abortSignal`, which a new
    *   turn does not pass, so it cannot tell a failure from the browser leaving.
    *
@@ -283,7 +294,7 @@ export async function POST(req: Request) {
     }
     try {
       if (await discardUnanswered(workspaceId, sessionId, messageId)) {
-        console.warn(`[chat] discarded the unanswered question ${messageId}: the model failed before replying`)
+        console.warn(`[chat] discarded the unanswered question ${messageId}: the model failed`)
       }
     } catch (err) {
       console.error(`[chat] could not discard the unanswered question ${messageId}`, err)
