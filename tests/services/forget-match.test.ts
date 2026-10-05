@@ -15,7 +15,10 @@ async function say(sessionId: string, user: string) {
   await ingestUserMessage({ workspaceId: WS, sessionId, messageId, content: user })
 }
 
-const labels = (found: { key: string; label: string }[]) => found.map((c) => c.label)
+const labels = (found: { key: string; label: string }[] | null) => {
+  if (found === null) throw new Error('expected a chat of this workspace, got null')
+  return found.map((c) => c.label)
+}
 
 describe('conceptsMentioned (Q26: the concepts INSIDE a highlight)', () => {
   it('returns the concept the text mentions', async () => {
@@ -70,10 +73,17 @@ describe('conceptsMentioned (Q26: the concepts INSIDE a highlight)', () => {
     expect(labels(await conceptsMentioned(WS, mine, 'Redis sits next to PostgreSQL'))).toEqual(['PostgreSQL'])
   })
 
-  it("does not return another workspace's chat", async () => {
+  it("answers null for another workspace's chat, and for a chat that does not exist", async () => {
     const chat = (await createChat(WS)).id
     await say(chat, 'We run PostgreSQL in production.')
 
-    expect(await conceptsMentioned(newWorkspaceId(), chat, 'PostgreSQL')).toEqual([])
+    expect(await conceptsMentioned(newWorkspaceId(), chat, 'PostgreSQL')).toBeNull()
+    expect(await conceptsMentioned(WS, '0b6f7c1e-8a4d-4f7a-9c2e-3d5b6a7c8d9e', 'PostgreSQL')).toBeNull()
+  })
+
+  it('answers [] (not null) for your own chat that has no concepts', async () => {
+    const chat = (await createChat(WS)).id
+
+    expect(await conceptsMentioned(WS, chat, 'PostgreSQL')).toEqual([])
   })
 })

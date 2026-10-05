@@ -10,8 +10,8 @@ const MAX_TEXT = 4000
 /**
  * Which of this chat's concepts the highlighted `{ text }` mentions (Q26), for
  * the selection chip's Forget button. The id is checked first, as in the
- * forget route: a non-uuid would make Postgres throw (a 500). A chat of
- * another workspace simply has no concepts for this one: `[]`.
+ * forget route: a non-uuid would make Postgres throw (a 500). A chat that is
+ * not this workspace's gets the same 404 as one that does not exist.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -26,5 +26,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (typeof text !== "string" || text.length > MAX_TEXT) {
     return Response.json({ error: `text must be a string of at most ${MAX_TEXT} characters` }, { status: 400 })
   }
-  return Response.json({ concepts: await conceptsMentioned(await requireWorkspace(), id, text) })
+  const concepts = await conceptsMentioned(await requireWorkspace(), id, text)
+  return concepts ? Response.json({ concepts }) : NOT_FOUND()
 }

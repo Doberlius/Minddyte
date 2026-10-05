@@ -68,10 +68,21 @@ async function linkedConcepts(db: Db | Tx, workspaceId: string, sessionId: strin
  * mentionsSql (the forget dialog's own rule), A to Z by label. The concepts
  * INSIDE the text: a highlight of "Kafka" does not offer "Kafka partitions".
  * A forgotten concept is unlinked from the chat (forgetConcept), so it is not
- * linked here and is not offered.
+ * linked here and is not offered. Null when the chat is not this workspace's
+ * (or does not exist), so a foreign chat is indistinguishable from a missing
+ * one; a chat of yours with nothing to offer is `[]`.
  */
-export async function conceptsMentioned(workspaceId: string, sessionId: string, text: string): Promise<{ key: string; label: string }[]> {
+export async function conceptsMentioned(
+  workspaceId: string,
+  sessionId: string,
+  text: string,
+): Promise<{ key: string; label: string }[] | null> {
   const db = await getDb()
+  const [chat] = await db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(and(eq(sessions.id, sessionId), eq(sessions.workspaceId, workspaceId)))
+  if (!chat) return null
   return db
     .select({ key: nodes.canonicalKey, label: nodes.label })
     .from(sessionNodes)
