@@ -5,7 +5,7 @@ import { retrieveContext } from "@/services/retrieval"
 import { persistMessage, finishTurn } from "@/services/graph"
 import { isUuidV4 } from "@/lib/workspace"
 import { sessionExists } from "@/services/dbApi"
-import { planTurn } from "@/services/turns"
+import { discardUnanswered, planTurn } from "@/services/turns"
 import { buildSystemPrompt, buildCoreBlock } from "@/lib/prompt"
 import { requireWorkspace } from "@/server/workspace"
 import { describeSkip } from "@/lib/pointers"
@@ -182,6 +182,12 @@ export async function POST(req: Request) {
   // as before: its question is already saved, and the reply belongs with it.
   const stopWithBrowser = plan.kind !== "new"
 
+  // Set the moment the model has finished its reply, before it is saved. The
+  // browser shows a finished reply and keeps its question on screen, whatever
+  // happens to the save after that, so a question with a finished reply is
+  // never discarded (see discardIfUnanswered below).
+  let answered = false
+
   const result = streamText({
     model: resolved.model,
     system: systemPrompt,
@@ -197,6 +203,7 @@ export async function POST(req: Request) {
     providerOptions: { ollama: { options: { num_predict: MAX_OUTPUT_TOKENS } } },
     // 3-6. Graph writes happen AFTER the stream. Spec §4.5.
     onFinish: async ({ text }) => {
+      answered = true
       // AI SDK 6 drops every chunk once the signal aborts, but a reply whose
       // last step finished just before the abort still reaches onFinish.
       if (stopWithBrowser && req.signal.aborted) {
@@ -217,7 +224,7 @@ export async function POST(req: Request) {
           question: plan.kind === "edit" ? { content: draft, createdAt: arrivedAt } : undefined,
         })
         if (!done) {
-          console.warn(`[chat] reply not saved: its question ${messageId} is gone`)
+          console.warn(`[chat] ${plan.kind} not saved: its question, or a message it replaces, changed while the reply streamed`)
           return
         }
         // Ticket 05, Q14 — a block too large to index is a loss, and a loss
@@ -232,5 +239,60 @@ export async function POST(req: Request) {
     },
   })
 
-  return result.toUIMessageStreamResponse({ onError: explainStreamFailure, generateMessageId: () => assistantMessageId })
+  /**
+   * A new turn's question was saved before the stream (step 1). When the
+   * model fails, the browser takes it back off the screen and puts the text
+   * back in the box, so the saved copy goes too (`discardUnanswered`).
+   * An edit or a regenerate saved nothing before the stream, so it has
+   * nothing to discard.
+   *
+   * Which callback, read from AI SDK 6.0.189 (`node_modules/ai/dist/index.mjs`)
+   * and measured with a mock model for each ending:
+   * - `toUIMessageStreamResponse({ onFinish })` runs exactly once however the
+   *   stream ends: from the flush AND the cancel hook of the last transform,
+   *   behind a `finishCalled` guard (lines 5969, 6016-6020).
+   * - It runs AFTER streamText's own `onFinish` has resolved: that one is
+   *   awaited in the event processor's flush (`notify`, line 6918), and the
+   *   stream this response reads is piped through that processor (line 7012).
+   *   So on success `answered` is already true here. Measured: success gives
+   *   streamText.onFinish, then this with answered = true.
+   * - A provider failure before any text (a rejected doStream) becomes an
+   *   `error` part (line 7706), no step is recorded, and streamText skips its
+   *   onFinish (line 6870). This still runs, with answered = false.
+   * - A stream that throws mid-reply errors the pipe (line 6994): neither
+   *   streamText `onFinish` nor `onError` runs, only this, via the cancel
+   *   hook. That is why streamText's `onError` plus a flag would not do.
+   * - An `error` part mid-reply still records the step, so streamText's
+   *   onFinish runs with the partial text and saves it: answered, kept.
+   * - `isAborted` only reports an abort part from `abortSignal`, which a new
+   *   turn does not pass, so it cannot tell a failure from the browser leaving.
+   *
+   * The browser leaving (a closed tab) also cancels the stream, and this runs
+   * with answered = false. That is not a failed send: nothing put the text
+   * back in a box, and the question is all that is left of what was typed.
+   * Next aborts `req.signal` when the connection closes, so it is kept then.
+   *
+   * `discardUnanswered` itself refuses a question with a saved reply, so even
+   * a wrong call here cannot remove an answered turn.
+   */
+  const discardIfUnanswered = async () => {
+    if (answered) return
+    if (req.signal.aborted) {
+      console.warn(`[chat] the browser left before the reply; its question ${messageId} is kept`)
+      return
+    }
+    try {
+      if (await discardUnanswered(workspaceId, sessionId, messageId)) {
+        console.warn(`[chat] discarded the unanswered question ${messageId}: the model failed before replying`)
+      }
+    } catch (err) {
+      console.error(`[chat] could not discard the unanswered question ${messageId}`, err)
+    }
+  }
+
+  return result.toUIMessageStreamResponse({
+    onError: explainStreamFailure,
+    generateMessageId: () => assistantMessageId,
+    ...(plan.kind === "new" ? { onFinish: discardIfUnanswered } : {}),
+  })
 }

@@ -109,6 +109,9 @@ export async function finishTurn(input: {
 }): Promise<{ skipped: Skip[] } | null> {
   const db = await getDb()
   return db.transaction(async (tx) => {
+    // These checks rely on PGlite running one transaction at a time
+    // (local-first-pglite ticket 05). On a multi-connection Postgres, lock the
+    // question row (`FOR UPDATE`) here.
     // First, before any write: the message must still exist. Returning null
     // COMMITS the transaction, so a missing question must leave nothing cut
     // or saved (a question deleted mid-stream, for an edit or a regenerate).

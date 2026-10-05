@@ -32,17 +32,8 @@ export function turnAt(all: { id: string; role: string }[], i: number): string[]
 export async function deleteTurn(workspaceId: string, sessionId: string, messageId: string): Promise<string[] | null> {
   const db = await getDb()
   return db.transaction(async (tx) => {
-    const [owned] = await tx
-      .select({ id: sessions.id })
-      .from(sessions)
-      .where(and(eq(sessions.id, sessionId), eq(sessions.workspaceId, workspaceId)))
-    if (!owned) return null
-
-    const all = await tx
-      .select({ id: messages.id, role: messages.role })
-      .from(messages)
-      .where(eq(messages.sessionId, sessionId))
-      .orderBy(asc(messages.createdAt), asc(messages.id))
+    const all = await ownedChatOrder(tx, workspaceId, sessionId)
+    if (!all) return null
     const i = all.findIndex((m) => m.id === messageId)
     if (i === -1) return null
     const turn = turnAt(all, i)
@@ -50,6 +41,50 @@ export async function deleteTurn(workspaceId: string, sessionId: string, message
     await removeMessages(tx, workspaceId, sessionId, turn)
     return turn
   })
+}
+
+/**
+ * Remove a new turn's question whose reply never came, and everything memory
+ * built from it. One transaction.
+ *
+ * Why it exists: a new turn saves its question BEFORE the model streams
+ * (the chat route), so the browser can name it. When the send fails, the
+ * browser takes the question back off the screen and puts its text back in
+ * the box. The database must not keep a hidden copy of it: a resend would
+ * duplicate it, `relinkChat` would build memory from it, and the next edit
+ * would get a false 409 (its cut would include a message the browser never
+ * showed).
+ *
+ * Only an unanswered question of this workspace's chat goes: it must be a
+ * `user` message, and the message directly after it, in (created_at, id)
+ * order, must not be an `assistant` one. So a question whose reply was saved
+ * is never removed, whoever calls this. Returns true when it removed the
+ * message; false, writing nothing, otherwise.
+ */
+export async function discardUnanswered(workspaceId: string, sessionId: string, messageId: string): Promise<boolean> {
+  const db = await getDb()
+  return db.transaction(async (tx) => {
+    const all = await ownedChatOrder(tx, workspaceId, sessionId)
+    if (!all) return false
+    const i = all.findIndex((m) => m.id === messageId)
+    if (i === -1 || all[i].role !== 'user' || all[i + 1]?.role === 'assistant') return false
+    await removeMessages(tx, workspaceId, sessionId, [messageId])
+    return true
+  })
+}
+
+/** The chat's messages in turn order, or null when the chat is not this workspace's. */
+async function ownedChatOrder(tx: Tx, workspaceId: string, sessionId: string) {
+  const [owned] = await tx
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(and(eq(sessions.id, sessionId), eq(sessions.workspaceId, workspaceId)))
+  if (!owned) return null
+  return tx
+    .select({ id: messages.id, role: messages.role })
+    .from(messages)
+    .where(eq(messages.sessionId, sessionId))
+    .orderBy(asc(messages.createdAt), asc(messages.id))
 }
 
 /**
