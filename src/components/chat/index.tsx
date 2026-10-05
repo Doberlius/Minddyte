@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useChat } from '@ai-sdk/react'
-import { DefaultChatTransport } from 'ai'
-import { AlertCircle, Trash2 } from 'lucide-react'
+import { DefaultChatTransport, type UIMessage } from 'ai'
+import { AlertCircle, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { DeleteTurnDialog } from './DeleteTurnDialog'
+import { EditBox } from './EditBox'
 import { AtPicker } from './AtPicker'
 import { CommandPicker } from './CommandPicker'
 import { ForgetPicker } from './ForgetPicker'
@@ -62,6 +63,18 @@ export function NeuralChat({
   const [forgetKey, setForgetKey] = useState<string | null>(null)
   /** The message whose delete confirmation is open, and whether a reply goes with it. */
   const [deleting, setDeleting] = useState<{ id: string; hasReply: boolean } | null>(null)
+  // Message-actions ticket 02. `editing` is the message being edited and the
+  // text in its box; `regenConfirm` is the reply whose regenerate is asking
+  // first, because later messages would go (Q10).
+  const [editing, setEditing] = useState<{ id: string; draft: string } | null>(null)
+  const [regenConfirm, setRegenConfirm] = useState<string | null>(null)
+  /**
+   * What the screen showed before an edit or a regenerate. AI SDK cuts the
+   * transcript optimistically, but the server swaps nothing until the new
+   * reply is saved (Q9) — so a failed request puts this back, and an edit's
+   * text back in its box. Cleared once a reply has landed.
+   */
+  const undo = useRef<{ snapshot: UIMessage[]; editing?: { id: string; draft: string } } | null>(null)
   /**
    * Why the last send did not go through.
    *
@@ -120,7 +133,7 @@ export function NeuralChat({
     if (slashQuery === null) setSlashOff(false)
   }, [slashQuery])
 
-  const { messages, sendMessage, status, setMessages, clearError } = useChat({
+  const { messages, sendMessage, regenerate, status, setMessages, clearError } = useChat({
     transport: new DefaultChatTransport({ api: '/api/chat' }),
     // The database stores your message under this same id (message-actions
     // ticket 01), so the delete button can name it before any reload. The
@@ -133,6 +146,20 @@ export function NeuralChat({
     // parse that text back out and look for the marker /api/chat put there.
     onError: (err) => {
       const failed = classifyChatFailure(err.message)
+
+      // An edit or a regenerate: the server swapped nothing (Q9), so the screen
+      // goes back to what it was, and an edit's text back into its box.
+      const pending = undo.current
+      undo.current = null
+      if (pending) {
+        setMessages(pending.snapshot)
+        if (pending.editing) setEditing(pending.editing)
+        if (failed.kind === 'session_not_found') {
+          onSessionChange(null)
+          setFailure('That conversation no longer exists. Send again to start a new one.')
+        } else setFailure(failed.message)
+        return
+      }
 
       // NOTE: recovering the status does NOT happen here. See the effect below.
 
@@ -228,6 +255,8 @@ export function NeuralChat({
     setShowForget(false)
     setForgetKey(null)
     setDeleting(null)
+    setEditing(null)
+    setRegenConfirm(null)
 
     /**
      * Decided HERE, once, for every path out of this effect — not left to the
@@ -324,6 +353,7 @@ export function NeuralChat({
     if (status === 'streaming') streamed.current = true
     else if (streamed.current && status === 'ready') {
       streamed.current = false
+      undo.current = null
       onChatsChanged()
     }
   }, [status, onChatsChanged])
@@ -348,6 +378,19 @@ export function NeuralChat({
     setInput('')
     setSlashOff(false)
   }
+
+  // mode, taggedChatIds and sessionId must all be sent PER CALL: the
+  // transport's constructor body is frozen at mount, and sessionId is null
+  // then. Per-call body is merged over it at send time.
+  const turnBody = (sid: string) => ({
+    sessionId: sid,
+    mode,
+    taggedChatIds: tagged.map((t) => t.id),
+    // Omitted rather than sent as null: the route treats an absent model
+    // as "you pick", and `resolveModel` is the one that knows what this
+    // daemon actually has.
+    ...(model ? { model } : {}),
+  })
 
   const submit = async () => {
     const text = input.trim()
@@ -382,24 +425,26 @@ export function NeuralChat({
       onChatsChanged() // the row exists now; show it rather than after the reply
     }
 
-    // mode, taggedChatIds and sessionId must all be sent PER CALL: the
-    // transport's constructor body is frozen at mount, and sessionId is null
-    // then. Per-call body is merged over it at send time.
-    sendMessage(
-      { text },
-      {
-        body: {
-          sessionId: sid,
-          mode,
-          taggedChatIds: tagged.map((t) => t.id),
-          // Omitted rather than sent as null: the route treats an absent model
-          // as "you pick", and `resolveModel` is the one that knows what this
-          // daemon actually has.
-          ...(model ? { model } : {}),
-        },
-      },
-    )
+    sendMessage({ text }, { body: turnBody(sid) })
     setInput('')
+  }
+
+  function saveEdit(id: string, text: string) {
+    if (!sessionId || status !== 'ready') return
+    undo.current = { snapshot: messages, editing: { id, draft: text } }
+    setEditing(null)
+    setFailure(null)
+    // AI SDK keeps this message's id, drops everything after it, and sends
+    // trigger 'submit-message' with messageId — the server reads it as an edit.
+    void sendMessage({ text, messageId: id }, { body: turnBody(sessionId) })
+  }
+
+  function regen(id: string) {
+    if (!sessionId || status !== 'ready') return
+    undo.current = { snapshot: messages }
+    setRegenConfirm(null)
+    setFailure(null)
+    void regenerate({ messageId: id, body: turnBody(sessionId) })
   }
 
   return (
@@ -450,8 +495,20 @@ export function NeuralChat({
             const next = messages[i + 1]
             const prev = messages[i - 1]
             const hasReply = m.role === 'user' ? next?.role === 'assistant' : prev?.role === 'user'
+            const later = messages.length - 1 - i
             const actions = !busy && sessionId && (
               <div className="msg-actions">
+                {m.role === 'user' ? (
+                  <button className="msg-act" aria-label="Edit this message" title="Edit"
+                    onClick={() => { setRegenConfirm(null); setEditing({ id: m.id, draft: text }) }}>
+                    <Pencil size={13} aria-hidden="true" />
+                  </button>
+                ) : (
+                  <button className="msg-act" aria-label="Regenerate this reply" title="Regenerate"
+                    onClick={() => (later > 0 ? setRegenConfirm(m.id) : regen(m.id))}>
+                    <RotateCcw size={13} aria-hidden="true" />
+                  </button>
+                )}
                 <button
                   className="msg-act"
                   aria-label={hasReply ? 'Delete this message and its reply' : 'Delete this message'}
@@ -464,15 +521,27 @@ export function NeuralChat({
             )
             return m.role === 'user' ? (
               <div key={m.id} className="msg msg-user">
-                <div style={{
-                  fontSize: 13.5, lineHeight: 1.65,
-                  background: 'var(--white)', border: '1px solid var(--border)',
-                  borderRadius: 14, padding: '11px 15px', color: 'var(--ink)',
-                  whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
-                }}>
-                  {text}
-                </div>
-                {actions}
+                {editing?.id === m.id ? (
+                  <EditBox
+                    original={text}
+                    draft={editing.draft}
+                    removes={later}
+                    onSave={(t) => saveEdit(m.id, t)}
+                    onCancel={() => setEditing(null)}
+                  />
+                ) : (
+                  <>
+                    <div style={{
+                      fontSize: 13.5, lineHeight: 1.65,
+                      background: 'var(--white)', border: '1px solid var(--border)',
+                      borderRadius: 14, padding: '11px 15px', color: 'var(--ink)',
+                      whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
+                    }}>
+                      {text}
+                    </div>
+                    {actions}
+                  </>
+                )}
               </div>
             ) : (
               <div key={m.id} className="msg msg-assistant" style={{ fontSize: 13.5, lineHeight: 1.65, color: 'var(--ink2)' }}>
@@ -480,6 +549,13 @@ export function NeuralChat({
                   <Markdown text={text} />
                 </SceneContext.Provider>
                 {actions}
+                {regenConfirm === m.id && (
+                  <p className="msg-edit-note" role="status">
+                    Regenerating will remove {later === 1 ? 'the message' : `the ${later} messages`} after this one.
+                    <button className="msg-link" onClick={() => regen(m.id)}>Regenerate</button>
+                    <button className="msg-link" onClick={() => setRegenConfirm(null)}>Cancel</button>
+                  </p>
+                )}
               </div>
             )
           })}
