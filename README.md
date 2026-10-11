@@ -2,7 +2,7 @@
 
 # Minddyte
 
-**An AI chat app that remembers your past conversations, and can show you exactly where each memory came from.**
+**An AI chat app that remembers your past conversations word for word, and recalls them by rules you can check.**
 
 [![Live demo](https://img.shields.io/badge/live%20demo-minddyte.onrender.com-4F46E8)](https://minddyte.onrender.com)
 [![Next.js](https://img.shields.io/badge/Next.js-15.5-000000?logo=next.js&logoColor=white)](https://nextjs.org)
@@ -26,7 +26,7 @@ Five things to try:
 
 | Do this | What you should see |
 |---|---|
-| In one chat, write *"We run PostgreSQL in production."* Then press **New chat** and ask *"What database do we use?"* | The answer knows it is PostgreSQL, because it found your earlier chat on its own. Under the answer it says which chat it used and why. |
+| In one chat, write *"We run PostgreSQL in production."* Then press **New chat** and ask *"What database do we use?"* | The answer knows it is PostgreSQL, because it found your earlier chat on its own. Open **Archive** to see the sentences it keeps from each chat. |
 | Open **Brain** in the top menu | A map of your chats, joined by the topics they share. |
 | Type **`/visualize how the frequency changes a sine wave`** | An animated diagram inside the answer, in the style of the 3Blue1Brown maths videos. Press play, drag the timeline, move the slider. |
 | Type **`/forget`** in a chat and pick a topic | Minddyte shows exactly which sentences it will stop remembering before you agree. |
@@ -42,7 +42,7 @@ Minddyte remembers differently:
 
 - **It keeps what you actually said, word for word.** Every sentence, code sample and table is stored exactly as written. Nothing is summarised or rewritten.
 - **It picks memory when you ask a question, not before.** For each new message it looks through your past chats and brings in only the sentences that fit that question.
-- **It shows its work.** Every past chat it uses comes with a short reason, such as *"matches words "journal", "crash""*. You can always trace an answer back to the sentence it came from.
+- **Every memory carries its source.** Each past chat it brings in reaches the AI labelled with where it came from and a short reason, such as *"matches words "journal", "crash""*, so the AI can tell your words apart from its own knowledge.
 - **You stay in control.** You can pull a specific chat in with **@**, lock a chat so it uses nothing else (**Focus** mode), or tell it to forget a topic.
 
 ---
@@ -197,7 +197,6 @@ Working and tested: chat, memory across chats, Explore and Focus modes, @ to add
 Known limits:
 
 - **Topic detection works in English only.**
-- **Small talk can pull in old chats.** Messages like *"hi"* or *"thanks"* can still bring in past chats. This is recorded as an open ticket.
 - **A long pasted paragraph can take several seconds** before the answer starts, because every word is searched. Also an open ticket.
 - **Diagram quality depends on the AI model.** In my tests, 6 of 8 diagrams drew correctly the first time and 1 more fixed itself. The sandbox has been checked in Microsoft Edge only.
 - **There are no user accounts.** Each browser gets its own private space, which suits a demo but not a shared product.
