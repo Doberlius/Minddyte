@@ -27,8 +27,8 @@ export function EditBox({
   original: string
   draft: string
   removes: number
-  /** The quote the box starts with; `preview` is null when its target was deleted. */
-  quote: { ref: QuoteRef; preview: string | null } | null
+  /** The message's quote; `preview` is null when its target was deleted, `markdown` when the target is a model reply. */
+  quote: { ref: QuoteRef; preview: string | null; markdown: boolean } | null
   /** Whether the saved message has a quote, so that removing it counts as a change. */
   hadQuote: boolean
   onSave: (text: string, quote: QuoteRef | null) => void
@@ -55,7 +55,7 @@ export function EditBox({
 
   return (
     <div className="msg-edit">
-      {kept && <QuoteLine kind="compose" preview={kept.preview} onRemove={() => { setRemoved(true); box.current?.focus() }} />}
+      {kept && <QuoteLine kind="compose" preview={kept.preview} markdown={kept.markdown} onRemove={() => { setRemoved(true); box.current?.focus() }} />}
       <label className="sr-only" htmlFor="msg-edit-box">Edit your message</label>
       <textarea
         id="msg-edit-box"

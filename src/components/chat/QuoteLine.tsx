@@ -1,6 +1,7 @@
 'use client'
 
 import { X } from 'lucide-react'
+import { InlineText } from '@/components/ui/InlineText'
 
 /**
  * One quote line (reply-to ticket 03). The same line sits in three places:
@@ -10,20 +11,35 @@ import { X } from 'lucide-react'
  * `preview` is the quoted text's first line (`quotePreview`), or null when the
  * quoted message has been deleted (Q18). A deleted quote is never clickable:
  * there is nothing left to scroll to.
+ *
+ * `markdown` is set when the quoted message is a model reply: the preview
+ * then reads the way the reply does (InlineText: **bold**, `code`, maths, no
+ * leading `#`). Your own message is shown exactly as typed, and so is its
+ * preview.
  */
 export function QuoteLine({
   kind,
   preview,
+  markdown = false,
   onOpen,
   onRemove,
 }: {
   /** 'compose': "↩ Replying to: …", in the composer or the edit box. 'sent': "↩ …", above a message. */
   kind: 'compose' | 'sent'
   preview: string | null
+  markdown?: boolean
   onOpen?: () => void
   onRemove?: () => void
 }) {
-  const label = preview === null ? '↩ replying to a deleted message' : kind === 'compose' ? `↩ Replying to: ${preview}` : `↩ ${preview}`
+  const label =
+    preview === null ? (
+      '↩ replying to a deleted message'
+    ) : (
+      <>
+        {kind === 'compose' ? '↩ Replying to: ' : '↩ '}
+        {markdown ? <InlineText text={preview} /> : preview}
+      </>
+    )
   return (
     <div className={`quote-line${preview === null ? ' is-gone' : ''}`}>
       {kind === 'sent' && preview !== null && onOpen ? (

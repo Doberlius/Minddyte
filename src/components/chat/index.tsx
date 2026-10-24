@@ -691,10 +691,16 @@ export function NeuralChat({
     return () => window.clearTimeout(t)
   }, [flash])
 
-  /** The quote line's text for a quote, or null when its message is gone (deleted, or cut by an edit). */
-  function previewOf(q: QuoteRef): string | null {
+  /**
+   * The quote line for a quote: its text, or null when its message is gone
+   * (deleted, or cut by an edit), and whether that message is a model reply,
+   * whose preview is shown as markdown.
+   */
+  function previewOf(q: QuoteRef): { preview: string | null; markdown: boolean } {
     const target = messages.find((m) => m.id === q.replyToId)
-    return target ? quotePreview(textOf(target), q.start, q.end) : null
+    return target
+      ? { preview: quotePreview(textOf(target), q.start, q.end), markdown: target.role === 'assistant' }
+      : { preview: null, markdown: false }
   }
 
   /**
@@ -868,7 +874,7 @@ export function NeuralChat({
                     original={text}
                     draft={editing.draft}
                     removes={later}
-                    quote={editing.quote && { ref: editing.quote, preview: previewOf(editing.quote) }}
+                    quote={editing.quote && { ref: editing.quote, ...previewOf(editing.quote) }}
                     hadQuote={quoted !== null}
                     onSave={(t, q) => saveEdit(m.id, t, q)}
                     onCancel={() => {
@@ -879,7 +885,7 @@ export function NeuralChat({
                 ) : (
                   <>
                     {quoted && (
-                      <QuoteLine kind="sent" preview={previewOf(quoted)} onOpen={() => showQuoted(quoted.replyToId)} />
+                      <QuoteLine kind="sent" {...previewOf(quoted)} onOpen={() => showQuoted(quoted.replyToId)} />
                     )}
                     <div data-quote-body="" data-msg-id={m.id} data-role="user" style={{
                       fontSize: 13.5, lineHeight: 1.65,
@@ -989,7 +995,7 @@ export function NeuralChat({
         {quote && (
           <QuoteLine
             kind="compose"
-            preview={previewOf(quote)}
+            {...previewOf(quote)}
             onRemove={() => {
               setQuote(null)
               document.getElementById('chat-composer')?.focus()
