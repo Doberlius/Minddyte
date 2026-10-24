@@ -27,3 +27,12 @@ export function validRange(content: string, start: number | null, end: number | 
 export function quotedText(content: string, start: number | null, end: number | null): string {
   return start === null || end === null ? content : cpSlice(content, start, end)
 }
+
+const PREVIEW_CAP = 80
+
+/** The quote line's text: the quoted text's first line, cut to 80 code points with `…` when cut. */
+export function quotePreview(content: string, start: number | null, end: number | null): string {
+  const firstLine = quotedText(content, start, end).trimStart().split(/\r?\n/, 1)[0]
+  const points = Array.from(firstLine)
+  return points.length > PREVIEW_CAP ? points.slice(0, PREVIEW_CAP).join('') + '…' : firstLine
+}

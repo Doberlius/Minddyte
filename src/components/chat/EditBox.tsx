@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { QuoteLine } from './QuoteLine'
+import type { QuoteRef } from '@/lib/quote'
 
 /**
  * Editing one of your own messages in place (message-actions ticket 02).
@@ -9,21 +11,31 @@ import { useEffect, useRef, useState } from 'react'
  * much (Q8). Enter saves, Shift+Enter is a new line, Escape cancels — the
  * composer's own keys. Save waits for a change: an unchanged question is a
  * regenerate, which the reply's own button does.
+ *
+ * A quoted message keeps its quote (reply-to Q23) unless ✕ removes it here;
+ * removing it is a change too, so it can be saved with the text untouched.
  */
 export function EditBox({
   original,
   draft,
   removes,
+  quote,
+  hadQuote,
   onSave,
   onCancel,
 }: {
   original: string
   draft: string
   removes: number
-  onSave: (text: string) => void
+  /** The quote the box starts with; `preview` is null when its target was deleted. */
+  quote: { ref: QuoteRef; preview: string | null } | null
+  /** Whether the saved message has a quote, so that removing it counts as a change. */
+  hadQuote: boolean
+  onSave: (text: string, quote: QuoteRef | null) => void
   onCancel: () => void
 }) {
   const [text, setText] = useState(draft)
+  const [kept, setKept] = useState(quote)
   const box = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -34,10 +46,12 @@ export function EditBox({
   }, [])
 
   const clean = text.trim()
-  const changed = clean !== '' && clean !== original.trim()
+  const changed = clean !== '' && (clean !== original.trim() || (hadQuote && !kept))
+  const save = () => changed && onSave(clean, kept?.ref ?? null)
 
   return (
     <div className="msg-edit">
+      {kept && <QuoteLine kind="compose" preview={kept.preview} onRemove={() => { setKept(null); box.current?.focus() }} />}
       <label className="sr-only" htmlFor="msg-edit-box">Edit your message</label>
       <textarea
         id="msg-edit-box"
@@ -52,14 +66,14 @@ export function EditBox({
             onCancel()
           } else if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
-            if (changed) onSave(clean)
+            save()
           }
         }}
       />
       {removes > 1 && <p id="msg-edit-note" className="msg-edit-note">Saving will remove the {removes} messages after this one.</p>}
       <div className="msg-edit-actions">
         <button className="tour-back" onClick={onCancel}>Cancel</button>
-        <button className="btn-send" onClick={() => changed && onSave(clean)} disabled={!changed}>Save</button>
+        <button className="btn-send" onClick={save} disabled={!changed}>Save</button>
       </div>
     </div>
   )
