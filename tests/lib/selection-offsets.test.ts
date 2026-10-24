@@ -234,6 +234,47 @@ describe('selectionOffsets — a model reply (rendered markdown)', () => {
 })
 
 /**
+ * Final review finding 1: Reply runs this in a click handler, so a large
+ * reply must answer quickly — placed, or null — never freeze the tab. HTML
+ * inside a code block is shown as text, so it must not become one long
+ * stretch that "may be hidden".
+ */
+describe('selectionOffsets — large replies stay quick', () => {
+  const page = (rows: number) =>
+    'Here is the page:\n\n```html\n<html><body>\n' +
+    '<div class="row"><p>some text in the rows of the page</p></div>\n'.repeat(rows) +
+    '</body></html>\n```\n\nThat is the whole page.'
+  const timed = (content: string, selected: string) => {
+    const t0 = performance.now()
+    const at = reply(content, selected)
+    return { at, ms: performance.now() - t0 }
+  }
+
+  it('answers within 500 ms for a 50,000-character reply with HTML in a code block', () => {
+    const content = page(800)
+    expect(content.length).toBeGreaterThan(50_000)
+    for (const selected of ['te', 'the page', 'some text']) {
+      const { ms } = timed(content, selected)
+      expect(ms, `"${selected}"`).toBeLessThan(500)
+    }
+  })
+
+  it('answers within 500 ms for a 40,000-character reply with a <details> block in prose', () => {
+    const content = 'Intro.\n\n<details><summary>More</summary>\n\n' + 'some text in the rows of the page. '.repeat(1200) + '\n\n</details>\n\nDone.'
+    expect(content.length).toBeGreaterThan(40_000)
+    const { ms } = timed(content, 'te')
+    expect(ms).toBeLessThan(500)
+  })
+
+  it('still places prose next to an HTML code block, and the tags inside it', () => {
+    const content = 'Make the page now.\n\n```html\n<html><body><p>hello</p></body></html>\n```\n\nThat is the whole page.'
+    expect(placed(content, 'That is the whole page')).toEqual({ start: 72, end: 94 })
+    const at = placedLoose(content, '<p>hello</p>')
+    expect(cpSlice(content, at.start, at.end)).toBe('<p>hello</p>')
+  })
+})
+
+/**
  * The renderer as the oracle: the reply is rendered by the real Markdown
  * component, its text is read roughly the way Selection.toString() reads it,
  * and every run of 1–5 words of that text is "selected". The function may

@@ -178,8 +178,14 @@ function tokenize(content: string): Token[] {
   each(LINK_DEFINITION, (_, a, b) => hide(a, b))
   each(LINK_REFERENCE, (_, a, b) => hide(a, b))
   for (let i = content.indexOf(']('); i !== -1; i = content.indexOf('](', i + 1)) hide(i, destinationEnd(content, i + 2))
-  each(HTML_COMMENT, (_, a, b) => hide(a, b))
+  // HTML in a code block is shown as text, so it hides nothing there.
+  const code = fencedCode(content)
+  const inCode = (at: number) => code.some(([from, to]) => at >= from && at < to)
+  each(HTML_COMMENT, (_, a, b) => {
+    if (!inCode(a)) hide(a, b)
+  })
   each(HTML_TAG, (m, a, b) => {
+    if (inCode(a)) return
     const name = m[2].toLowerCase()
     if (name === 'img') return wild(a, b, charsOf(IMAGE_TEXT, m[0]))
     // An element's content may be hidden too (<details>, <script>…).
@@ -211,6 +217,30 @@ function tokenize(content: string): Token[] {
   each(INDENTED, (m, a, b) => wild(a, b, charsOf(HEADER_TEXT, m[0])))
 
   return tokensOf(cps, optional, wilds)
+}
+
+/**
+ * Fenced code blocks whose fence starts a line, unindented and outside any
+ * quote or list, as UTF-16 ranges from the opening fence to the end of the
+ * closing one (or of the reply, when it never closes). Only these: a block
+ * missed here is merely treated as prose, which can hide more, never less.
+ */
+function fencedCode(content: string): [number, number][] {
+  const out: [number, number][] = []
+  const line = /^.*$/gm
+  let open: { at: number; ch: string; len: number } | null = null
+  for (let m = line.exec(content); m; m = line.exec(content)) {
+    const fence = /^(`{3,}|~{3,})/.exec(m[0])
+    if (!open) {
+      if (fence) open = { at: m.index, ch: fence[1][0], len: fence[1].length }
+    } else if (fence && fence[1][0] === open.ch && fence[1].length >= open.len && /^[`~]+[ \t]*$/.test(m[0])) {
+      out.push([open.at, m.index + m[0].length])
+      open = null
+    }
+    if (m[0] === '') line.lastIndex++
+  }
+  if (open) out.push([open.at, content.length])
+  return out
 }
 
 /** Where a link destination `(url "title")` ends: its balancing `)`, or the end of the line. */
@@ -277,16 +307,23 @@ type State = {
   tainted: boolean
 }
 
-/** Past this, the reply is too repetitive to be sure of anything cheaply. */
+/**
+ * Past this, the reply is too repetitive to be sure of anything cheaply. Both
+ * are checked as the work happens, not after a step: one step over a long
+ * stretch that may be hidden can otherwise grow without bound (final review
+ * finding 1).
+ */
 const MAX_STATES = 5_000
 const MAX_WORK = 1_000_000
 
 function match(tokens: Token[], want: string[]) {
   let work = 0
+  let over = false
   let states = new Map<string, State>()
   const add = (into: Map<string, State>, s: State) => {
     const key = s.tainted ? `t${s.p},${s.w},${s.skipped}` : `${s.p},${s.w},${s.skipped},${s.start},${s.last}`
     if (!into.has(key)) into.set(key, s)
+    if (into.size > MAX_STATES) over = true
   }
   const read = (s: State, c: string, into: Map<string, State>) => {
     const t = tokens[s.p]
@@ -302,7 +339,8 @@ function match(tokens: Token[], want: string[]) {
   }
 
   const first = want[0]
-  tokens.forEach((_, p) => read({ p, w: 0, skipped: false, start: -1, last: -1, tainted: false }, first, states))
+  for (let p = 0; p < tokens.length && !over; p++) read({ p, w: 0, skipped: false, start: -1, last: -1, tainted: false }, first, states)
+  if (over) return null
 
   for (let k = 1; k < want.length; k++) {
     const c = want[k]
@@ -312,14 +350,17 @@ function match(tokens: Token[], want: string[]) {
       let p = s.p
       const around: State[] = [s]
       if (s.w > 0) around.push({ ...s, p: ++p, w: 0, skipped: true })
-      while (p < tokens.length && tokens[p].kind !== 'lit') around.push({ ...s, p: ++p, w: 0, skipped: true })
-      work += around.length
+      while (p < tokens.length && tokens[p].kind !== 'lit') {
+        around.push({ ...s, p: ++p, w: 0, skipped: true })
+        if (++work > MAX_WORK) return null
+      }
       for (const a of around) {
         read(a, c, next)
         if (c === ' ' && a.skipped) add(next, { ...a, skipped: false })
+        if (over) return null
       }
     }
-    if (next.size === 0 || next.size > MAX_STATES || work > MAX_WORK) return null
+    if (next.size === 0) return null
     states = next
   }
 
