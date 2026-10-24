@@ -35,7 +35,11 @@ export function EditBox({
   onCancel: () => void
 }) {
   const [text, setText] = useState(draft)
-  const [kept, setKept] = useState(quote)
+  // Only whether ✕ was pressed is kept here. The quote itself is read from
+  // the props on every render, so a quoted turn deleted while this box is
+  // open reads "deleted" at once (Q18).
+  const [removed, setRemoved] = useState(false)
+  const kept = removed ? null : quote
   const box = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -51,7 +55,7 @@ export function EditBox({
 
   return (
     <div className="msg-edit">
-      {kept && <QuoteLine kind="compose" preview={kept.preview} onRemove={() => { setKept(null); box.current?.focus() }} />}
+      {kept && <QuoteLine kind="compose" preview={kept.preview} onRemove={() => { setRemoved(true); box.current?.focus() }} />}
       <label className="sr-only" htmlFor="msg-edit-box">Edit your message</label>
       <textarea
         id="msg-edit-box"
