@@ -4,13 +4,18 @@ import { stripVisualize } from '@/lib/scene/intent'
 /**
  * What the model is told about a user message's quote (Q19). The text comes
  * from the database, never from the browser: `quotesForModel` builds these.
- * `deleted` is a quote whose target is gone (Q18).
+ * `deleted` is a quote whose target is gone (Q18). `text` is the quoted text
+ * up to one code point past its cap (PART_CAP or WHOLE_CAP), never more.
  */
 export type QuoteForModel = { kind: 'part' | 'whole'; role: 'user' | 'assistant'; text: string } | { kind: 'deleted' }
 
-/** A highlighted part is sent in full up to this many code points; a whole message only its start. */
-const PART_CAP = 2000
-const WHOLE_CAP = 200
+/**
+ * A highlighted part is sent in full up to this many code points; a whole
+ * message only its start. `quotesForModel` reads one code point past each
+ * from the database, which is all `withQuote` needs to know a cut happened.
+ */
+export const PART_CAP = 2000
+export const WHOLE_CAP = 200
 
 /** Cut at `cap` code points, never splitting a surrogate pair, with `…` when cut. */
 function cap(text: string, max: number): string {

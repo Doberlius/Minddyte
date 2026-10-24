@@ -8,7 +8,7 @@ import { finishTurn, ingestUserMessage, persistMessage } from '@/services/graph'
 import { createChat } from '@/services/dbApi'
 import { retrieveContext } from '@/services/retrieval'
 import { checkQuote, deleteTurn, quotesForModel } from '@/services/turns'
-import { turnText } from '@/lib/quote-prompt'
+import { turnText, withQuote } from '@/lib/quote-prompt'
 import { newWorkspaceId } from '@/lib/workspace'
 import { visualizePrefixLength } from '@/lib/scene/intent'
 
@@ -152,6 +152,40 @@ describe('quotesForModel', () => {
     const { chat, replyId } = await chatWithReply()
     const id = await save({ workspaceId: ws, sessionId: chat, role: 'user', content: 'Why LRU?', quote: { replyToId: replyId, start: null, end: null } })
     expect(await quotesForModel(newWorkspaceId(), chat, [id])).toEqual(new Map())
+  })
+
+  // Speed: the database hands back only what the model can be shown (Q19's
+  // caps, plus one code point so the cut still gets its "…"), not the whole
+  // quoted message. What the model reads is unchanged.
+  it('reads at most 201 code points of a long message quoted whole, and the model still sees 200 + "…"', async () => {
+    const chat = await newChat('C')
+    const long = '😀' + 'w'.repeat(5000)
+    const target = await save({ workspaceId: ws, sessionId: chat, role: 'assistant', content: long, modelUsed: 'test' })
+    const id = await save({ workspaceId: ws, sessionId: chat, role: 'user', content: 'Why?', quote: { replyToId: target, start: null, end: null } })
+    const q = (await quotesForModel(ws, chat, [id])).get(id)!
+    expect(q).toEqual({ kind: 'whole', role: 'assistant', text: Array.from(long).slice(0, 201).join('') })
+    expect(withQuote('Why?', q)).toBe(`Replying to your earlier reply:\n> ${Array.from(long).slice(0, 200).join('')}…\n\nWhy?`)
+  })
+
+  it('reads at most 2,001 code points of a long highlighted part, counting from its start, emoji included', async () => {
+    const chat = await newChat('C')
+    const long = '😀'.repeat(3000) + 'x'.repeat(4000)
+    const target = await save({ workspaceId: ws, sessionId: chat, role: 'assistant', content: long, modelUsed: 'test' })
+    const quote = { replyToId: target, start: 2500, end: 6000 }
+    const id = await save({ workspaceId: ws, sessionId: chat, role: 'user', content: 'Why?', quote })
+    const q = (await quotesForModel(ws, chat, [id])).get(id)!
+    const part = Array.from(long).slice(2500, 6000)
+    expect(q).toEqual({ kind: 'part', role: 'assistant', text: part.slice(0, 2001).join('') })
+    expect(withQuote('Why?', q)).toBe(`Replying to your earlier reply:\n> ${part.slice(0, 2000).join('')}…\n\nWhy?`)
+  })
+
+  it('reads a short part exactly, and two quotes of one message each get their own part', async () => {
+    const { chat, replyId } = await chatWithReply()
+    const a = await save({ workspaceId: ws, sessionId: chat, role: 'user', content: 'A', quote: { replyToId: replyId, start: 0, end: 5 } })
+    const b = await save({ workspaceId: ws, sessionId: chat, role: 'user', content: 'B', quote: { replyToId: replyId, start: 6, end: 20 } })
+    const quotes = await quotesForModel(ws, chat, [a, b])
+    expect(quotes.get(a)).toEqual({ kind: 'part', role: 'assistant', text: 'Redis' })
+    expect(quotes.get(b)).toEqual({ kind: 'part', role: 'assistant', text: 'caches hot key' })
   })
 
   it('takes the message being sent from its checked quote, not from its saved row', async () => {

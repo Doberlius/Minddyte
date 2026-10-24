@@ -1,11 +1,11 @@
-import { and, asc, eq, inArray, isNotNull } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import { getDb, messages, sessionNodes, sessions } from '../../db'
 import { recountNodes, rejectedKeys, relinkChat, type Tx } from './links'
 import { deriveTitle } from '@/lib/text'
 import { stripVisualize } from '@/lib/scene/intent'
 import { isUuidV4 } from '@/lib/workspace'
-import { quotedText, validRange, type QuoteRef } from '@/lib/quote'
-import type { QuoteForModel } from '@/lib/quote-prompt'
+import { validRange, type QuoteRef } from '@/lib/quote'
+import { PART_CAP, WHOLE_CAP, type QuoteForModel } from '@/lib/quote-prompt'
 
 /**
  * Message-actions ticket 01, Q4: a turn is a user message and the assistant
@@ -294,16 +294,25 @@ export async function quotesForModel(
   if (sending?.quote) refs.set(sending.id, sending.quote)
   if (refs.size === 0) return out
 
-  const targetIds = [...new Set([...refs.values()].map((q) => q.replyToId))]
-  const found = await db
-    .select({ id: messages.id, role: messages.role, content: messages.content })
-    .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), inArray(messages.id, targetIds)))
-  const targets = new Map(found.map((t) => [t.id, t]))
+  // Only what the model can be shown is read, one code point past its cap so
+  // `withQuote` still knows to add "…": a long reply quoted whole costs 201
+  // characters, not the whole reply. One row per distinct quote, since two
+  // quotes of one message may name different parts. Postgres counts
+  // characters, so these are the same code points as the stored offsets.
+  const key = (q: QuoteRef) => `${q.replyToId} ${q.start} ${q.end}`
+  const distinct = [...new Map([...refs.values()].map((q) => [key(q), q])).values()]
+  const wanted = sql.join(distinct.map((q) => sql`(${q.replyToId}::uuid, ${q.start}::int, ${q.end}::int)`), sql`, `)
+  const found = (await db.execute(sql`
+    select q.rid as "replyToId", q.s as "start", q.e as "end", m.role,
+           case when q.s is null then left(m.content, ${WHOLE_CAP + 1})
+                else substring(m.content from q.s + 1 for least(q.e - q.s, ${PART_CAP + 1})) end as text
+    from (values ${wanted}) as q(rid, s, e)
+    join ${messages} m on m.id = q.rid and m.session_id = ${sessionId}`)).rows as (QuoteRef & { role: string; text: string })[]
+  const texts = new Map(found.map((t) => [key(t), t]))
   for (const [id, q] of refs) {
-    const t = targets.get(q.replyToId)
+    const t = texts.get(key(q))
     out.set(id, t
-      ? { kind: q.start === null ? 'whole' : 'part', role: t.role as 'user' | 'assistant', text: quotedText(t.content, q.start, q.end) }
+      ? { kind: q.start === null ? 'whole' : 'part', role: t.role as 'user' | 'assistant', text: t.text }
       : { kind: 'deleted' })
   }
   return out
