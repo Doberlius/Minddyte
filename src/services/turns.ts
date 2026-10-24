@@ -217,12 +217,18 @@ const isOffset = (v: unknown): v is number | null => v === null || typeof v === 
  * `removing` is what this request removes when its reply is saved (an edit's
  * cut, `planTurn`). A quote of one of those would name a message that is gone
  * by then, or the edited message itself, so it is refused too.
+ *
+ * `editing` is the message an edit rewrites. An edit keeps its quote (Q23),
+ * and that quote's target may have been deleted since (Q18): the exact quote
+ * already saved on that message is accepted even then, so it still reads
+ * "replying to a deleted message" afterwards.
  */
 export async function checkQuote(
   workspaceId: string,
   sessionId: string,
   raw: unknown,
   removing: string[] = [],
+  editing?: string,
 ): Promise<{ ok: true; quote: QuoteRef | null } | { ok: false; message: string }> {
   if (raw == null) return { ok: true, quote: null }
   if (typeof raw !== 'object' || Array.isArray(raw)) return BAD_QUOTE
@@ -235,6 +241,16 @@ export async function checkQuote(
     .from(messages)
     .innerJoin(sessions, eq(sessions.id, messages.sessionId))
     .where(and(eq(messages.id, replyToId), eq(messages.sessionId, sessionId), eq(sessions.workspaceId, workspaceId)))
+  if (!target && editing && isUuidV4(editing)) {
+    const [own] = await db
+      .select({ replyToId: messages.replyToId, start: messages.quoteStart, end: messages.quoteEnd })
+      .from(messages)
+      .innerJoin(sessions, eq(sessions.id, messages.sessionId))
+      .where(and(eq(messages.id, editing), eq(messages.sessionId, sessionId), eq(sessions.workspaceId, workspaceId)))
+    if (own && own.replyToId === replyToId && own.start === start && own.end === end) {
+      return { ok: true, quote: { replyToId, start, end } }
+    }
+  }
   if (!target || !validRange(target.content, start, end)) return BAD_QUOTE
   return { ok: true, quote: { replyToId, start, end } }
 }

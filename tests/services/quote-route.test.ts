@@ -96,6 +96,23 @@ describe('checkQuote (ticket 03)', () => {
     expect(await checkQuote(ws, chat, { replyToId: askId, start: null, end: null }, [replyId])).toEqual({ ok: true, quote: { replyToId: askId, start: null, end: null } })
   })
 
+  it('lets an edit keep its own saved quote whose target was deleted (Q23, Q18)', async () => {
+    const { chat, replyId } = await chatWithReply()
+    const kept = { replyToId: replyId, start: 6, end: 20 }
+    const edited = await save({ workspaceId: ws, sessionId: chat, role: 'user', content: 'Why LRU?', quote: kept })
+    const other = await save({ workspaceId: ws, sessionId: chat, role: 'user', content: 'Plain.' })
+    await deleteTurn(ws, chat, replyId)
+
+    expect(await checkQuote(ws, chat, kept, [edited], edited)).toEqual({ ok: true, quote: kept })
+    // Only that exact quote, only for that message, and only in an edit.
+    expect(await checkQuote(ws, chat, { ...kept, end: 21 }, [edited], edited)).toEqual(REFUSED)
+    expect(await checkQuote(ws, chat, kept, [other], other)).toEqual(REFUSED)
+    expect(await checkQuote(ws, chat, kept)).toEqual(REFUSED)
+    expect(await checkQuote(newWorkspaceId(), chat, kept, [edited], edited)).toEqual(REFUSED)
+    // The model still reads it as a quote of a deleted message.
+    expect(await quotesForModel(ws, chat, [edited], { id: edited, quote: kept })).toEqual(new Map([[edited, { kind: 'deleted' }]]))
+  })
+
   it('writes nothing', async () => {
     const { chat, replyId } = await chatWithReply()
     await checkQuote(ws, chat, { replyToId: replyId, start: 0, end: 5 })

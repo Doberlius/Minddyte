@@ -148,7 +148,9 @@ export async function POST(req: Request) {
   let quote: QuoteRef | null = null
   if (plan.kind !== "regenerate") {
     const raw = (last.metadata as { quote?: unknown } | null | undefined)?.quote ?? null
-    const checked = await checkQuote(workspaceId, sessionId, raw, plan.kind === "edit" ? plan.cut : [])
+    const checked = plan.kind === "edit"
+      ? await checkQuote(workspaceId, sessionId, raw, plan.cut, last.id)
+      : await checkQuote(workspaceId, sessionId, raw)
     if (!checked.ok) return Response.json({ error: "bad_quote", message: checked.message }, { status: 400 })
     quote = checked.quote
   }
