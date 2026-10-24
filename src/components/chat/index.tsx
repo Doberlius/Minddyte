@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
-import { AlertCircle, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { AlertCircle, Pencil, Reply, RotateCcw, Trash2 } from 'lucide-react'
 import { DeleteTurnDialog } from './DeleteTurnDialog'
 import { EditBox } from './EditBox'
+import { QuoteChip, type ChipConcepts } from './QuoteChip'
+import { QuoteLine } from './QuoteLine'
 import { AtPicker } from './AtPicker'
 import { CommandPicker } from './CommandPicker'
 import { ForgetPicker } from './ForgetPicker'
@@ -17,17 +19,69 @@ import { SceneContext } from './SceneContext'
 import { ForgetDialog } from '@/components/forget/ForgetDialog'
 import { classifyChatFailure, GENERIC, type ChatFailure } from '@/lib/chat-error'
 import { newUuid } from '@/lib/uuid'
+import { quotePreview, type QuoteRef } from '@/lib/quote'
+import { selectionOffsets } from '@/lib/selection-offsets'
 import type { ChatSummary } from '@/components/layout/Sidebar'
 
-type StoredMessage = { id: string; role: 'user' | 'assistant'; content: string }
+type StoredMessage = { id: string; role: 'user' | 'assistant'; content: string; quote?: QuoteRef | null }
 
-/** The stored transcript as the screen holds it. The one mapping, for opening a chat and for reloading one. */
+/**
+ * The stored transcript as the screen holds it. The one mapping, for opening a
+ * chat and for reloading one. A message's quote (reply-to ticket 03) rides in
+ * its metadata, where a message sent in this page view carries it too.
+ */
 function toUIMessages(stored: StoredMessage[] | undefined): UIMessage[] {
   return (stored ?? []).map((m) => ({
     id: m.id,
     role: m.role,
     parts: [{ type: 'text' as const, text: m.content }],
+    ...(m.quote ? { metadata: { quote: { replyToId: m.quote.replyToId, start: m.quote.start, end: m.quote.end } } } : {}),
   }))
+}
+
+const textOf = (m: UIMessage) => m.parts.filter((p) => p.type === 'text').map((p) => p.text).join('')
+const quoteOf = (m: UIMessage): QuoteRef | null => (m.metadata as { quote?: QuoteRef | null } | undefined)?.quote ?? null
+
+/** The longest highlight the forget-match route takes (its MAX_TEXT), cut without splitting an emoji. */
+function forMatching(text: string): string {
+  if (text.length <= 4000) return text
+  const cut = text.slice(0, 4000)
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut
+}
+
+/**
+ * What a highlight inside one message is, or null when there is none: the
+ * selection must be non-empty and wholly inside one message's text (the
+ * element marked `data-quote-body`). `hint` is where it starts in your own
+ * message's text, in UTF-16 units, which `selectionOffsets` uses to tell
+ * repeats apart. The chip sits under the selection's last line, or above it
+ * when that would fall off the screen.
+ */
+type Highlight = { id: string; role: 'user' | 'assistant'; text: string; hint?: number; top: number; left: number }
+function readHighlight(): Highlight | null {
+  const sel = window.getSelection()
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null
+  const text = sel.toString()
+  if (!text.trim()) return null
+  const range = sel.getRangeAt(0)
+  const node = range.commonAncestorContainer
+  const body = (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>('[data-quote-body]')
+  const id = body?.dataset.msgId
+  const role = body?.dataset.role
+  if (!body || !id || (role !== 'user' && role !== 'assistant')) return null
+  let hint: number | undefined
+  if (role === 'user') {
+    const before = document.createRange()
+    before.setStart(body, 0)
+    before.setEnd(range.startContainer, range.startOffset)
+    hint = before.toString().length
+  }
+  const rects = range.getClientRects()
+  const last = rects[rects.length - 1] ?? range.getBoundingClientRect()
+  const below = last.bottom + 6
+  const top = below + 40 > window.innerHeight ? Math.max(8, range.getBoundingClientRect().top - 40) : below
+  const left = Math.max(8, Math.min(last.right - 40, window.innerWidth - 280))
+  return { id, role, text, hint, top, left }
 }
 
 const SWAP_SAVED_NOTHING =
@@ -78,8 +132,14 @@ export function NeuralChat({
   // Message-actions ticket 02. `editing` is the message being edited and the
   // text in its box; `regenConfirm` is the reply whose regenerate is asking
   // first, because later messages would go (Q10).
-  const [editing, setEditing] = useState<{ id: string; draft: string } | null>(null)
+  const [editing, setEditing] = useState<{ id: string; draft: string; quote: QuoteRef | null } | null>(null)
   const [regenConfirm, setRegenConfirm] = useState<string | null>(null)
+  // Reply-to ticket 03. `quote` is what the next message will quote; `chip`
+  // is the highlight the selection chip is showing for, with what its Forget
+  // found; `flash` is the message a quote line just scrolled to.
+  const [quote, setQuote] = useState<QuoteRef | null>(null)
+  const [chip, setChip] = useState<(Highlight & { forget?: ChipConcepts }) | null>(null)
+  const [flash, setFlash] = useState<string | null>(null)
   /**
    * What the screen showed before an edit or a regenerate. AI SDK cuts the
    * transcript optimistically, but the server swaps nothing until the new
@@ -87,7 +147,7 @@ export function NeuralChat({
    * text back in its box. Cleared once a reply has landed, and on a chat
    * switch: it belongs to the chat it was taken in.
    */
-  const undo = useRef<{ sessionId: string; snapshot: UIMessage[]; editing?: { id: string; draft: string } } | null>(null)
+  const undo = useRef<{ sessionId: string; snapshot: UIMessage[]; editing?: { id: string; draft: string; quote: QuoteRef | null } } | null>(null)
   /**
    * The chat on screen, and the chat the request in flight was sent from.
    * Refs because `onError` is a callback useChat holds on to: it cannot see a
@@ -212,8 +272,11 @@ export function NeuralChat({
         const sent = prev[end - 1]
         // Not this request's question: change nothing.
         if (sent.id !== sentId.current) return prev
-        const text = sent.parts.filter((p) => p.type === 'text').map((p) => p.text).join('')
+        const text = textOf(sent)
         if (text) setInput(text)
+        // Its quote goes back above the box with it (ticket 03).
+        const q = quoteOf(sent)
+        if (q) setQuote(q)
         return prev.slice(0, end - 1)
       })
 
@@ -302,6 +365,9 @@ export function NeuralChat({
     setEditing(null)
     undo.current = null
     setRegenConfirm(null)
+    // A quote names a message of the chat it was taken in.
+    setQuote(null)
+    setChip(null)
     // Final review F6: a request sent before this switch matches no chat, not
     // even after you come back to the one it was sent from, so its failure is
     // ignored rather than read as an ordinary send's.
@@ -449,6 +515,70 @@ export function NeuralChat({
   }, [status, onChatsChanged, setMessages, onSessionChange])
 
   /**
+   * The selection chip follows the selection (ticket 03, Q15), read 150 ms
+   * after it settles. While focus is on the chip's own buttons it stays put,
+   * even if moving there collapsed the selection: that is how a keyboard
+   * reaches it. Escape closes it, and focus goes to the composer if it was
+   * on the chip.
+   */
+  useEffect(() => {
+    let timer: number | undefined
+    const onChange = () => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        if (document.activeElement?.closest('.quote-chip')) return
+        const next = readHighlight()
+        setChip((prev) => (prev && next && prev.id === next.id && prev.text === next.text ? { ...prev, top: next.top, left: next.left } : next))
+      }, 150)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (document.activeElement?.closest('.quote-chip')) document.getElementById('chat-composer')?.focus()
+      setChip(null)
+    }
+    document.addEventListener('selectionchange', onChange)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      window.clearTimeout(timer)
+      document.removeEventListener('selectionchange', onChange)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [])
+
+  // The chip's Forget, on your own messages only (Q28): which of this chat's
+  // concepts the highlight mentions (Q26), asked once per highlight. A failed
+  // ask reads as "nothing matches", which leaves Forget disabled, never wrong.
+  const chipKey = chip && chip.role === 'user' && sessionId ? `${sessionId}\n${chip.id}\n${chip.text}` : null
+  useEffect(() => {
+    if (!chipKey) return
+    const [sid, , ...rest] = chipKey.split('\n')
+    const text = rest.join('\n')
+    let live = true
+    setChip((c) => (c ? { ...c, forget: 'loading' } : c))
+    fetch(`/api/sessions/${sid}/forget/match`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: forMatching(text) }),
+    })
+      .then((r) => (r.ok ? r.json() : { concepts: [] }))
+      .catch(() => ({ concepts: [] }))
+      .then((body: { concepts?: { key: string; label: string }[] }) => {
+        if (live) setChip((c) => (c ? { ...c, forget: body.concepts ?? [] } : c))
+      })
+    return () => {
+      live = false
+    }
+  }, [chipKey])
+
+  // A quote waiting in the composer whose message has gone (a delete, or the
+  // reply an edit or a regenerate replaced) is dropped: the server would
+  // refuse it. Only once the chat is settled, so a failed edit that puts the
+  // old messages back finds its quote still there.
+  useEffect(() => {
+    if (quote && status === 'ready' && !opening && !messages.some((m) => m.id === quote.replyToId)) setQuote(null)
+  }, [quote, status, opening, messages])
+
+  /**
    * Run a command instead of sending it. The one path for both the / menu and
    * Send, so a command is never sent to the model and never saved (Q10).
    */
@@ -522,8 +652,55 @@ export function NeuralChat({
     sentKind.current = 'new'
     sendCount.current++
     sentId.current = newUuid()
-    sendMessage({ id: sentId.current, role: 'user', parts: [{ type: 'text', text }] }, { body: turnBody(sid) })
+    // The quote rides in the message's metadata; the server checks it and
+    // reads the quoted text itself (ticket 03). A failed send puts it back.
+    sendMessage(
+      { id: sentId.current, role: 'user', parts: [{ type: 'text', text }], ...(quote ? { metadata: { quote } } : {}) },
+      { body: turnBody(sid) },
+    )
     setInput('')
+    setQuote(null)
+  }
+
+  /**
+   * Quote a message in the next one (ticket 03): the whole message, or the
+   * highlighted part of it. A part is placed at exact offsets in the stored
+   * text; when it cannot be placed for certain (a model reply's markdown can
+   * hide where it came from), the whole message is quoted instead, never a
+   * wrong part.
+   */
+  function replyTo(id: string, part?: Highlight) {
+    const target = messages.find((m) => m.id === id)
+    if (!target) return
+    const at = part ? selectionOffsets(textOf(target), part.text, { verbatim: part.role === 'user', hint: part.hint }) : null
+    setQuote({ replyToId: id, start: at?.start ?? null, end: at?.end ?? null })
+    setChip(null)
+    window.getSelection()?.removeAllRanges()
+    focusNext.current = 'chat-composer'
+  }
+
+  /** A quote line's click: scroll to the quoted message and flash it briefly. */
+  function showQuoted(id: string) {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' })
+    setFlash(id)
+  }
+  useEffect(() => {
+    if (!flash) return
+    const t = window.setTimeout(() => setFlash(null), 1000)
+    return () => window.clearTimeout(t)
+  }, [flash])
+
+  /**
+   * The quote line for a quote: its text, or null when its message is gone
+   * (deleted, or cut by an edit), and whether that message is a model reply,
+   * whose preview is shown as markdown.
+   */
+  function previewOf(q: QuoteRef): { preview: string | null; markdown: boolean } {
+    const target = messages.find((m) => m.id === q.replyToId)
+    return target
+      ? { preview: quotePreview(textOf(target), q.start, q.end), markdown: target.role === 'assistant' }
+      : { preview: null, markdown: false }
   }
 
   /**
@@ -551,9 +728,9 @@ export function NeuralChat({
     return true
   }
 
-  function saveEdit(id: string, text: string) {
+  function saveEdit(id: string, text: string, kept: QuoteRef | null) {
     if (!sessionId || status !== 'ready') return
-    undo.current = { sessionId, snapshot: messages, editing: { id, draft: text } }
+    undo.current = { sessionId, snapshot: messages, editing: { id, draft: text, quote: kept } }
     sentFrom.current = sessionId
     sentKind.current = 'edit'
     sendCount.current++
@@ -564,8 +741,12 @@ export function NeuralChat({
     // AI SDK keeps this message's id, drops everything after it, and sends
     // trigger 'submit-message' with messageId — the server reads it as an edit.
     // It rejects only on a throw before the request (an id it does not hold);
-    // a failed request goes to onError instead.
-    sendMessage({ text, messageId: id }, { body: { ...turnBody(sessionId), expectCut: shownFrom(id) } })
+    // a failed request goes to onError instead. The quote goes with it, or none
+    // when ✕ removed it: the edited message is saved with exactly this (Q23).
+    sendMessage(
+      { text, messageId: id, ...(kept ? { metadata: { quote: kept } } : {}) },
+      { body: { ...turnBody(sessionId), expectCut: shownFrom(id) } },
+    )
       .catch(() => undoCut({ kind: 'other', message: GENERIC }))
   }
 
@@ -611,7 +792,8 @@ export function NeuralChat({
           Full width, a right-aligned question and a left-aligned answer end up
           at opposite edges of a 1200px gap and stop reading as one
           conversation. */}
-      <div className="thread">
+      {/* A scroll would leave the selection chip floating away from its text. */}
+      <div className="thread" onScroll={() => chip && setChip(null)}>
         <div className="thread-col">
         {opening && (
           <p style={{ margin: 'auto', fontSize: 12.5, color: 'var(--ink3)' }}>Opening this chat…</p>
@@ -629,7 +811,7 @@ export function NeuralChat({
 
         {!opening &&
           messages.map((m, i) => {
-            const text = m.parts.filter((p) => p.type === 'text').map((p) => p.text).join('')
+            const text = textOf(m)
             // Only the LAST message can still be streaming, and only while
             // useChat says so — otherwise the message is fully saved.
             const isLast = i === messages.length - 1
@@ -644,11 +826,29 @@ export function NeuralChat({
             const prev = messages[i - 1]
             const hasReply = m.role === 'user' ? next?.role === 'assistant' : prev?.role === 'user'
             const later = messages.length - 1 - i
+            const quoted = quoteOf(m)
+            const wrapper = `msg msg-${m.role}${flash === m.id ? ' msg-flash' : ''}`
+            // The chip, placed right after this message's text in the page.
+            const selChip = chip?.id === m.id && !busy && sessionId && (
+              <QuoteChip
+                key={chip.text}
+                at={{ top: chip.top, left: chip.left }}
+                forget={m.role === 'user' ? (chip.forget ?? 'loading') : undefined}
+                onReply={() => replyTo(m.id, chip)}
+                onForget={(key) => {
+                  setChip(null)
+                  setForgetKey(key)
+                }}
+              />
+            )
             const actions = !busy && sessionId && (
               <div className="msg-actions">
+                <button className="msg-act" aria-label="Reply to this message" title="Reply" onClick={() => replyTo(m.id)}>
+                  <Reply size={13} aria-hidden="true" />
+                </button>
                 {m.role === 'user' ? (
                   <button id={`edit-${m.id}`} className="msg-act" aria-label="Edit this message" title="Edit"
-                    onClick={() => { sendCount.current++; setRegenConfirm(null); setEditing({ id: m.id, draft: text }) }}>
+                    onClick={() => { sendCount.current++; setRegenConfirm(null); setEditing({ id: m.id, draft: text, quote: quoted }) }}>
                     <Pencil size={13} aria-hidden="true" />
                   </button>
                 ) : (
@@ -668,13 +868,15 @@ export function NeuralChat({
               </div>
             )
             return m.role === 'user' ? (
-              <div key={m.id} className="msg msg-user">
+              <div key={m.id} id={`msg-${m.id}`} className={wrapper}>
                 {editing?.id === m.id ? (
                   <EditBox
                     original={text}
                     draft={editing.draft}
                     removes={later}
-                    onSave={(t) => saveEdit(m.id, t)}
+                    quote={editing.quote && { ref: editing.quote, ...previewOf(editing.quote) }}
+                    hadQuote={quoted !== null}
+                    onSave={(t, q) => saveEdit(m.id, t, q)}
                     onCancel={() => {
                       setEditing(null)
                       focusNext.current = `edit-${m.id}`
@@ -682,7 +884,10 @@ export function NeuralChat({
                   />
                 ) : (
                   <>
-                    <div style={{
+                    {quoted && (
+                      <QuoteLine kind="sent" {...previewOf(quoted)} onOpen={() => showQuoted(quoted.replyToId)} />
+                    )}
+                    <div data-quote-body="" data-msg-id={m.id} data-role="user" style={{
                       fontSize: 13.5, lineHeight: 1.65,
                       background: 'var(--white)', border: '1px solid var(--border)',
                       borderRadius: 14, padding: '11px 15px', color: 'var(--ink)',
@@ -690,15 +895,19 @@ export function NeuralChat({
                     }}>
                       {text}
                     </div>
+                    {selChip}
                     {actions}
                   </>
                 )}
               </div>
             ) : (
-              <div key={m.id} className="msg msg-assistant" style={{ fontSize: 13.5, lineHeight: 1.65, color: 'var(--ink2)' }}>
-                <SceneContext.Provider value={{ sessionId: sessionId ?? null, messageId: m.id, fresh: !loadedIds.has(m.id), model: model ?? null, streaming }}>
-                  <Markdown text={text} />
-                </SceneContext.Provider>
+              <div key={m.id} id={`msg-${m.id}`} className={wrapper} style={{ fontSize: 13.5, lineHeight: 1.65, color: 'var(--ink2)' }}>
+                <div data-quote-body="" data-msg-id={m.id} data-role="assistant" style={{ minWidth: 0 }}>
+                  <SceneContext.Provider value={{ sessionId: sessionId ?? null, messageId: m.id, fresh: !loadedIds.has(m.id), model: model ?? null, streaming }}>
+                    <Markdown text={text} />
+                  </SceneContext.Provider>
+                </div>
+                {selChip}
                 {actions}
                 {regenConfirm === m.id && (
                   <p className="msg-edit-note" role="status">
@@ -781,6 +990,17 @@ export function NeuralChat({
               </span>
             ))}
           </div>
+        )}
+
+        {quote && (
+          <QuoteLine
+            kind="compose"
+            {...previewOf(quote)}
+            onRemove={() => {
+              setQuote(null)
+              document.getElementById('chat-composer')?.focus()
+            }}
+          />
         )}
 
         <label className="sr-only" htmlFor="chat-composer">Your message</label>

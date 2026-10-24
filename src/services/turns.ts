@@ -1,9 +1,11 @@
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import { getDb, messages, sessionNodes, sessions } from '../../db'
 import { recountNodes, rejectedKeys, relinkChat, type Tx } from './links'
 import { deriveTitle } from '@/lib/text'
 import { stripVisualize } from '@/lib/scene/intent'
 import { isUuidV4 } from '@/lib/workspace'
+import { validRange, type QuoteRef } from '@/lib/quote'
+import { PART_CAP, WHOLE_CAP, type QuoteForModel } from '@/lib/quote-prompt'
 
 /**
  * Message-actions ticket 01, Q4: a turn is a user message and the assistant
@@ -200,4 +202,118 @@ export async function planTurn(
   if (all[i].role !== 'assistant') return refuse('Only a reply can be regenerated.')
   if (all[i - 1]?.role !== 'user' || all[i - 1].id !== req.lastId) return refuse('The question for this reply must be the last message sent.')
   return changed ? CHAT_CHANGED : { kind: 'regenerate', cut }
+}
+
+const BAD_QUOTE = { ok: false as const, message: 'That quote can’t be used. Remove it and try again.' }
+const isOffset = (v: unknown): v is number | null => v === null || typeof v === 'number'
+
+/**
+ * Ticket 03: a quote sent with a message must name a message of THIS chat
+ * with a valid range (Q17). Writes nothing. `null` (or nothing) is no quote.
+ * Every refusal gives the same answer, so it cannot be used to ask whether a
+ * message exists in another chat. Only the three quote fields are kept:
+ * anything else the browser sent with it is dropped.
+ *
+ * `removing` is what this request removes when its reply is saved (an edit's
+ * cut, `planTurn`). A quote of one of those would name a message that is gone
+ * by then, or the edited message itself, so it is refused too.
+ *
+ * `editing` is the message an edit rewrites. An edit keeps its quote (Q23),
+ * and that quote's target may have been deleted since (Q18): the exact quote
+ * already saved on that message is accepted even then, so it still reads
+ * "replying to a deleted message" afterwards.
+ */
+export async function checkQuote(
+  workspaceId: string,
+  sessionId: string,
+  raw: unknown,
+  removing: string[] = [],
+  editing?: string,
+): Promise<{ ok: true; quote: QuoteRef | null } | { ok: false; message: string }> {
+  if (raw == null) return { ok: true, quote: null }
+  if (typeof raw !== 'object' || Array.isArray(raw)) return BAD_QUOTE
+  const { replyToId, start, end } = raw as Record<string, unknown>
+  if (!isUuidV4(sessionId) || !isUuidV4(replyToId) || !isOffset(start) || !isOffset(end)) return BAD_QUOTE
+  if (removing.includes(replyToId)) return BAD_QUOTE
+  const db = await getDb()
+  const [target] = await db
+    .select({ content: messages.content })
+    .from(messages)
+    .innerJoin(sessions, eq(sessions.id, messages.sessionId))
+    .where(and(eq(messages.id, replyToId), eq(messages.sessionId, sessionId), eq(sessions.workspaceId, workspaceId)))
+  if (!target && editing && isUuidV4(editing)) {
+    const [own] = await db
+      .select({ replyToId: messages.replyToId, start: messages.quoteStart, end: messages.quoteEnd })
+      .from(messages)
+      .innerJoin(sessions, eq(sessions.id, messages.sessionId))
+      .where(and(eq(messages.id, editing), eq(messages.sessionId, sessionId), eq(sessions.workspaceId, workspaceId)))
+    if (own && own.replyToId === replyToId && own.start === start && own.end === end) {
+      return { ok: true, quote: { replyToId, start, end } }
+    }
+  }
+  if (!target || !validRange(target.content, start, end)) return BAD_QUOTE
+  return { ok: true, quote: { replyToId, start, end } }
+}
+
+/**
+ * The model's view of every quoted user message in `ids` (Q19), read from the
+ * database, scoped to this chat: an id of another chat, or a target outside
+ * it, is never read. A target that is gone is `deleted` (Q18). Messages
+ * without a quote have no entry.
+ *
+ * `sending` is the message this request sends, whose quote was just checked
+ * (`checkQuote`): a new turn's saved id may differ from the browser's, and an
+ * edit's saved row still holds the old version. Its quote is taken from
+ * `sending` instead of from its row; the quoted text still comes from the
+ * database.
+ */
+export async function quotesForModel(
+  workspaceId: string,
+  sessionId: string,
+  ids: string[],
+  sending?: { id: string; quote: QuoteRef | null },
+): Promise<Map<string, QuoteForModel>> {
+  const out = new Map<string, QuoteForModel>()
+  if (!isUuidV4(sessionId)) return out
+  const db = await getDb()
+  const [owned] = await db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(and(eq(sessions.id, sessionId), eq(sessions.workspaceId, workspaceId)))
+  if (!owned) return out
+
+  const refs = new Map<string, QuoteRef>()
+  const saved = ids.filter((id) => id !== sending?.id && isUuidV4(id))
+  if (saved.length > 0) {
+    const rows = await db
+      .select({ id: messages.id, replyToId: messages.replyToId, start: messages.quoteStart, end: messages.quoteEnd })
+      .from(messages)
+      .where(and(eq(messages.sessionId, sessionId), eq(messages.role, 'user'), inArray(messages.id, saved), isNotNull(messages.replyToId)))
+    for (const r of rows) if (r.replyToId) refs.set(r.id, { replyToId: r.replyToId, start: r.start, end: r.end })
+  }
+  if (sending?.quote) refs.set(sending.id, sending.quote)
+  if (refs.size === 0) return out
+
+  // Only what the model can be shown is read, one code point past its cap so
+  // `withQuote` still knows to add "…": a long reply quoted whole costs 201
+  // characters, not the whole reply. One row per distinct quote, since two
+  // quotes of one message may name different parts. Postgres counts
+  // characters, so these are the same code points as the stored offsets.
+  const key = (q: QuoteRef) => `${q.replyToId} ${q.start} ${q.end}`
+  const distinct = [...new Map([...refs.values()].map((q) => [key(q), q])).values()]
+  const wanted = sql.join(distinct.map((q) => sql`(${q.replyToId}::uuid, ${q.start}::int, ${q.end}::int)`), sql`, `)
+  const found = (await db.execute(sql`
+    select q.rid as "replyToId", q.s as "start", q.e as "end", m.role,
+           case when q.s is null then left(m.content, ${WHOLE_CAP + 1})
+                else substring(m.content from q.s + 1 for least(q.e - q.s, ${PART_CAP + 1})) end as text
+    from (values ${wanted}) as q(rid, s, e)
+    join ${messages} m on m.id = q.rid and m.session_id = ${sessionId}`)).rows as (QuoteRef & { role: string; text: string })[]
+  const texts = new Map(found.map((t) => [key(t), t]))
+  for (const [id, q] of refs) {
+    const t = texts.get(key(q))
+    out.set(id, t
+      ? { kind: q.start === null ? 'whole' : 'part', role: t.role as 'user' | 'assistant', text: t.text }
+      : { kind: 'deleted' })
+  }
+  return out
 }

@@ -126,7 +126,7 @@ export async function listChats(workspaceId: string) {
 
 export async function loadChat(workspaceId: string, sessionId: string) {
   const db = await getDb()
-  return db.query.sessions.findFirst({
+  const chat = await db.query.sessions.findFirst({
     where: and(eq(sessions.id, sessionId), eq(sessions.workspaceId, workspaceId)),
     // `workspaceId` never appears in a URL or a response body — that is the
     // whole point of keeping it in an HttpOnly cookie instead. GET
@@ -139,6 +139,19 @@ export async function loadChat(workspaceId: string, sessionId: string) {
     columns: { id: true, title: true, headlineNodeId: true },
     with: { messages: { orderBy: [asc(messages.createdAt), asc(messages.id)] } },
   })
+  if (!chat) return chat
+
+  // A quote goes out as stored, and nothing more. The screen builds its quote
+  // line from the messages it holds, all of which are this chat's: a target
+  // that was deleted (messages.reply_to_id has no foreign key, Q18) is simply
+  // not among them, and nothing of another chat is ever read here.
+  return {
+    ...chat,
+    messages: chat.messages.map(({ replyToId, quoteStart, quoteEnd, ...m }) => ({
+      ...m,
+      quote: replyToId ? { replyToId, start: quoteStart, end: quoteEnd } : null,
+    })),
+  }
 }
 
 /**

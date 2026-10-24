@@ -29,6 +29,13 @@
       "when": 1790269776175,
       "tag": "0003_user_core",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791216465077,
+      "tag": "0004_message_quotes",
+      "breakpoints": true
     }
   ]
 }
