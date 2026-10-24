@@ -42,26 +42,20 @@ describe('userMessageRow', () => {
 })
 
 describe('a stored quote', () => {
-  it('round-trips through loadChat, with the target role and a preview of the quoted part', async () => {
+  // loadChat answers only what is stored: the screen builds the quote line
+  // from the messages it holds (a deleted target is simply not among them).
+  it('round-trips through loadChat as exactly its three stored fields', async () => {
     const { chat, replyId } = await chatWithReply()
     const id = await save({ workspaceId: ws, sessionId: chat, role: 'user', content: 'Why LRU?', quote: { replyToId: replyId, start: 6, end: 20 } })
     const row = (await messagesOf(chat)).find((m) => m.id === id)!
-    expect(row.quote).toEqual({ replyToId: replyId, start: 6, end: 20, role: 'assistant', preview: 'caches hot key' })
+    expect(row.quote).toEqual({ replyToId: replyId, start: 6, end: 20 })
   })
 
-  it('stores a whole-message quote with null offsets, previewing the first line', async () => {
+  it('stores a whole-message quote with null offsets', async () => {
     const { chat, replyId } = await chatWithReply()
     const id = await save({ workspaceId: ws, sessionId: chat, role: 'user', content: 'Why?', quote: { replyToId: replyId, start: null, end: null } })
     const row = (await messagesOf(chat)).find((m) => m.id === id)!
-    expect(row.quote).toEqual({ replyToId: replyId, start: null, end: null, role: 'assistant', preview: 'Redis caches hot keys in memory.' })
-  })
-
-  it('cuts a long preview to 80 code points with an ellipsis', async () => {
-    const chat = await newChat('C')
-    const target = await save({ workspaceId: ws, sessionId: chat, role: 'assistant', content: '😀'.repeat(100) })
-    const id = await save({ workspaceId: ws, sessionId: chat, role: 'user', content: 'x', quote: { replyToId: target, start: null, end: null } })
-    const row = (await messagesOf(chat)).find((m) => m.id === id)!
-    expect(row.quote!.preview).toBe('😀'.repeat(80) + '…')
+    expect(row.quote).toEqual({ replyToId: replyId, start: null, end: null })
   })
 
   it('is null on a message without one', async () => {
@@ -71,21 +65,22 @@ describe('a stored quote', () => {
     expect(rows.find((m) => m.id === replyId)!.quote).toBeNull()
   })
 
-  it('survives the quoted turn being deleted: the reply stays, the quote says its target is gone', async () => {
+  it('survives the quoted turn being deleted: the reply stays, and its target is no longer in the chat', async () => {
     const { chat, askId, replyId } = await chatWithReply()
     const id = await save({ workspaceId: ws, sessionId: chat, role: 'user', content: 'Why LRU?', quote: { replyToId: replyId, start: 6, end: 20 } })
     expect(await deleteTurn(ws, chat, replyId)).toEqual([askId, replyId])
     const rows = await messagesOf(chat)
     expect(rows.map((m) => m.id)).toEqual([id])
-    expect(rows[0].quote).toEqual({ replyToId: replyId, start: 6, end: 20, role: null, preview: null })
+    expect(rows[0].quote).toEqual({ replyToId: replyId, start: 6, end: 20 })
   })
 
-  it('never resolves a target in another chat', async () => {
+  it('never reads anything of a target in another chat', async () => {
     const { replyId } = await chatWithReply()
     const other = await newChat('Other')
     const id = await save({ workspaceId: ws, sessionId: other, role: 'user', content: 'x', quote: { replyToId: replyId, start: null, end: null } })
     const row = (await messagesOf(other)).find((m) => m.id === id)!
-    expect(row.quote).toEqual({ replyToId: replyId, start: null, end: null, role: null, preview: null })
+    expect(row.quote).toEqual({ replyToId: replyId, start: null, end: null })
+    expect(JSON.stringify(await messagesOf(other))).not.toContain('Redis')
   })
 })
 
@@ -101,7 +96,7 @@ describe('finishTurn with a question that carries a quote', () => {
     })
     expect(done).not.toBeNull()
     const row = (await messagesOf(chat)).find((m) => m.id === userId)!
-    expect(row.quote).toEqual({ ...quote, role: 'assistant', preview: 'Redis' })
+    expect(row.quote).toEqual(quote)
   })
 })
 

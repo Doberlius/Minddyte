@@ -3,7 +3,6 @@ import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import type { GraphNode, ViewGraph } from "@/types/graph"
 import { recountNodes } from "./links"
 import { notForgottenSql } from "@/lib/mentions"
-import { quotePreview } from "@/lib/quote"
 
 /**
  * The whole graph, shaped for the Brain and the Archive.
@@ -125,15 +124,6 @@ export async function listChats(workspaceId: string) {
     .orderBy(desc(sessions.updatedAt))
 }
 
-/** A message's quote as the browser reads it. `role` and `preview` are null when the target is gone. */
-export type LoadedQuote = {
-  replyToId: string
-  start: number | null
-  end: number | null
-  role: "user" | "assistant" | null
-  preview: string | null
-}
-
 export async function loadChat(workspaceId: string, sessionId: string) {
   const db = await getDb()
   const chat = await db.query.sessions.findFirst({
@@ -151,35 +141,16 @@ export async function loadChat(workspaceId: string, sessionId: string) {
   })
   if (!chat) return chat
 
-  // One extra query for every quote's target, scoped to THIS chat: a quote
-  // never resolves a message from another chat, and a deleted target simply
-  // is not found (messages.reply_to_id has no foreign key, Q18).
-  const targetIds = [...new Set(chat.messages.flatMap((m) => (m.replyToId ? [m.replyToId] : [])))]
-  const targets = new Map<string, { role: string; content: string }>()
-  if (targetIds.length > 0) {
-    const found = await db
-      .select({ id: messages.id, role: messages.role, content: messages.content })
-      .from(messages)
-      .where(and(eq(messages.sessionId, sessionId), inArray(messages.id, targetIds)))
-    for (const t of found) targets.set(t.id, t)
-  }
-
+  // A quote goes out as stored, and nothing more. The screen builds its quote
+  // line from the messages it holds, all of which are this chat's: a target
+  // that was deleted (messages.reply_to_id has no foreign key, Q18) is simply
+  // not among them, and nothing of another chat is ever read here.
   return {
     ...chat,
-    messages: chat.messages.map(({ replyToId, quoteStart, quoteEnd, ...m }) => {
-      let quote: LoadedQuote | null = null
-      if (replyToId) {
-        const target = targets.get(replyToId)
-        quote = {
-          replyToId,
-          start: quoteStart,
-          end: quoteEnd,
-          role: target ? (target.role as "user" | "assistant") : null,
-          preview: target ? quotePreview(target.content, quoteStart, quoteEnd) : null,
-        }
-      }
-      return { ...m, quote }
-    }),
+    messages: chat.messages.map(({ replyToId, quoteStart, quoteEnd, ...m }) => ({
+      ...m,
+      quote: replyToId ? { replyToId, start: quoteStart, end: quoteEnd } : null,
+    })),
   }
 }
 
