@@ -106,6 +106,135 @@ describe('layoutGraph', () => {
     expect(Number.isFinite(l.chats[0].x)).toBe(true)
   })
 
+  it('keeps labels wider than any fixed grid cell apart', () => {
+    // Placement only checks boxes in neighbouring grid cells. With a fixed
+    // 260px cell, two 600px labels could clash while three cells apart and
+    // never be compared, so the cell grows with the widest box. These four
+    // want the same spot.
+    const chats = ['a', 'b'].map((id) => ({ id, title: id, messageCount: 1, passageCount: 1, titleTruncated: false }))
+    const nodes = [1, 2, 3, 4].map((i) => ({ key: `w${i}`, label: 'x'.repeat(60) + i, chatIds: ['a', 'b'] }))
+    const l = layoutGraph({ chats, nodes }, { widthOf: () => 600 })
+    for (let i = 0; i < l.concepts.length; i++) {
+      for (let j = i + 1; j < l.concepts.length; j++) {
+        const p = l.concepts[i]
+        const q = l.concepts[j]
+        expect(Math.abs(p.x - q.x) >= 600 || Math.abs(p.y - q.y) >= CONCEPT_HEIGHT, `${p.id} / ${q.id}`).toBe(true)
+      }
+    }
+  })
+
+  it('untangles a dense cluster of one chat’s own concepts', () => {
+    // A pasted reading list: two dozen concepts around one chat. Sixty fixed
+    // passes left nine pairs on top of each other; relaxing until nothing
+    // moves leaves none. They are what zooming in shows, so they must read.
+    const words = [
+      'Designing Data-Intensive Applications', 'Raft', 'Paxos', 'vector clocks', 'CRDTs',
+      'LSM trees', 'B-trees', 'Bloom filters', 'SSTables', 'compaction', 'replication lag',
+      'leader election', 'quorum reads', 'sloppy quorums', 'hinted handoff', 'gossip protocols',
+      'Merkle trees', 'two-phase commit', 'sagas', 'idempotency keys', 'exactly-once delivery',
+      'Lamport timestamps', 'linearizability', 'Rust ownership',
+    ]
+    const chats = Array.from({ length: 9 }, (_, i) => ({
+      id: `c${i}`, title: `c${i}`, messageCount: 4, passageCount: 4, titleTruncated: false,
+    }))
+    const nodes = [
+      ...words.map((w, i) => ({ key: `w${i}`, label: w, chatIds: ['c0'] })),
+      ...Array.from({ length: 40 }, (_, i) => ({ key: `o${i}`, label: `topic number ${i}`, chatIds: [`c${1 + (i % 8)}`] })),
+      { key: 's1', label: 'PostgreSQL', chatIds: ['c0', 'c1', 'c2', 'c3'] },
+    ]
+    const g: ViewGraph = { chats, nodes }
+    const boxes = layoutGraph(g).concepts.map((c) => {
+      const n = nodes.find((x) => x.key === c.id)!
+      return { ...c, w: conceptWidth(n.label, n.chatIds.length > 1) }
+    })
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i]
+        const b = boxes[j]
+        const apart = Math.abs(a.x - b.x) >= (a.w + b.w) / 2 || Math.abs(a.y - b.y) >= CONCEPT_HEIGHT
+        expect(apart, `${a.id} overlaps ${b.id}`).toBe(true)
+      }
+    }
+  })
+
+  it('keeps hundreds of concepts shared by the same chats apart, and off every card', () => {
+    // The real case that broke the old layout: one article pasted into three
+    // chats, so 300 concepts all want the very same spot, the centre of those
+    // three cards. Pushing pairs apart a fixed number of times never
+    // untangled that pile; placing each into a free spot does.
+    const chats = Array.from({ length: 28 }, (_, i) => ({
+      id: `c${i}`, title: `c${i}`, messageCount: 2, passageCount: 2, titleTruncated: false,
+    }))
+    const words = ['Enigma', 'Max Newman', 'John Vincent Atanasoff', 'mechanical relays', 'leap years',
+      'German cipher', 'initial delay', 'whole machine', 'processing element', 'Replica']
+    const nodes = [
+      ...Array.from({ length: 300 }, (_, i) => ({
+        key: `a${i}`, label: `${words[i % words.length]} ${i}`, chatIds: ['c0', 'c1', 'c2'],
+      })),
+      ...Array.from({ length: 60 }, (_, i) => ({
+        key: `p${i}`, label: `pair topic ${i}`, chatIds: [`c${3 + (i % 25)}`, `c${3 + ((i + 7) % 25)}`],
+      })),
+    ]
+    const g: ViewGraph = { chats, nodes }
+    const l = layoutGraph(g)
+
+    const boxes = l.concepts.map((c) => {
+      const n = nodes.find((x) => x.key === c.id)!
+      return { ...c, w: conceptWidth(n.label, true) }
+    })
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i]
+        const b = boxes[j]
+        const apart = Math.abs(a.x - b.x) >= (a.w + b.w) / 2 || Math.abs(a.y - b.y) >= CONCEPT_HEIGHT
+        expect(apart, `${a.id} overlaps ${b.id}`).toBe(true)
+      }
+      for (const chat of l.chats) {
+        const a = boxes[i]
+        const apart =
+          Math.abs(a.x - chat.x) >= (a.w + CARD_SIZE.w) / 2 || Math.abs(a.y - chat.y) >= (CONCEPT_HEIGHT + CARD_SIZE.h) / 2
+        expect(apart, `${a.id} sits on chat ${chat.id}`).toBe(true)
+      }
+    }
+    // 28 cards on a ring sized for five: the cards themselves overlapped.
+    for (let i = 0; i < l.chats.length; i++) {
+      for (let j = i + 1; j < l.chats.length; j++) {
+        const a = l.chats[i]
+        const b = l.chats[j]
+        const apart = Math.abs(a.x - b.x) >= CARD_SIZE.w || Math.abs(a.y - b.y) >= CARD_SIZE.h
+        expect(apart, `chat ${a.id} overlaps chat ${b.id}`).toBe(true)
+      }
+    }
+  })
+
+  it('lays out a library-sized graph quickly and deterministically', () => {
+    // 120 chats and 3,000 concepts: the all-pairs version took 4.5 million
+    // comparisons a pass here. The grid makes it near-linear.
+    const chats = Array.from({ length: 120 }, (_, i) => ({
+      id: `c${i}`,
+      title: `Chat ${i}`,
+      messageCount: 3,
+      passageCount: 3,
+      titleTruncated: false,
+    }))
+    const nodes = Array.from({ length: 3000 }, (_, i) => ({
+      key: `t${i}`,
+      label: `topic ${i}`,
+      chatIds: i % 7 === 0 ? [`c${i % 120}`, `c${(i * 13) % 120}`] : [`c${i % 120}`],
+    }))
+    const big: ViewGraph = { chats, nodes }
+
+    const t0 = performance.now()
+    const a = layoutGraph(big)
+    const ms = performance.now() - t0
+
+    expect(a.concepts).toHaveLength(3000)
+    for (const p of a.concepts) expect(Number.isFinite(p.x) && Number.isFinite(p.y)).toBe(true)
+    expect(layoutGraph(big)).toEqual(a)
+    // Generous, so a slow CI box does not fail it; the old loop needed tens of seconds.
+    expect(ms).toBeLessThan(3000)
+  })
+
   it('still has no overlaps once a visitor adds their own conversation', () => {
     // The pile that prompted the box rule appeared at SIX chats, not the
     // seeded five — the ring re-spaces itself on every arrival, so the seeded
