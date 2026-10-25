@@ -2,8 +2,14 @@
 // and make-queries.ts. Pure: no database, no network.
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))
+/** The folder a module (its import.meta.url) lives in, decoded (spaces, non-ASCII) for this OS. */
+export function dirOfModule(url: string): string {
+  return path.dirname(fileURLToPath(url))
+}
+
+const here = dirOfModule(import.meta.url)
 
 /** The lines of a list file next to this one that are not blank and not `#` comments. */
 export function listLines(file: string): string[] {

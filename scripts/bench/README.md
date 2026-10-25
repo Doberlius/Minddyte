@@ -32,12 +32,22 @@ comparison pools every chat into one workspace.
    ```
 
 4. **Compare** a git revision's retrieval against the working tree's. It exits
-   1 on any difference:
+   1 on any difference, and refuses to run unless `MINDDYTE_DATA_DIR` points
+   at a copy outside any `.data` folder:
 
    ```bash
    MINDDYTE_DATA_DIR=/tmp/bench-db bun scripts/bench/compare-retrieval.ts \
-     --old <rev> --sample 200 --require-faster --report report.json
+     --old <rev> --sample 200 --require-faster \
+     --report .scratch/bench-corpus/report.json
    ```
+
+   Keep the report under `.scratch/` (git ignores it): a report that lists
+   differences quotes the searches, and those can include your own questions.
 
    `--check-bar` also fails when the two ticket-20 drafts are slower than
    1.5 s and 0.5 s through the whole retrieval.
+
+   **Only `src/services/retrieval.ts` is old.** Everything it imports is the
+   working tree's, for both sides. That is a fair comparison only when the
+   change being measured is inside `retrieval.ts`. Otherwise, check the old
+   revision out into its own worktree and run there.

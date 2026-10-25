@@ -11,14 +11,14 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { bookList, listLines, slug } from './corpus'
+import { politeFetcher } from './polite-fetch'
 
-const USER_AGENT = 'minddyte-bench/0.1 (https://github.com/Doberlius/Minddyte)'
-const GAP_MS = 1000
+// One fetcher for every request: it keeps the second-long gap after each one
+// (a failed one too) and backs off when a server says to slow down.
+const get = politeFetcher({ userAgent: 'minddyte-bench/0.1 (https://github.com/Doberlius/Minddyte)', gapMs: 1000 })
 
 const argAt = process.argv.indexOf('--out')
 const out = argAt === -1 ? '.scratch/bench-corpus' : process.argv[argAt + 1]
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 async function fetchArticles() {
   const dir = path.join(out, 'wiki')
@@ -33,7 +33,7 @@ async function fetchArticles() {
       explaintext: '1', exsectionformat: 'wiki', redirects: '1', titles: title,
     })
     try {
-      const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } })
+      const res = await get(url)
       const page = (await res.json())?.query?.pages?.[0]
       if (!res.ok || !page || page.missing || !page.extract?.trim()) {
         missing.push(title)
@@ -47,7 +47,6 @@ async function fetchArticles() {
       missing.push(title)
       console.log(`failed: ${title}: ${(err as Error).message}`)
     }
-    await sleep(GAP_MS)
   }
   return { fetched, missing }
 }
@@ -67,13 +66,12 @@ async function fetchBooks() {
   for (const { id, title } of bookList()) {
     const file = path.join(dir, `${id}.txt`)
     if (existsSync(file)) { fetched++; continue }
-    const res = await fetch(`https://www.gutenberg.org/cache/epub/${id}/pg${id}.txt`, { headers: { 'User-Agent': USER_AGENT } })
+    const res = await get(`https://www.gutenberg.org/cache/epub/${id}/pg${id}.txt`)
     if (!res.ok) { console.log(`book failed: ${id} ${title} (${res.status})`); continue }
     const body = bookBody(await res.text())
     writeFileSync(file, body)
     fetched++
     console.log(`book ok: ${title} (${body.length} chars)`)
-    await sleep(GAP_MS)
   }
   return fetched
 }

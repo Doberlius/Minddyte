@@ -10,6 +10,13 @@
 // .scratch/bench-old/ (where its relative and @/ imports still resolve).
 // "New" is the working tree's.
 //
+// ONLY retrieval.ts is old. Everything it imports (src/lib/*, the other
+// services, the schema) is the working tree's, for both sides. That is a
+// fair comparison only when the change being measured is inside
+// retrieval.ts itself, as ticket 20's was. To compare a change that also
+// touches what retrieval imports, check the old revision out into its own
+// worktree and run that one there instead.
+//
 // Every search compares step 3 (wholeDraftHits): the same chats, and for
 // each, reach and strong equal within 1e-6 and the same phrase. Every 10th
 // search, and all `t20` searches, also compare the whole retrieveContext:
@@ -38,12 +45,17 @@ const value = (name: string) => {
   return i === -1 ? undefined : process.argv[i + 1]
 }
 
+/** The file the old retrieval is written to: one plain name, whatever the revision (`origin/x`, `HEAD~1`). */
+export function oldFileName(rev: string): string {
+  return `retrieval-${rev.replace(/[^A-Za-z0-9._-]+/g, '_')}.ts`
+}
+
 /** The old retrieval module, from a git revision, with wholeDraftHits exported. */
 async function loadOld(rev: string): Promise<Retrieval> {
   const src = execFileSync('git', ['show', `${rev}:src/services/retrieval.ts`], { encoding: 'utf8' })
   const dir = path.resolve('.scratch/bench-old')
   mkdirSync(dir, { recursive: true })
-  const file = path.join(dir, `retrieval-${rev}.ts`)
+  const file = path.join(dir, oldFileName(rev))
   writeFileSync(file, /export async function wholeDraftHits/.test(src) ? src : `${src}\nexport { wholeDraftHits }\n`)
   return (await import(pathToFileURL(file).href)) as Retrieval
 }
