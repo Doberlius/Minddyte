@@ -308,7 +308,7 @@ async function textHits(workspaceId: string, sessionId: string, draft: string): 
  * would outlive it, and on single-connection PGlite that means for the life of
  * the process.
  */
-async function wholeDraftHits(workspaceId: string, sessionId: string, draft: string): Promise<TextHit[]> {
+export async function wholeDraftHits(workspaceId: string, sessionId: string, draft: string): Promise<TextHit[]> {
   // `draft` is already queryText(): bounded, trimmed. See retrieveContext.
   if (!draft) return []
   const db = await getDb()
