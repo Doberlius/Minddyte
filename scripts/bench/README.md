@@ -31,15 +31,20 @@ comparison pools every chat into one workspace.
      --approved <question files...> --out .scratch/bench-corpus/queries.json
    ```
 
-4. **Compare** a git revision's retrieval against the working tree's. It exits
-   1 on any difference, and refuses to run unless `MINDDYTE_DATA_DIR` points
-   at a copy outside any `.data` folder:
+4. **Compare** a git revision's retrieval against the working tree's. It
+   checks two steps on every search, the per-word queries (`wordHits`) and
+   the whole-paragraph check (`wholeDraftHits`), plus the whole search on
+   every 10th. It exits 1 on any difference, and refuses to run unless
+   `MINDDYTE_DATA_DIR` points at a copy outside any `.data` folder:
 
    ```bash
    MINDDYTE_DATA_DIR=/tmp/bench-db bun scripts/bench/compare-retrieval.ts \
-     --old <rev> --sample 200 --require-faster \
+     --old <rev> --sample 200 --require-faster words \
      --report .scratch/bench-corpus/report.json
    ```
+
+   `--require-faster` names the step that should have become faster:
+   `words` or `step3`.
 
    Keep the report under `.scratch/` (git ignores it): a report that lists
    differences quotes the searches, and those can include your own questions.
