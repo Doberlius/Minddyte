@@ -1,0 +1,317 @@
+# Wikipedia articles for the retrieval benchmark corpus (ticket 20, Q6-Q7).
+# One exact article title per line. Lines starting with # are comments.
+# Fetched by scripts/bench/fetch-corpus.ts; the text itself is never committed.
+
+# tech: databases and PostgreSQL internals
+PostgreSQL
+SQL
+Relational database
+Database index
+B-tree
+GiST
+Write-ahead logging
+Multiversion concurrency control
+ACID
+Database transaction
+Isolation (database systems)
+Two-phase commit protocol
+Query optimization
+Query plan
+Join (SQL)
+Hash join
+Nested loop join
+Sort-merge join
+Database normalization
+Stored procedure
+Materialized view
+Database trigger
+Foreign key
+Primary key
+Full-text search
+Inverted index
+Trigram
+N-gram
+Levenshtein distance
+SQLite
+MySQL
+MariaDB
+Oracle Database
+Microsoft SQL Server
+MongoDB
+Redis
+Apache Cassandra
+Amazon DynamoDB
+Elasticsearch
+Apache Lucene
+Key–value database
+Document-oriented database
+Graph database
+Neo4j
+Time series database
+Column-oriented DBMS
+Data warehouse
+Online analytical processing
+Online transaction processing
+Extract, transform, load
+# tech: messaging and distributed systems
+Apache Kafka
+RabbitMQ
+Message queue
+Publish–subscribe pattern
+Message broker
+Event-driven architecture
+Domain-driven design
+Command–query separation
+Stream processing
+Apache Flink
+Apache Spark
+Apache Hadoop
+MapReduce
+Distributed computing
+CAP theorem
+Eventual consistency
+Consensus (computer science)
+Raft (algorithm)
+Paxos (computer science)
+Byzantine fault
+Vector clock
+Lamport timestamp
+Distributed hash table
+Consistent hashing
+Shard (database architecture)
+Replication (computing)
+Load balancing (computing)
+Microservices
+Service-oriented architecture
+Representational state transfer
+GraphQL
+gRPC
+WebSocket
+Remote procedure call
+Idempotence
+# tech: web, languages and tooling
+JavaScript
+TypeScript
+Node.js
+React (software)
+Next.js
+WebAssembly
+Python (programming language)
+Rust (programming language)
+Go (programming language)
+Java (programming language)
+C (programming language)
+C++
+Garbage collection (computer science)
+Just-in-time compilation
+Compiler
+Interpreter (computing)
+Git
+Version control
+Continuous integration
+Docker (software)
+Kubernetes
+Virtual machine
+Linux kernel
+Unix
+Operating system
+Process (computing)
+Thread (computing)
+Deadlock (computer science)
+Mutual exclusion
+Cache (computing)
+CPU cache
+Virtual memory
+Paging
+File system
+Hypertext Transfer Protocol
+Transport Layer Security
+Transmission Control Protocol
+User Datagram Protocol
+Domain Name System
+Internet Protocol
+Content delivery network
+OAuth
+JSON Web Token
+Cross-site scripting
+SQL injection
+Public-key cryptography
+Hash function
+SHA-2
+# tech: machine learning and AI
+Machine learning
+Deep learning
+Artificial neural network
+Transformer (deep learning architecture)
+Large language model
+Generative pre-trained transformer
+Attention (machine learning)
+Word embedding
+Word2vec
+Retrieval-augmented generation
+Vector database
+Nearest neighbor search
+Cosine similarity
+Tf–idf
+Okapi BM25
+Information retrieval
+Natural language processing
+Tokenization (lexical analysis)
+Recommender system
+Reinforcement learning
+Gradient descent
+Backpropagation
+Convolutional neural network
+Recurrent neural network
+Long short-term memory
+Overfitting
+Cross-validation (statistics)
+Precision and recall
+Knowledge graph
+Ontology (information science)
+Semantic Web
+Spaced repetition
+Zettelkasten
+Personal knowledge management
+
+# general: history
+Roman Empire
+Byzantine Empire
+Ottoman Empire
+Mongol Empire
+Ancient Egypt
+Ancient Greece
+Han dynasty
+Tang dynasty
+Ming dynasty
+Edo period
+Renaissance
+Protestant Reformation
+Age of Discovery
+Industrial Revolution
+French Revolution
+American Revolution
+Napoleonic Wars
+World War I
+World War II
+Cold War
+Fall of the Berlin Wall
+Silk Road
+Black Death
+Magna Carta
+Printing press
+Ayutthaya Kingdom
+Sukhothai Kingdom
+Khmer Empire
+Angkor Wat
+Maya civilization
+Inca Empire
+Aztec Empire
+Viking Age
+Hundred Years' War
+Crusades
+# general: science
+Photosynthesis
+Evolution
+Natural selection
+DNA
+Cell (biology)
+Mitochondrion
+Immune system
+Vaccine
+Antibiotic
+Plate tectonics
+Earthquake
+Volcano
+Climate change
+Greenhouse effect
+Water cycle
+Carbon cycle
+General relativity
+Special relativity
+Quantum mechanics
+Electromagnetism
+Thermodynamics
+Entropy
+Big Bang
+Black hole
+Solar System
+Moon
+Mars
+Jupiter
+Milky Way
+Periodic table
+Chemical bond
+Atom
+Photon
+Neuron
+Human brain
+Sleep
+# general: geography and places
+Amazon rainforest
+Sahara
+Himalayas
+Mount Everest
+Mekong
+Nile
+Pacific Ocean
+Great Barrier Reef
+Antarctica
+Iceland
+Japan
+Thailand
+Bangkok
+Chiang Mai
+Vietnam
+Indonesia
+India
+Brazil
+Egypt
+Kenya
+Norway
+Switzerland
+Venice
+Istanbul
+Kyoto
+# general: sport, arts, food and culture
+Association football
+FIFA World Cup
+Olympic Games
+Tennis
+Basketball
+Cricket
+Muay Thai
+Chess
+Go (game)
+Marathon
+Leonardo da Vinci
+Vincent van Gogh
+Ludwig van Beethoven
+Wolfgang Amadeus Mozart
+William Shakespeare
+Jazz
+Opera
+Impressionism
+Baroque
+Gothic architecture
+Photography
+Cinema of Japan
+Animation
+Video game
+Coffee
+Tea
+Rice
+Chocolate
+Bread
+Wine
+Thai cuisine
+Japanese cuisine
+Buddhism
+Stoicism
+Philosophy of mind
+Ethics
+Economics
+Inflation
+Supply and demand
+Democracy
+United Nations

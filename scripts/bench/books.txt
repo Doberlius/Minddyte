@@ -1,0 +1,9 @@
+# Project Gutenberg books for the retrieval benchmark (ticket 20, Q6, Q9).
+# <gutenberg id><TAB><title><TAB><corpus|unrelated>
+#   corpus    = built into the database as one huge chat
+#   unrelated = never built; only used for searches that should find nothing
+1342	Pride and Prejudice	corpus
+2701	Moby Dick	corpus
+1661	The Adventures of Sherlock Holmes	corpus
+84	Frankenstein	corpus
+11	Alice's Adventures in Wonderland	unrelated
