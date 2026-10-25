@@ -347,6 +347,13 @@ export async function wholeDraftHits(workspaceId: string, sessionId: string, dra
  * passage. Through the index the same query takes ~0.3 s. The setting only
  * makes a full read look expensive, so tests/services/step-three-plan.test.ts
  * checks the plan really uses the index.
+ *
+ * What the index saves depends on passage length (final review, finding 2).
+ * It returns every passage sharing enough trigrams with the draft, and a long
+ * passage (a 4,000-character code block, log or book chunk) contains most of
+ * any paragraph's trigrams, so every such passage is a candidate for a long
+ * draft and is rechecked, at about the old per-passage cost. The speedup is
+ * real for sentence-sized passages, which is what chats mostly hold.
  */
 export async function stepThreeSettings(tx: Tx): Promise<void> {
   await tx.execute(sql.raw(`set local pg_trgm.word_similarity_threshold = ${PROVISIONAL.reachWordSimilarity}`))
@@ -370,12 +377,16 @@ export async function stepThreeSettings(tx: Tx): Promise<void> {
  * The forgetting rule runs in that step too, on candidates only.
  *
  * Then the scores, on the candidates only. Ticket 15: strict_word_similarity
- * is QUADRATIC in the passage's length; candidates are few, and passages are
- * split at spanCharLimit, so that is bounded. The cheap check still runs
- * first: strict similarity only considers whole-word extents, a subset of
- * word_similarity's, so it can never be higher, and a passage under the strict
- * threshold by word_similarity can never score. CASE (unlike AND/OR)
- * guarantees the order. Exact, not an approximation.
+ * is QUADRATIC in the passage's length; passages are split at spanCharLimit,
+ * so each recheck is bounded (a few ms at 4,000 characters), and only
+ * candidates are rechecked (all the long ones, for a long draft: see
+ * stepThreeSettings). The cheap check still runs first: a passage whose
+ * word_similarity is under the strict threshold is not scored. Strict
+ * similarity can come out slightly HIGHER than word_similarity (both are
+ * greedy), but it has not been seen to cross the 0.9 gate where
+ * word_similarity does not: ticket 20's comparison (1,324 searches) and the
+ * final review's fuzz (20,000 near-match pairs) found no such case. CASE
+ * (unlike AND/OR) guarantees the order.
  *
  * Both workspace filters, the candidates' and the chats', stay at the root of
  * each table's read, as candidateRows does: defense in depth.

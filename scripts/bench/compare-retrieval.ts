@@ -25,7 +25,7 @@ import { sql } from 'drizzle-orm'
 import { getDb } from '../../db'
 import * as fresh from '../../src/services/retrieval'
 import { queryText } from '../../src/lib/tokens'
-import { poolWorkspaces } from './pool'
+import { poolWorkspaces, requireScratchDataDir } from './pool'
 import { prng, type Query } from './make-queries'
 
 type Hit = { chatId: string; reach: number; strong: number; phrase: string | null }
@@ -87,6 +87,8 @@ function sample(queries: Query[], n: number): Query[] {
 }
 
 if (import.meta.main) {
+  // Before the database is opened at all: it pools every chat into one workspace.
+  requireScratchDataDir()
   const queriesFile = value('--queries') ?? '.scratch/bench-corpus/queries.json'
   const rev = value('--old')
   if (!rev) throw new Error('--old <git rev> is required')
