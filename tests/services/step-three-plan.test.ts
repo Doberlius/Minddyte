@@ -51,6 +51,9 @@ describe('step 3 reads through the trigram index (ticket 20)', () => {
       const { probe } = await seeded()
       const text = await plan(probe, draft)
       expect(text).not.toMatch(/Seq Scan on chat_pointers/)
+      // The route ticket 20 actually hit: every chat, then every one of its
+      // passages through the session index (23 s for a paragraph).
+      expect(text).not.toMatch(/idx_chat_pointers_session/)
       expect(text).toMatch(/idx_chat_pointers_match_trgm/)
     })
   }
@@ -58,8 +61,32 @@ describe('step 3 reads through the trigram index (ticket 20)', () => {
   it('a one-word draft runs and returns a valid result', async () => {
     const { probe } = await seeded()
     const hits = await wholeDraftHits(WS, probe, 'partitions')
-    expect(Array.isArray(hits)).toBe(true)
+    // Not vacuous: the seeded chat mentions partitions twice.
+    expect(hits.length).toBeGreaterThan(0)
     for (const h of hits) expect(h).toMatchObject({ strong: 0, phrase: null })
+  })
+
+  // Final review, finding 4 (ticket 15's guarantee): a long passage that the
+  // index lets through is rechecked by the quadratic strict similarity, and
+  // that must stay bounded. One run-on paragraph, like a pasted log, becomes a
+  // single passage of up to spanCharLimit (4,000) characters.
+  it('rechecks a ~4,000-character passage the index lets through, quickly and exactly', async () => {
+    const { probe } = await seeded()
+    const words = ['stream', 'offset', 'broker', 'replica', 'leader', 'commit', 'segment', 'retention', 'topic', 'record', 'batch', 'latency']
+    const filler = (n: number) => Array.from({ length: n }, (_, i) => words[(i * 7) % words.length]).join(' ')
+    const longChat = (await createChat(WS)).id
+    await say(longChat, `${filler(260)} the consumer group rebalances ${filler(260)}`)
+    const db = await getDb()
+    const [{ longest }] = ((await db.execute(sql`select max(char_length(match_text))::int as longest from chat_pointers where session_id = ${longChat}`)) as unknown as { rows: { longest: number }[] }).rows
+    expect(longest).toBeGreaterThan(3_500)
+
+    const t0 = performance.now()
+    const hits = await wholeDraftHits(WS, probe, queryText(PARAGRAPH))
+    const ms = performance.now() - t0
+    const hit = hits.find((h) => h.chatId === longChat)
+    expect(hit?.phrase).toBe('consumer group')
+    expect(hit?.strong).toBeGreaterThanOrEqual(0.9)
+    expect(ms).toBeLessThan(2_000)
   })
 
   it('leaves enable_seqscan on after it returns', async () => {
