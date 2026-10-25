@@ -9,6 +9,7 @@ import { PROVISIONAL } from "@/lib/provisional"
 import { queryText, strongPhrases, contentTokens } from "@/lib/tokens"
 import { notForgottenSql } from "@/lib/mentions"
 import { coverageReach } from "@/lib/coverage"
+import type { Tx } from "./links"
 
 /** Spec §6.2 — a QUALITY limit, not a capacity one. */
 export const CONTEXT_CHAR_BUDGET = 2000 * 4 // ~2000 tokens
@@ -303,10 +304,10 @@ async function textHits(workspaceId: string, sessionId: string, draft: string): 
  *   promotion  strict_word_similarity(phrase, passage) >= PROVISIONAL.strongStrictSimilarity
  *              for a draft phrase of >= 2 significant tokens (strongPhrases)
  *
- * The operators `<%` and `<<%` use the GIN index, and read their thresholds
- * from GUCs. Those are set with SET LOCAL inside this transaction: a bare SET
- * would outlive it, and on single-connection PGlite that means for the life of
- * the process.
+ * The operators `<%` and `<<%` read their thresholds from GUCs, set in
+ * stepThreeSettings. They CAN use the GIN index, but the planner does not
+ * choose it on its own for a long draft: stepThreeSettings is what makes it
+ * (ticket 20).
  */
 export async function wholeDraftHits(workspaceId: string, sessionId: string, draft: string): Promise<TextHit[]> {
   // `draft` is already queryText(): bounded, trimmed. See retrieveContext.
@@ -315,73 +316,92 @@ export async function wholeDraftHits(workspaceId: string, sessionId: string, dra
   const phrases = strongPhrases(draft)
 
   return db.transaction(async (tx) => {
-    await tx.execute(sql.raw(`set local pg_trgm.word_similarity_threshold = ${PROVISIONAL.reachWordSimilarity}`))
-    await tx.execute(sql.raw(`set local pg_trgm.strict_word_similarity_threshold = ${PROVISIONAL.strongStrictSimilarity}`))
-
-    // Ticket 15: strict_word_similarity is QUADRATIC in the passage's length,
-    // and this query runs as a sequential scan (EXPLAIN), so it used to run on
-    // every passage. Strict similarity only considers whole-word extents, a
-    // subset of word_similarity's, so it can never be higher: a passage whose
-    // word_similarity is under the strict threshold can never match strictly.
-    // word_similarity is linear and cheap on passages that share few trigrams
-    // with the phrase (the common case, and the giant "x x x" case), and
-    // per-passage cost is bounded anyway because passages are split at
-    // spanCharLimit. CASE (unlike AND/OR) guarantees the cheap check runs
-    // first. Exact, not an approximation. Measured on an 824k-char message
-    // split into 206 chunks: 4,559 ms -> 415 ms per question.
-    const cheapFirst = (p: string, strict: SQL) =>
-      sql`(case when word_similarity(${p}, ${chatPointers.matchText}) >= ${PROVISIONAL.strongStrictSimilarity} then ${strict} end)`
-    const phraseMatch = phrases.length
-      ? sql.join(phrases.map((p) => sql`coalesce(${cheapFirst(p, sql`${p} <<% ${chatPointers.matchText}`)}, false)`), sql` or `)
-      : sql`false`
-    // Per-phrase strict_word_similarity maxima, as separate named columns:
-    // dynamic column keys (`...perPhrase` spread into `.select({...})`) do not
-    // typecheck against drizzle's select-shape inference, which needs a
-    // statically known object literal. A parallel array of `{ p, s }`
-    // aggregate expressions, unpacked into named columns below, keeps the
-    // same one-query, one-transaction shape the brief calls for.
-    const perPhrase = phrases.map(
-      (p, i) =>
-        [
-          `s${i}`,
-          sql<number>`coalesce(max(${cheapFirst(p, sql`strict_word_similarity(${p}, ${chatPointers.matchText})`)}), 0)`.mapWith(Number),
-        ] as const,
-    )
-
-    const rows = await tx
-      .select({
-        chatId: sessions.id,
-        title: sessions.title,
-        createdAt: sessions.createdAt,
-        updatedAt: sessions.updatedAt,
-        reach: sql<number>`max(word_similarity(${draft}, ${chatPointers.matchText}))`.mapWith(Number),
-        ...Object.fromEntries(perPhrase),
-      })
-      .from(chatPointers)
-      .innerJoin(sessions, eq(sessions.id, chatPointers.sessionId))
-      .where(
-        and(
-          // Both, at the root, as candidateRows does: defense in depth.
-          eq(chatPointers.workspaceId, workspaceId),
-          eq(sessions.workspaceId, workspaceId),
-          ne(chatPointers.sessionId, sessionId),
-          sql`(${draft} <% ${chatPointers.matchText} or ${phraseMatch})`,
-          notForgottenSql(chatPointers.sessionId, chatPointers.matchText),
-        ),
-      )
-      .groupBy(sessions.id, sessions.title, sessions.createdAt, sessions.updatedAt)
+    await stepThreeSettings(tx)
+    const { rows } = (await tx.execute(stepThreeQuery(workspaceId, sessionId, draft, phrases))) as unknown as {
+      rows: { chatId: string; title: string; createdAt: Date; updatedAt: Date; reach: number | string; [score: string]: unknown }[]
+    }
 
     return rows.map((r) => {
-      const scores = phrases.map((_, i) => (r as unknown as Record<string, number>)[`s${i}`] ?? 0)
+      const scores = phrases.map((_, i) => Number(r[`s${i}`] ?? 0))
       const best = scores.reduce((bi, s, i) => (s > scores[bi] ? i : bi), 0)
       return {
-        chatId: r.chatId, title: r.title, createdAt: r.createdAt, updatedAt: r.updatedAt, reach: r.reach,
+        chatId: r.chatId, title: r.title, createdAt: new Date(r.createdAt), updatedAt: new Date(r.updatedAt), reach: Number(r.reach),
         strong: scores.length ? scores[best] : 0,
         phrase: scores.length ? phrases[best] : null,
         words: [],
       }
     })
   })
+}
+
+/**
+ * Step 3's settings, for the transaction it runs in (SET LOCAL: they end with
+ * it; a bare SET would outlive it, and on single-connection PGlite that means
+ * for the life of the process).
+ *
+ * Ticket 20: `enable_seqscan = off` is what makes the planner read through
+ * the trigram index. Left to itself it reads EVERY passage of the workspace
+ * for a long draft (a Seq Scan, or the same thing through the session index):
+ * 8 s for a 370-character paragraph on real data, and 48 s with the filter in
+ * the plain form below, because the strict recheck then runs on every
+ * passage. Through the index the same query takes ~0.3 s. The setting only
+ * makes a full read look expensive, so tests/services/step-three-plan.test.ts
+ * checks the plan really uses the index.
+ */
+export async function stepThreeSettings(tx: Tx): Promise<void> {
+  await tx.execute(sql.raw(`set local pg_trgm.word_similarity_threshold = ${PROVISIONAL.reachWordSimilarity}`))
+  await tx.execute(sql.raw(`set local pg_trgm.strict_word_similarity_threshold = ${PROVISIONAL.strongStrictSimilarity}`))
+  await tx.execute(sql.raw(`set local enable_seqscan = off`))
+}
+
+/**
+ * Step 3's query: per chat, the best whole-draft reach (`reach`) and each
+ * phrase's best strict score (`s0`, `s1`…). Written as SQL rather than with
+ * the query builder because it needs `MATERIALIZED`, which drizzle cannot
+ * write.
+ *
+ * Ticket 20, in two steps. First the candidate passages, from chat_pointers
+ * ALONE: their filter is plain `<%` / `<<%`, which the trigram index answers,
+ * and with seq scans off that index is the cheap way in. Joined to sessions in
+ * one flat query, the planner preferred to walk every chat through the session
+ * index and recheck every passage instead (measured 23 s for a paragraph). A
+ * MATERIALIZED step is planned on its own, so that join cannot reach inside it
+ * (a subquery with OFFSET 0 did not hold: drizzle sends the 0 as a parameter).
+ * The forgetting rule runs in that step too, on candidates only.
+ *
+ * Then the scores, on the candidates only. Ticket 15: strict_word_similarity
+ * is QUADRATIC in the passage's length; candidates are few, and passages are
+ * split at spanCharLimit, so that is bounded. The cheap check still runs
+ * first: strict similarity only considers whole-word extents, a subset of
+ * word_similarity's, so it can never be higher, and a passage under the strict
+ * threshold by word_similarity can never score. CASE (unlike AND/OR)
+ * guarantees the order. Exact, not an approximation.
+ *
+ * Both workspace filters, the candidates' and the chats', stay at the root of
+ * each table's read, as candidateRows does: defense in depth.
+ */
+export function stepThreeQuery(workspaceId: string, sessionId: string, draft: string, phrases: string[]): SQL {
+  const matches = sql.join([sql`${draft} <% cp.match_text`, ...phrases.map((p) => sql`${p} <<% cp.match_text`)], sql` or `)
+  const cheapFirst = (p: string, strict: SQL) =>
+    sql`(case when word_similarity(${p}, c.match_text) >= ${PROVISIONAL.strongStrictSimilarity} then ${strict} end)`
+  const perPhrase = phrases.map(
+    (p, i) => sql`, coalesce(max(${cheapFirst(p, sql`strict_word_similarity(${p}, c.match_text)`)}), 0) as ${sql.identifier(`s${i}`)}`,
+  )
+  return sql`
+    with cand as materialized (
+      select cp.session_id, cp.match_text
+        from ${chatPointers} cp
+       where cp.workspace_id = ${workspaceId}
+         and cp.session_id <> ${sessionId}
+         and (${matches})
+         and ${notForgottenSql(sql`cp.session_id`, sql`cp.match_text`)}
+    )
+    select s.id as "chatId", s.title as "title", s.created_at as "createdAt", s.updated_at as "updatedAt",
+           max(word_similarity(${draft}, c.match_text)) as "reach"${sql.join(perPhrase)}
+      from cand c
+      join ${sessions} s on s.id = c.session_id
+     where s.workspace_id = ${workspaceId}
+     group by s.id, s.title, s.created_at, s.updated_at`
 }
 
 /**
