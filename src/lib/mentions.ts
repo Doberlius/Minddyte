@@ -3,7 +3,7 @@ import { forgotten } from '../../db/schema'
 
 /**
  * Ticket 10, Q8: does a passage mention a concept? The ONE definition, used
- * by retrieval, by the forget preview and by the Archive's passage count, so
+ * by retrieval, by the forget preview and by the saved-sentence count, so
  * they can never disagree about which sentences a forgotten concept hides.
  *
  * Both sides are reduced to lowercase words: every run of characters that is

@@ -26,7 +26,7 @@ Five things to try:
 
 | Do this | What you should see |
 |---|---|
-| In one chat, write *"We run PostgreSQL in production."* Then press **New chat** and ask *"What database do we use?"* | The answer knows it is PostgreSQL, because it found your earlier chat on its own. Open **Archive** to see the sentences it keeps from each chat. |
+| In one chat, write *"We run PostgreSQL in production."* Then press **New chat** and ask *"What database do we use?"* | The answer knows it is PostgreSQL, because it found your earlier chat on its own. Open **Brain** and click that chat to see how many of its sentences are saved for memory. |
 | Open **Brain** in the top menu | A map of your chats, joined by the topics they share. |
 | Type **`/visualize how the frequency changes a sine wave`** | An animated diagram inside the answer, in the style of the 3Blue1Brown maths videos. Press play, drag the timeline, move the slider. |
 | Type **`/forget`** in a chat and pick a topic | Minddyte shows exactly which sentences it will stop remembering before you agree. |
@@ -56,8 +56,7 @@ Minddyte remembers differently:
 | **Explore and Focus modes** | *Explore* (the default) may use your other chats and general knowledge. *Focus* answers only from this chat and the chats you add, and says plainly when the answer is not there. |
 | **@ to add a chat** | Type **@** and pick a past chat to include it in full. |
 | **About you** | A short note about yourself that every answer can use. |
-| **Brain** | A map of your conversations and the topics that connect them. |
-| **Archive** | Everything Minddyte has saved from each chat, so you can see what it remembers. |
+| **Brain** | A map of your conversations and the topics that connect them, with a list beside it. Click a chat to see what is saved from it, open it, add it to your next message, or forget a topic. |
 | **/forget** | Stop a topic from being used as memory in your other chats. It shows exactly which sentences are affected before anything happens. |
 | **/visualize** | Ask for an animated, interactive diagram: a curve, a vector, a sorting algorithm, messages flowing through a system. |
 | **Rich answers** | Answers show formatted text, tables, maths formulas and code with syntax colours and a Copy button, similar to Claude or ChatGPT. |
@@ -192,7 +191,7 @@ The tests run against a real database, not a fake one, so they check the actual 
 
 ## Honest status
 
-Working and tested: chat, memory across chats, Explore and Focus modes, @ to add chats, About you, Brain, Archive, forgetting, rich answers with maths and code, and interactive diagrams.
+Working and tested: chat, memory across chats, Explore and Focus modes, @ to add chats, About you, Brain, forgetting, rich answers with maths and code, and interactive diagrams.
 
 Known limits:
 

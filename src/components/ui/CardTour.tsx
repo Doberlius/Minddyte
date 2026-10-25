@@ -9,8 +9,8 @@ import { ArrowRight, Check } from 'lucide-react'
  * The shell only — the cards are passed in. Two surfaces need this and they
  * need to say DIFFERENT things: the demo has no model and says so, the app
  * has one and needs Ollama running. Writing that twice would let the two
- * drift, which is the mistake the Brain and the Archive already stopped
- * making by sharing one implementation each.
+ * drift, which is the mistake the Brain already stopped making by sharing
+ * one implementation between the two.
  *
  * What the shell owns: the overlay, the motion, the dots, the keyboard, and
  * the promise that every card has a way out.

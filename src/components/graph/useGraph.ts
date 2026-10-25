@@ -18,7 +18,7 @@ const EMPTY: ViewGraph = { chats: [], nodes: [] }
  * down over a panel is a worse outcome than the panel saying so.
  *
  * `reload()` asks for the graph again, for when the view itself changed it
- * (forgetting a concept from the Archive). It bumps `version`, which is in the
+ * (forgetting a concept from the Brain's panel). It bumps `version`, which is in the
  * effect's dependency list, so React runs the same fetch once more. The graph
  * already on screen stays there until the new one arrives: `loading` is only
  * true for the very first fetch, so a reload never flashes the loading text.

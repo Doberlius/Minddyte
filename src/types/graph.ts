@@ -1,11 +1,11 @@
 /**
- * What the Brain and the Archive need in order to draw themselves.
+ * What the Brain needs in order to draw itself.
  *
  * Deliberately a VIEW model, not either source's storage model. The demo holds
  * whole transcripts in memory; the app holds rows in PGlite and would rather
  * not ship every message of every conversation to the browser to render a
- * canvas that only counts them. Both map into this, and the two views then
- * have exactly one shape to understand.
+ * canvas that only counts them. Both map into this, and the Brain then has
+ * exactly one shape to understand.
  *
  * It is also what keeps the demo honest: the panels a visitor tries are the
  * app's own panels, running the app's own components, because there is only

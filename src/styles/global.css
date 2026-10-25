@@ -103,10 +103,6 @@ input:focus-visible, textarea:focus-visible {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0);   }
 }
-@keyframes pulse-ring {
-  0%   { box-shadow: 0 0 0 0  rgba(79,70,232,.4); }
-  100% { box-shadow: 0 0 0 12px rgba(79,70,232,0); }
-}
 
 
 /* Utility Classes */
@@ -130,7 +126,6 @@ input:focus-visible, textarea:focus-visible {
 .slide-in { animation: slide-in .28s cubic-bezier(.22,.68,0,1.1); }
 .pop      { animation: pop .15s ease; }
 .fade-up  { animation: fade-up .2s ease; }
-.pulse    { animation: pulse-ring .8s ease 2; }
 
 /* Reuseable components */
 .btn-ghost {
@@ -160,8 +155,6 @@ input:focus-visible, textarea:focus-visible {
 .model-row { cursor: pointer; padding: 8px 12px; border-radius: 8px; transition: background .1s; }
 .model-row:hover { background: var(--violet-l); }
 
-.g-node { cursor: grab; user-select: none; }
-.g-node:active { cursor: grabbing; }
 
 /* Top navigation. Still worn by the demo, which needs the shell a visitor can
    take in at a glance. The app itself navigates from the sidebar below.
@@ -395,9 +388,11 @@ input:focus-visible, textarea:focus-visible {
   background: var(--violet); width: 16px; border-radius: 999px;
 }
 
-/* ── Archive concept tags ─────────────────────────────────────
-   What a chat is ABOUT, so they sit under the title and do not compete with
-   it: neutral fill, no border, no pill, one weight lighter than the title.
+/* ── Concept tags ─────────────────────────────────────────────
+   The chips in the Brain's chat panel (they began on the Archive page, which
+   the Brain replaced; the arc- prefix is from then). What a chat is ABOUT, so
+   they sit under the title and do not compete with it: neutral fill, no
+   border, no pill, one weight lighter than the title.
    Shared is a small violet dot, never a filled chip. A pasted essay makes
    most of its concepts shared, and filling them turned the card into a
    violet wall. */
@@ -477,12 +472,224 @@ input:focus-visible, textarea:focus-visible {
 .demo-stats .rule { width: 1px; height: 28px; background: var(--border); }
 .demo-legend { display: flex; gap: 16px; flex-wrap: wrap; }
 
-/* React Flow's own chrome, matched to the app's surfaces. */
-.demo-flow .react-flow__controls { border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(26,26,46,.1); }
-.demo-flow .react-flow__controls-button {
-  background: var(--white); border-bottom: 1px solid var(--border); fill: var(--ink2);
+/* ── The Brain: map, list and the panel pinned to a card ──────
+   The map is a WebGL canvas (SigmaBrain.tsx); everything here is the HTML
+   around and above it. The list sits beside the map on a wide screen and
+   takes turns with it on a narrow one.
+   ──────────────────────────────────────────────────────────── */
+.brain-tools { display: flex; align-items: center; gap: 14px; margin-left: auto; }
+.brain-key-count {
+  display: inline-grid; place-items: center; width: 18px; flex-shrink: 0;
+  font-size: 10.5px; font-weight: 600; color: var(--violet);
 }
-.demo-flow .react-flow__controls-button:hover { background: var(--violet-l); fill: var(--violet); }
+
+/* Map | List. A phone has room for one of them, so they take turns there;
+   on a wide screen both are always on and the switch is not shown. */
+.brain-switch { display: none; gap: 2px; padding: 2px; border-radius: 8px; background: var(--border2); }
+.brain-switch button {
+  border: none; background: none; cursor: pointer; border-radius: 6px;
+  padding: 4px 11px; font-family: inherit; font-size: 12px; font-weight: 600; color: var(--ink2);
+  transition: background .12s, color .12s;
+}
+.brain-switch button[aria-pressed='true'] { background: var(--white); color: var(--ink); box-shadow: 0 1px 2px rgba(26,26,46,.08); }
+
+.brain-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; }
+.brain-map { position: relative; min-width: 0; min-height: 0; }
+.brain-body[data-map='off'] { grid-template-columns: minmax(0, 1fr); }
+.brain-body[data-map='off'] .brain-map { display: none; }
+
+.brain-stage {
+  position: absolute; inset: 0; overflow: hidden; background-color: var(--bg);
+  /* React Flow's dot grid, kept: 1px dots, moved and scaled with the camera
+     through the three variables SigmaBrain sets after every frame. */
+  background-image: radial-gradient(circle at 1px 1px, #D7D9E6 1px, transparent 1.2px);
+  background-size: var(--dot-gap, 26px) var(--dot-gap, 26px);
+  background-position: var(--dot-x, 0) var(--dot-y, 0);
+}
+.brain-stage[data-dots='off'] { background-image: none; }
+.brain-host { position: absolute; inset: 0; cursor: grab; touch-action: none; }
+.brain-host:active { cursor: grabbing; }
+.brain-host.is-pointing { cursor: pointer; }
+.brain-fallback {
+  position: absolute; inset: 0; display: grid; place-items: center; padding: 24px;
+  text-align: center; font-size: 13px; color: var(--ink2);
+}
+.brain-fallback p { max-width: 36ch; margin: 0; }
+
+.brain-zoom {
+  position: absolute; left: 14px; bottom: 14px; z-index: 2;
+  display: flex; flex-direction: column;
+  background: var(--white); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  box-shadow: 0 2px 10px rgba(26,26,46,.1);
+}
+.brain-zoom button {
+  display: grid; place-items: center; width: 30px; height: 30px; padding: 0;
+  border: none; background: none; color: var(--ink2); cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.brain-zoom button + button { border-top: 1px solid var(--border); }
+.brain-zoom button:hover { background: var(--violet-l); color: var(--violet); }
+.brain-zoom button:focus-visible { outline-offset: -2px; }
+
+/* The panel pinned beside the selected card. Real HTML above the canvas:
+   the one place on the map a button can live. */
+.brain-panel {
+  position: absolute; left: 0; top: 0; z-index: 3;
+  width: 288px; max-height: calc(100% - 24px); overflow-y: auto;
+  background: var(--white); border: 1px solid var(--border); border-radius: 12px;
+  padding: 14px 16px 16px;
+  box-shadow: 0 10px 32px -6px rgba(26,26,46,.18), 0 2px 6px rgba(26,26,46,.06);
+  animation: brain-panel-in .22s cubic-bezier(.16,1,.3,1);
+}
+@keyframes brain-panel-in {
+  from { opacity: 0; clip-path: inset(0 0 12% 0 round 12px); }
+  to   { opacity: 1; clip-path: inset(0 0 0 0 round 12px); }
+}
+.brain-panel-x {
+  position: absolute; right: 8px; top: 8px;
+  display: grid; place-items: center; width: 26px; height: 26px; padding: 0;
+  border: none; border-radius: 6px; background: none; color: var(--ink3); cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.brain-panel-x:hover { background: var(--border2); color: var(--ink); }
+.brain-panel-title {
+  margin: 0 30px 4px 0;
+  font-family: 'Fraunces', serif; font-size: 16px; font-weight: 500; line-height: 1.3;
+  letter-spacing: -.01em; color: var(--ink); text-wrap: balance; overflow-wrap: anywhere;
+}
+.brain-panel-title:focus { outline: none; }
+.brain-panel-title:focus-visible { outline: 2px solid var(--violet); outline-offset: 3px; border-radius: 3px; }
+.brain-panel-meta { margin: 0; font-size: 12px; line-height: 1.5; color: var(--ink2); }
+.brain-panel-hi { color: var(--violet); font-weight: 600; }
+.brain-panel-open { color: var(--violet); font-weight: 600; }
+.brain-panel-tags { margin-top: 12px; }
+/* A shared chip's name is a button that finds it on the map. It wears the
+   tag's own type; only the pointer and the focus ring say it can be pressed. */
+.brain-tag-go {
+  border: none; background: none; padding: 0; margin: 0; cursor: pointer;
+  font: inherit; color: inherit; text-align: left;
+}
+.brain-tag-go:hover { color: var(--violet); }
+.brain-more {
+  margin-top: 8px; padding: 2px 0; border: none; background: none; cursor: pointer;
+  font-family: inherit; font-size: 11.5px; font-weight: 600; color: var(--violet);
+}
+.brain-more:hover { text-decoration: underline; text-underline-offset: 2px; }
+.brain-panel-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.brain-panel-actions + .brain-panel-tags { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border2); }
+.brain-act { margin-left: 0; padding: 7px 13px; }
+.brain-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--white);
+  font-family: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink2); cursor: pointer;
+  transition: border-color .12s, background .12s, color .12s;
+}
+.brain-btn:hover { border-color: var(--violet-m); background: var(--violet-l); color: var(--violet); }
+
+/* A concept's chats: a row each, the title to find it, then Open and Forget. */
+/* One column that may shrink below its longest title: a grid track sizes to
+   its content by default, and a long title pushed Open and Forget out of
+   the panel. */
+.brain-panel-chats {
+  list-style: none; margin: 12px 0 0; padding: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px;
+}
+.brain-panel-chats li { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.brain-chat-go {
+  flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px;
+  padding: 6px 8px; margin-left: -8px; border: none; border-radius: 7px; background: none; cursor: pointer;
+  font-family: inherit; font-size: 12.5px; color: var(--ink); text-align: left;
+  transition: background .12s;
+}
+.brain-chat-go .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brain-chat-go .brain-panel-open { flex-shrink: 0; font-size: 11px; }
+.brain-chat-go:hover { background: var(--violet-l); }
+.brain-icon-btn {
+  display: grid; place-items: center; flex-shrink: 0; width: 28px; height: 28px; padding: 0;
+  border: none; border-radius: 7px; background: none; color: var(--ink3); cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.brain-icon-btn:hover { background: var(--violet-l); color: var(--violet); }
+.brain-icon-btn.is-danger:hover, .brain-icon-btn.is-danger:focus-visible { background: var(--red-d); color: #fff; }
+.brain-icon-btn.is-danger:focus-visible { outline-color: var(--red-d); }
+
+/* The list: the same content as the map, as real buttons. */
+.brain-list {
+  min-height: 0; overflow-y: auto; border-left: 1px solid var(--border); background: var(--white);
+  display: flex; flex-direction: column;
+}
+.brain-list-head {
+  position: sticky; top: 0; z-index: 1; background: var(--white);
+  padding: 14px 16px 10px; border-bottom: 1px solid var(--border2);
+}
+.brain-list-h {
+  margin: 0 0 9px; font-family: 'Fraunces', serif; font-size: 15.5px; font-weight: 500;
+  letter-spacing: -.01em; color: var(--ink);
+}
+.brain-list-h .tnum { margin-left: 4px; font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600; color: var(--ink3); }
+.brain-find {
+  display: flex; align-items: center; gap: 7px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--ink3);
+  transition: border-color .15s, box-shadow .15s;
+}
+.brain-find:focus-within { border-color: var(--violet); box-shadow: 0 0 0 3px rgba(79,70,232,.16); }
+.brain-find input {
+  flex: 1; min-width: 0; height: 30px; border: none; background: none; outline: none;
+  font-family: inherit; font-size: 12.5px; color: var(--ink);
+}
+.brain-find input:focus-visible { box-shadow: none; }
+.brain-find input::placeholder { color: var(--ink3); }
+.brain-list-empty { margin: 0; padding: 18px 16px; font-size: 12.5px; color: var(--ink2); }
+.brain-list-items { list-style: none; margin: 0; padding: 6px 8px 16px; }
+.brain-li + .brain-li { border-top: 1px solid var(--border2); }
+.brain-li { padding: 4px 0 8px; }
+.brain-li-chat {
+  display: grid; gap: 2px; width: 100%; padding: 7px 8px; border: none; border-radius: 8px;
+  background: none; cursor: pointer; text-align: left; font-family: inherit;
+  transition: background .12s;
+}
+.brain-li-chat .t { font-size: 13px; font-weight: 600; line-height: 1.35; color: var(--ink); overflow-wrap: anywhere; }
+.brain-li-chat .m { font-size: 11px; color: var(--ink3); }
+.brain-li-chat:hover { background: var(--violet-l); }
+.brain-li-chat[aria-current='true'] { background: var(--violet-l); box-shadow: inset 0 0 0 1px var(--violet-m); }
+.brain-li-tags { list-style: none; margin: 2px 0 0; padding: 0 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+.brain-li-tag {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
+  padding: 2px 3px 2px 9px; border: 1px solid var(--violet-m); border-radius: 999px;
+  background: var(--white); cursor: pointer;
+  font-family: inherit; font-size: 11.5px; font-weight: 500; color: var(--violet);
+  transition: background .12s, color .12s, border-color .12s;
+}
+.brain-li-tag .n {
+  min-width: 17px; padding: 1px 5px; border-radius: 999px; text-align: center;
+  background: var(--violet-l); font-size: 10px; font-weight: 600;
+}
+.brain-li-tag:hover { background: var(--violet-l); }
+.brain-li-tag[aria-current='true'] { background: var(--violet); border-color: var(--violet); color: #fff; }
+.brain-li-tag[aria-current='true'] .n { background: rgba(255,255,255,.26); }
+.brain-li-more { align-self: center; padding: 0 4px; font-size: 11px; color: var(--ink3); }
+
+@media (max-width: 860px) {
+  .brain-switch { display: flex; }
+  .brain-tools { margin-left: 0; width: 100%; justify-content: space-between; }
+  .brain-body { grid-template-columns: minmax(0, 1fr); }
+  .brain-body[data-view='map'] .brain-list { display: none; }
+  .brain-body[data-view='list'] .brain-map { display: none; }
+  .brain-list { border-left: none; }
+}
+/* A phone has three legend rows to spare at most; a white card needs no key. */
+@media (max-width: 600px) { .brain-key-chat { display: none; } }
+
+/* On a narrow map the panel is a sheet along the bottom rather than a card
+   beside the node: beside, it would cover most of what it describes. The
+   threshold matches SigmaBrain's (600px of stage, not of window). */
+@container brain (max-width: 599px) {
+  .brain-panel {
+    left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; max-height: 58%;
+    transform: none !important;
+  }
+}
+.brain-stage { container: brain / inline-size; }
 
 /* ── Narrow screens ──────────────────────────────────────────
    The demo is opened from a link, often on a phone. Everything below keeps
@@ -533,7 +740,6 @@ input:focus-visible, textarea:focus-visible {
     transition-duration: .01ms !important;
     scroll-behavior: auto !important;
   }
-  .react-flow__edge-path { stroke-dasharray: none !important; }
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -1068,86 +1274,6 @@ input:focus-visible, textarea:focus-visible {
 .help-card-name { font-size: 12.5px; font-weight: 600; color: var(--ink); }
 .help-card-what { margin: 5px 0 0; font-size: 12px; line-height: 1.5; color: var(--ink2); }
 .help-card-example { margin: 4px 0 0; font-size: 11px; line-height: 1.45; color: var(--ink3); font-style: italic; }
-
-/* ─────────────────────────────────────────────────────────────
-   Memory Archives.
-
-   Cards of wildly different length sit side by side here — a chat with no
-   memory at all next to one at 499 of 500 characters — so the grid is
-   columned rather than stretched, and each card clamps its list. Ragged
-   columns of dead space were what the equal-height version produced.
-   ───────────────────────────────────────────────────────────── */
-.arc-wrap { width: 100%; overflow-y: auto; background: var(--bg); }
-.arc-inner { max-width: 1120px; margin: 0 auto; padding: 26px clamp(16px, 4vw, 32px) 48px; }
-
-.arc-top { margin-bottom: 24px; }
-.arc-h1 {
-  font-family: 'Fraunces', serif; font-size: clamp(21px, 3vw, 25px);
-  font-weight: 500; letter-spacing: -.02em; line-height: 1.2; margin: 0 0 8px;
-}
-.arc-lede { margin: 0; max-width: 62ch; font-size: 13px; line-height: 1.65; color: var(--ink2); }
-.arc-count { margin: 10px 0 0; font-size: 11.5px; color: var(--ink3); }
-.arc-count-hi { color: var(--violet); font-weight: 600; }
-
-.arc-grid {
-  display: grid; gap: 14px;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  align-items: start;
-}
-
-.arc-card {
-  background: var(--white); border: 1px solid var(--border); border-radius: 11px;
-  padding: 15px 17px 16px;
-  transition: border-color .15s, box-shadow .15s;
-}
-.arc-card:hover { border-color: var(--violet-m); box-shadow: 0 3px 16px rgba(79,70,232,.08); }
-
-.arc-head { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 11px; }
-
-/* The title IS the way into the conversation, so it is the button — not a
-   heading with a link parked beside it. */
-.arc-title {
-  display: flex; align-items: flex-start; gap: 6px; flex: 1; min-width: 0;
-  margin: 0; padding: 0; border: none; background: none; cursor: pointer;
-  font-family: 'Fraunces', serif; font-size: 15.5px; font-weight: 500;
-  line-height: 1.35; letter-spacing: -.01em; color: var(--ink); text-align: left;
-  transition: color .12s;
-}
-.arc-title.is-static { cursor: default; }
-.arc-title svg { flex-shrink: 0; margin-top: 3px; opacity: 0; transition: opacity .12s; }
-.arc-card:hover .arc-title svg { opacity: .55; }
-.arc-title:hover { color: var(--violet); }
-.arc-title:hover svg { opacity: 1; }
-
-/* "Open now": a marker, not a badge. A dot and small text, so it does not
-   out-shout the title it sits beside. */
-.arc-mine {
-  flex-shrink: 0; margin-top: 4px;
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: 11px; font-weight: 500; color: var(--violet-d); white-space: nowrap;
-}
-.arc-mine::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--violet); }
-
-.arc-concepts { margin-bottom: 13px; }
-/* "Show all 53": text, not another chip, so it cannot be mistaken for one. */
-.arc-more {
-  margin-top: 7px; padding: 2px 0;
-  border: none; background: none; cursor: pointer;
-  font: inherit; font-size: 11.5px; font-weight: 500; color: var(--ink3);
-  text-decoration: underline; text-decoration-color: var(--line-quiet); text-underline-offset: 3px;
-  transition: color .12s, text-decoration-color .12s;
-}
-.arc-more:hover { color: var(--violet-d); text-decoration-color: currentColor; }
-
-.arc-none { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--ink3); }
-
-/* Scoped to the card, not the bare `.arc-count` above — that one styles the
-   page-level "N conversations · M concepts" line in .arc-top, and this is a
-   different line (the per-card passage count) that happens to share a class
-   name with it for the `tnum` styling. A bare `.arc-count` rule here would
-   also restyle the page-level line, so this reuses `.arc-none`'s look under
-   a selector specific enough to leave that one alone. */
-.arc-card .arc-count { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--ink3); }
 
 /* Renaming, in the menu rather than over the page. */
 .chat-rename { padding: 6px 4px 4px; }

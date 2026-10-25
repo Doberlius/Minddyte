@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Brain, MessageSquare, BookOpen, MoreHorizontal, Plus, Search, UserRound, X } from 'lucide-react'
+import { Brain, MessageSquare, MoreHorizontal, Plus, Search, UserRound, X } from 'lucide-react'
 import { lastEditedLabel } from '@/lib/core'
 import { ChatMenu, type MenuAt } from './ChatMenu'
 
@@ -21,7 +21,7 @@ import { ChatMenu, type MenuAt } from './ChatMenu'
  * New chat then acts inside the view you chose.
  */
 
-export type Tab = 'chat' | 'brain' | 'archive'
+export type Tab = 'chat' | 'brain'
 
 export type ChatSummary = {
   id: string
@@ -32,7 +32,6 @@ export type ChatSummary = {
 const VIEWS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: 'chat', label: 'Chat', icon: <MessageSquare size={15} /> },
   { key: 'brain', label: 'Brain', icon: <Brain size={15} /> },
-  { key: 'archive', label: 'Archive', icon: <BookOpen size={15} /> },
 ]
 
 export function Sidebar({
@@ -112,7 +111,7 @@ export function Sidebar({
 
   return (
     // The view is on the element so CSS can react to it: on a phone the
-    // recents are Chat's navigation, and on Brain or Archive they are 140px of
+    // recents are Chat's navigation, and on Brain they are 140px of
     // the screen spent on a list that leads away from what you are looking at.
     <div className="side" data-view={activeTab}>
       <div className="side-brand">

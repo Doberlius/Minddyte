@@ -1,8 +1,8 @@
 /**
  * Markdown syntax removed from a sentence for DISPLAY only.
  *
- * A passage keeps what was said byte for byte, which is the guarantee the
- * Archive is built on. A model writes a lot of that in markdown, so the panel
+ * A passage keeps what was said byte for byte, which is the guarantee memory
+ * is built on. A model writes a lot of that in markdown, so the panel
  * showing "your own sentences" was showing `**parallelize** the writing` and
  * `### Why Postgres wins` — the right bytes, reading like a rendering fault.
  *

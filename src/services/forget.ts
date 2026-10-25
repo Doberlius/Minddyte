@@ -109,7 +109,7 @@ type Found = { total: number; sentences: string[] }
  *   - A word's list: passages that mention the word but NOT the whole name
  *     (those are in the whole name's list already). F9–F10.
  *   - Neither lists a passage an earlier forget in this chat already hides:
- *     the same read-time rule retrieval and the Archive count use.
+ *     the same read-time rule retrieval and the saved-sentence count use.
  *
  * Final review, item 2: this used to be two scans per name (a count, then
  * the texts), each reducing every passage to words again. Ticket 15's giant

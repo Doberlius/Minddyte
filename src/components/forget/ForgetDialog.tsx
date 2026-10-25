@@ -11,7 +11,7 @@ import { InlineText } from '@/components/ui/InlineText'
  * Q11/Q12/Q14/Q17). It is the product's only destructive act, so it asks in
  * full: which sentences stop being memory, what stays, and that there is no
  * undo. Both ways in (the `/forget` picker in chat, and the × on a concept
- * chip in the Archive) open this same dialog.
+ * in the Brain's panel) open this same dialog.
  *
  * It is built on the "About you" editor's dialog (CoreEditor.tsx): the same
  * scrim and card, Escape and a click outside close it, Tab stays inside, and

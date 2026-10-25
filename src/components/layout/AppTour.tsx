@@ -85,19 +85,14 @@ const SLIDES: Slide[] = [
           Boxes are chats. Pills are topics.
         </p>
         <p>
-          A purple pill with a number is a topic shared by that many chats. You can drag
-          anything around.
+          A purple pill with a number is a topic shared by that many chats. Topics only one
+          chat has are counted on its box as <strong>+N</strong>.
+        </p>
+        <p style={{ marginTop: 13 }}>
+          Click a box or a pill to open that chat, add it to your next message, or forget a
+          topic. The list beside the map has everything too.
         </p>
       </>
-    ),
-  },
-  {
-    title: 'The Archive view',
-    body: (
-      <p>
-        A list of all your chats and the topics in each one, so you can see what Minddyte
-        knows about.
-      </p>
     ),
   },
   {

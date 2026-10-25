@@ -96,6 +96,8 @@ export function NeuralChat({
   sessionId,
   onSessionChange,
   onChatsChanged,
+  pendingTag = null,
+  onPendingTagTaken,
 }: {
   chats: ChatSummary[]
   /** The open chat's row, for the header. Null while composing a new one. */
@@ -104,6 +106,9 @@ export function NeuralChat({
   sessionId: string | null | undefined
   onSessionChange: (id: string | null) => void
   onChatsChanged: () => void
+  /** A chat to tag as if picked from `@`: "Use in next message" on the Brain. */
+  pendingTag?: ChatSummary | null
+  onPendingTagTaken?: () => void
 }) {
   /**
    * The chat this panel is currently meant to be showing.
@@ -449,6 +454,24 @@ export function NeuralChat({
       setOpening(false)
     }
   }, [sessionId, setMessages, onSessionChange])
+
+  /**
+   * Take a chat sent over from the Brain's "Use in next message".
+   *
+   * It must come AFTER the effect above, which empties the tags whenever the
+   * open chat changes, including on the mount this panel gets when you arrive
+   * from the Brain. Run first, the tag would be added and wiped in the same
+   * commit. It also waits until that effect has run for this chat
+   * (`loadedFor`), for the same reason.
+   */
+  useEffect(() => {
+    if (!pendingTag || sessionId === undefined || loadedFor.current !== sessionId) return
+    // The @ list leaves out the open chat; so does this.
+    if (pendingTag.id !== sessionId) {
+      setTagged((prev) => (prev.some((t) => t.id === pendingTag.id) ? prev : [...prev, pendingTag]))
+    }
+    onPendingTagTaken?.()
+  }, [pendingTag, sessionId, onPendingTagTaken])
 
   /**
    * Refresh the recents once a reply has landed.

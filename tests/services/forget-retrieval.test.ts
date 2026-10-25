@@ -92,7 +92,7 @@ describe('retrieval never uses a forgotten sentence', () => {
   })
 })
 
-describe('the Archive passage count', () => {
+describe('the saved-sentence count', () => {
   it('leaves out forgotten sentences', async () => {
     const a = await newChat('A')
     await turn(a, 'We run Kafka and PostgreSQL in production.', 'PostgreSQL handles the writes. Kafka carries the events.')

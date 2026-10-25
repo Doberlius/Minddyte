@@ -7,7 +7,6 @@ import { AppTour } from '@/components/layout/AppTour'
 import { CoreEditor, type SavedCore } from '@/components/core/CoreEditor'
 import { NeuralChat } from '@/components/chat'
 import { NeuralBrain } from '@/components/brain'
-import { MemoryArchives } from '@/components/archive'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/components/ui/useToast'
 
@@ -189,6 +188,16 @@ export default function Page() {
 
   const activeChat = chats.find((c) => c.id === activeId) ?? null
 
+  /**
+   * A chat picked with "Use in next message" on the Brain, waiting for the
+   * chat panel to tag it, as if it had been picked from the `@` list.
+   *
+   * It lives here because the Brain and the chat panel are never mounted at
+   * the same time: the panel is created fresh when you land on Chat, and takes
+   * this then. It clears it once taken, so it is used exactly once.
+   */
+  const [pendingTag, setPendingTag] = useState<ChatSummary | null>(null)
+
   return (
     // The class, not inline styles: at narrow widths the column becomes a strip
     // along the top, and a media query cannot reach a style attribute.
@@ -256,15 +265,27 @@ export default function Page() {
             sessionId={restored ? activeId : undefined}
             onSessionChange={openChat}
             onChatsChanged={refreshChats}
+            pendingTag={pendingTag}
+            onPendingTagTaken={() => setPendingTag(null)}
           />
         )}
-        {tab === 'brain' && <NeuralBrain activeChatId={activeId} />}
-        {tab === 'archive' && (
-          <MemoryArchives
+        {tab === 'brain' && (
+          <NeuralBrain
             activeChatId={activeId}
             onChatsChanged={refreshChats}
             onOpenChat={(id) => {
               openChat(id)
+              setTab('chat')
+            }}
+            onUseChat={(id) => {
+              const chat = chats.find((c) => c.id === id)
+              // The sidebar list is what the @ list is built from; a chat it
+              // does not know yet cannot be tagged either.
+              if (!chat) {
+                showToast("Couldn't add that chat yet. Reload and try again.")
+                return
+              }
+              setPendingTag(chat)
               setTab('chat')
             }}
           />

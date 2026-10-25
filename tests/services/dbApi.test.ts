@@ -52,7 +52,7 @@ describe('createChat', () => {
 })
 
 describe('loadGraph', () => {
-  it('counts each chat\'s indexed passages for the Archive', async () => {
+  it('counts each chat\'s indexed passages for the Brain panel', async () => {
     const chatId = await newChat()
     const messageId = await persistMessage({ workspaceId: FIXTURE_WORKSPACE_ID, sessionId: chatId, role: 'user', content: 'One. Two. Three.' })
     await ingestUserMessage({ workspaceId: FIXTURE_WORKSPACE_ID, sessionId: chatId, messageId, content: 'One. Two. Three.' })

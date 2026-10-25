@@ -5,7 +5,7 @@ import { recountNodes } from "./links"
 import { notForgottenSql } from "@/lib/mentions"
 
 /**
- * The whole graph, shaped for the Brain and the Archive.
+ * The whole graph, shaped for the Brain.
  *
  * Two queries rather than one join: a join across sessions × session_nodes
  * would repeat every chat's row once per concept it holds, and grouping that
