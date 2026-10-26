@@ -188,6 +188,10 @@ export function judgeLock(
   const silentMs = now - existing.at
 
   if (existing.host === me.host) {
+    // A record naming OUR pid but not our holder was written by an earlier
+    // process that had this pid — a container restarted after a crash is pid 1
+    // again. Asking "is it alive?" would ask about ourselves and say yes.
+    if (existing.pid === me.pid) return { take: true, reason: 'dead-pid', previous: existing }
     if (!alive(existing.pid)) return { take: true, reason: 'dead-pid', previous: existing }
     return { take: false, reason: 'held', holder: existing, sameHost: true, silentMs }
   }

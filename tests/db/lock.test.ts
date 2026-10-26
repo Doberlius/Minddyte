@@ -75,6 +75,20 @@ describe('judgeLock', () => {
     expect(v.reason).toBe('held')
   })
 
+  it('clears a same-host lock that names our own pid, because that pid is now us', () => {
+    // Seen in production on Render: the container crashed without releasing
+    // the lock, restarted on the same host, and the new process was pid 1
+    // again — the pid in the leftover record. "Is pid 1 alive?" says yes,
+    // because pid 1 is the asker, so every start refused itself forever.
+    // One pid is one process at a time: if it is ours and the holder is not,
+    // whoever wrote the record is gone.
+    const leftover = foreign({ pid: me().pid, at: 1_000_000 })
+    const v = judgeLock(leftover, me(), 1_000_100, alive)
+
+    expect(v.take).toBe(true)
+    expect(v.reason).toBe('dead-pid')
+  })
+
   it('NEVER judges another host by pid, even when that pid is dead here', () => {
     // The container bug this design exists to prevent. Two containers have
     // separate pid namespaces, so a pid from one says nothing about the
