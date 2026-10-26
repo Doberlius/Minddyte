@@ -18,12 +18,17 @@
 // worktree and run that one there instead.
 //
 // Every search compares step 3 (wholeDraftHits): the same chats, and for
-// each, reach and strong equal within 1e-6 and the same phrase. Every 10th
-// search, and all `t20` searches, also compare the whole retrieveContext:
-// the same chats in the same order, with the same why, excerpts and dropped.
-//   --sample N        run N searches, stratified by kind, `approved` left out
-//   --require-faster  fail unless new beats old at p50 and p95 for every kind (Q12)
-//   --check-bar       fail unless the t20 searches meet Q2: 1.5 s / 0.5 s, whole retrieveContext
+// each, reach and strong equal within 1e-6 and the same phrase. It also
+// compares the per-word step (wordHits, ticket 21): the same chats for each
+// word, the same title and dates for each chat, the same count of other
+// chats. Every 10th search, and all `t20` searches, also compare the whole
+// retrieveContext: the same chats in the same order, with the same why,
+// excerpts and dropped.
+//   --sample N               run N searches, stratified by kind, `approved` left out
+//   --require-faster <step>  fail unless the new <step> (step3 or words) beats the
+//                            old at p50 and p95 for every kind (ticket 20 Q12)
+//   --check-bar              fail unless the t20 searches meet ticket 20's Q2:
+//                            1.5 s / 0.5 s, whole retrieveContext
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -31,12 +36,19 @@ import { pathToFileURL } from 'node:url'
 import { sql } from 'drizzle-orm'
 import { getDb } from '../../db'
 import * as fresh from '../../src/services/retrieval'
-import { queryText } from '../../src/lib/tokens'
+import { contentTokens, queryText } from '../../src/lib/tokens'
 import { poolWorkspaces, requireScratchDataDir } from './pool'
 import { prng, type Query } from './make-queries'
 
 type Hit = { chatId: string; reach: number; strong: number; phrase: string | null }
+type Words = {
+  chatsByWord: Map<string, Set<string>>
+  meta: Map<string, { title: string; createdAt: Date; updatedAt: Date }>
+  otherChats: number
+}
 type Retrieval = typeof fresh
+/** The functions compared one by one, which an old revision may not export. */
+const COMPARED = ['wholeDraftHits', 'wordHits'] as const
 const EPS = 1e-6
 
 const flag = (name: string) => process.argv.includes(name)
@@ -50,14 +62,40 @@ export function oldFileName(rev: string): string {
   return `retrieval-${rev.replace(/[^A-Za-z0-9._-]+/g, '_')}.ts`
 }
 
-/** The old retrieval module, from a git revision, with wholeDraftHits exported. */
+/** The compared functions this revision's retrieval.ts does not export yet. */
+export function exportsToAdd(src: string): string[] {
+  return COMPARED.filter((name) => !new RegExp(`export async function ${name}\\b`).test(src))
+}
+
+/** The old retrieval module, from a git revision, with the compared functions exported. */
 async function loadOld(rev: string): Promise<Retrieval> {
   const src = execFileSync('git', ['show', `${rev}:src/services/retrieval.ts`], { encoding: 'utf8' })
   const dir = path.resolve('.scratch/bench-old')
   mkdirSync(dir, { recursive: true })
   const file = path.join(dir, oldFileName(rev))
-  writeFileSync(file, /export async function wholeDraftHits/.test(src) ? src : `${src}\nexport { wholeDraftHits }\n`)
+  const missing = exportsToAdd(src)
+  writeFileSync(file, missing.length ? `${src}\nexport { ${missing.join(', ')} }\n` : src)
   return (await import(pathToFileURL(file).href)) as Retrieval
+}
+
+/** Every difference between two wordHits results, as readable lines. */
+export function diffWords(a: Words, b: Words): string[] {
+  const out: string[] = []
+  const sorted = (s: Set<string> | undefined) => [...(s ?? [])].sort().join(',')
+  for (const w of new Set([...a.chatsByWord.keys(), ...b.chatsByWord.keys()])) {
+    const x = sorted(a.chatsByWord.get(w)), y = sorted(b.chatsByWord.get(w))
+    if (x !== y) out.push(`word ${JSON.stringify(w)} chats [${x}] vs [${y}]`)
+  }
+  for (const [id, x] of a.meta) {
+    const y = b.meta.get(id)
+    if (!y) { out.push(`chat ${id} only in old`); continue }
+    if (x.title !== y.title) out.push(`chat ${id} title ${JSON.stringify(x.title)} vs ${JSON.stringify(y.title)}`)
+    if (x.createdAt.getTime() !== y.createdAt.getTime()) out.push(`chat ${id} createdAt ${x.createdAt.toISOString()} vs ${y.createdAt.toISOString()}`)
+    if (x.updatedAt.getTime() !== y.updatedAt.getTime()) out.push(`chat ${id} updatedAt ${x.updatedAt.toISOString()} vs ${y.updatedAt.toISOString()}`)
+  }
+  for (const id of b.meta.keys()) if (!a.meta.has(id)) out.push(`chat ${id} only in new`)
+  if (a.otherChats !== b.otherChats) out.push(`otherChats ${a.otherChats} vs ${b.otherChats}`)
+  return out
 }
 
 /** Every difference between two step-3 results, as readable lines. */
@@ -104,6 +142,10 @@ if (import.meta.main) {
   const queriesFile = value('--queries') ?? '.scratch/bench-corpus/queries.json'
   const rev = value('--old')
   if (!rev) throw new Error('--old <git rev> is required')
+  const faster = flag('--require-faster') ? value('--require-faster') : undefined
+  if (flag('--require-faster') && faster !== 'step3' && faster !== 'words') {
+    throw new Error('--require-faster needs the step it checks: step3 or words')
+  }
   let queries = JSON.parse(readFileSync(queriesFile, 'utf8')) as Query[]
   const n = value('--sample')
   if (n) queries = sample(queries, Number(n))
@@ -113,7 +155,7 @@ if (import.meta.main) {
   const [{ id: probe }] = ((await db.execute(sql`insert into sessions (workspace_id, title) values (${ws}, 'bench-probe') returning id`)) as unknown as { rows: { id: string }[] }).rows
   const old = await loadOld(rev)
 
-  const times: Record<string, { old: number[]; new: number[]; oldFull: number[]; newFull: number[] }> = {}
+  const times: Record<string, { old: number[]; new: number[]; wOld: number[]; wNew: number[]; oldFull: number[]; newFull: number[] }> = {}
   const differences: { id: string; kind: string; text: string; where: string; lines: string[] }[] = []
   const full = (r: Retrieval, text: string) => r.retrieveContext({ workspaceId: ws, sessionId: probe, mode: 'explore', taggedChatIds: [], draftText: text })
   const timed = async <X>(f: () => Promise<X>) => {
@@ -123,7 +165,7 @@ if (import.meta.main) {
   }
 
   for (const [i, q] of queries.entries()) {
-    const t = (times[q.kind] ??= { old: [], new: [], oldFull: [], newFull: [] })
+    const t = (times[q.kind] ??= { old: [], new: [], wOld: [], wNew: [], oldFull: [], newFull: [] })
     const draft = queryText(q.text)
     // Alternate which side runs first, so a warm cache favours neither.
     const order: Retrieval[] = i % 2 ? [fresh, old] : [old, fresh]
@@ -135,6 +177,19 @@ if (import.meta.main) {
     }
     const lines = diffHits(res.get(old)!, res.get(fresh)!)
     if (lines.length) differences.push({ id: q.id, kind: q.kind, text: q.text, where: 'step 3', lines })
+
+    // The per-word step, with the words retrieval itself would search (textHits).
+    const words = contentTokens(draft)
+    if (words.length) {
+      const got = new Map<Retrieval, Words>()
+      for (const r of order) {
+        const [w, ms] = await timed(() => r.wordHits(ws, probe, words) as Promise<Words>)
+        got.set(r, w)
+        ;(r === old ? t.wOld : t.wNew).push(ms)
+      }
+      const wl = diffWords(got.get(old)!, got.get(fresh)!)
+      if (wl.length) differences.push({ id: q.id, kind: q.kind, text: q.text, where: 'words', lines: wl })
+    }
 
     if (i % 10 === 0 || q.kind === 't20') {
       const runs = q.kind === 't20' ? 3 : 1
@@ -157,13 +212,16 @@ if (import.meta.main) {
   const perKind = Object.fromEntries(Object.entries(times).map(([k, t]) => [k, {
     n: t.old.length,
     step3: { oldP50: median(t.old), newP50: median(t.new), oldP95: pct(t.old, 0.95), newP95: pct(t.new, 0.95) },
+    words: { n: t.wNew.length, oldP50: median(t.wOld), newP50: median(t.wNew), oldP95: pct(t.wOld, 0.95), newP95: pct(t.wNew, 0.95) },
     full: { n: t.newFull.length, oldP50: median(t.oldFull), newP50: median(t.newFull), oldP95: pct(t.oldFull, 0.95), newP95: pct(t.newFull, 0.95) },
   }]))
   const failures: string[] = []
-  if (differences.length) failures.push(`${differences.length} searches differ`)
-  if (flag('--require-faster')) {
+  if (differences.length) failures.push(`${new Set(differences.map((d) => d.id)).size} searches differ`)
+  if (faster === 'step3' || faster === 'words') {
     for (const [k, s] of Object.entries(perKind)) {
-      if (!(s.step3.newP50 < s.step3.oldP50 && s.step3.newP95 < s.step3.oldP95)) failures.push(`${k}: new is not faster at p50 and p95`)
+      const step = s[faster]
+      if (faster === 'words' && s.words.n === 0) continue // no content words in this kind
+      if (!(step.newP50 < step.oldP50 && step.newP95 < step.oldP95)) failures.push(`${k}: the new ${faster} is not faster at p50 and p95`)
     }
   }
   if (flag('--check-bar')) {
@@ -177,9 +235,9 @@ if (import.meta.main) {
   }
 
   const round = (x: number) => Math.round(x)
-  console.log('\nkind'.padEnd(13), 'n'.padStart(4), '| step 3 p50 old→new | p95 old→new | full p50 old→new | full p95 old→new')
+  console.log('\nkind'.padEnd(13), 'n'.padStart(4), '| words p50 old→new | p95 old→new | step 3 p50 old→new | p95 old→new | full p50 old→new | full p95 old→new')
   for (const [k, s] of Object.entries(perKind)) {
-    console.log(k.padEnd(12), String(s.n).padStart(4), `| ${round(s.step3.oldP50)} → ${round(s.step3.newP50)} ms | ${round(s.step3.oldP95)} → ${round(s.step3.newP95)} ms | ${round(s.full.oldP50)} → ${round(s.full.newP50)} ms | ${round(s.full.oldP95)} → ${round(s.full.newP95)} ms`)
+    console.log(k.padEnd(12), String(s.n).padStart(4), `| ${round(s.words.oldP50)} → ${round(s.words.newP50)} ms | ${round(s.words.oldP95)} → ${round(s.words.newP95)} ms | ${round(s.step3.oldP50)} → ${round(s.step3.newP50)} ms | ${round(s.step3.oldP95)} → ${round(s.step3.newP95)} ms | ${round(s.full.oldP50)} → ${round(s.full.newP50)} ms | ${round(s.full.oldP95)} → ${round(s.full.newP95)} ms`)
   }
   const report = { rev, queries: queries.length, perKind, differences, failures }
   const reportFile = value('--report')

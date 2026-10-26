@@ -228,38 +228,27 @@ type TextHit = {
 /**
  * For each content word, the chats holding it: word_similarity(word, passage)
  * >= PROVISIONAL.reachWordMatch for some passage the forgetting rule lets
- * through (ticket 18). One query PER WORD, inside a single transaction (after
- * one SET LOCAL): a single unnest-and-join query cannot use the GIN trigram
- * index — measured on real data, the planner instead drives from `sessions`
- * via the session_id B-tree and evaluates `word <% match_text` as an
- * unindexed join filter, 4.6 s vs 1.6 s median for the per-word loop over the
- * same 40 questions. Also counts the other chats in the workspace, which
- * rarity needs.
+ * through (ticket 18). One query PER WORD (wordQuery), inside a single
+ * transaction (wordSettings): a single unnest-and-join query for all words was
+ * measured slower (4.6 s vs 1.6 s median over 40 questions). Each per-word
+ * query once had the same flaw, a walk over every chat that asked the trigram
+ * index again per chat; since ticket 21 it reads through the index once.
+ * Also counts the other chats in the workspace, which rarity needs.
  */
-async function wordHits(workspaceId: string, sessionId: string, words: string[]) {
+export async function wordHits(workspaceId: string, sessionId: string, words: string[]) {
   const chatsByWord = new Map<string, Set<string>>(words.map((w) => [w, new Set<string>()]))
   const meta = new Map<string, { title: string; createdAt: Date; updatedAt: Date }>()
   if (!words.length) return { chatsByWord, meta, otherChats: 0 }
   const db = await getDb()
   return db.transaction(async (tx) => {
-    await tx.execute(sql.raw(`set local pg_trgm.word_similarity_threshold = ${PROVISIONAL.reachWordMatch}`))
+    await wordSettings(tx)
     for (const w of words) {
-      const rows = await tx
-        .selectDistinct({ chatId: sessions.id, title: sessions.title, createdAt: sessions.createdAt, updatedAt: sessions.updatedAt })
-        .from(chatPointers)
-        .innerJoin(sessions, eq(sessions.id, chatPointers.sessionId))
-        .where(
-          and(
-            eq(chatPointers.workspaceId, workspaceId),
-            eq(sessions.workspaceId, workspaceId),
-            ne(chatPointers.sessionId, sessionId),
-            sql`${w} <% ${chatPointers.matchText}`,
-            notForgottenSql(chatPointers.sessionId, chatPointers.matchText),
-          ),
-        )
+      const { rows } = (await tx.execute(wordQuery(workspaceId, sessionId, w))) as unknown as {
+        rows: { chatId: string; title: string; createdAt: Date | string; updatedAt: Date | string }[]
+      }
       for (const r of rows) {
         chatsByWord.get(w)!.add(r.chatId)
-        meta.set(r.chatId, { title: r.title, createdAt: r.createdAt, updatedAt: r.updatedAt })
+        meta.set(r.chatId, { title: r.title, createdAt: new Date(r.createdAt), updatedAt: new Date(r.updatedAt) })
       }
     }
     const [{ n }] = await tx
@@ -268,6 +257,42 @@ async function wordHits(workspaceId: string, sessionId: string, words: string[])
       .where(and(eq(sessions.workspaceId, workspaceId), ne(sessions.id, sessionId)))
     return { chatsByWord, meta, otherChats: n }
   })
+}
+
+/**
+ * wordHits' settings, for the transaction its queries run in (SET LOCAL: they
+ * end with it). `enable_seqscan = off` makes the planner read through the
+ * trigram index, as stepThreeSettings does (ticket 21); the guard test
+ * tests/services/word-hits-plan.test.ts checks it really does.
+ */
+export async function wordSettings(tx: Tx): Promise<void> {
+  await tx.execute(sql.raw(`set local pg_trgm.word_similarity_threshold = ${PROVISIONAL.reachWordMatch}`))
+  await tx.execute(sql.raw(`set local enable_seqscan = off`))
+}
+
+/**
+ * One word's query: the chats (not this one) with a passage matching `word`,
+ * with their titles and dates. Ticket 21, in stepThreeQuery's two steps: the
+ * candidate passages first, from chat_pointers ALONE through the trigram
+ * index, with the forgetting rule; then their chats. Joined in one flat query,
+ * the planner walked every chat of the workspace and asked the index again for
+ * each one (2–3 s per word on a 308-chat workspace, even for a word that
+ * matches nothing). MATERIALIZED keeps the join from reaching inside.
+ */
+export function wordQuery(workspaceId: string, sessionId: string, word: string): SQL {
+  return sql`
+    with cand as materialized (
+      select distinct cp.session_id
+        from ${chatPointers} cp
+       where cp.workspace_id = ${workspaceId}
+         and cp.session_id <> ${sessionId}
+         and ${word} <% cp.match_text
+         and ${notForgottenSql(sql`cp.session_id`, sql`cp.match_text`)}
+    )
+    select s.id as "chatId", s.title as "title", s.created_at as "createdAt", s.updated_at as "updatedAt"
+      from cand c
+      join ${sessions} s on s.id = c.session_id
+     where s.workspace_id = ${workspaceId}`
 }
 
 /**
